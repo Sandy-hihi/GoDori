@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "552527795151",
+    "project_id": "platform6-boardpad",
+    "storage_bucket": "platform6-boardpad.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:552527795151:android:400ae05a5b1edfb7f878ba",
+        "android_client_info": {
+          "package_name": "com.example.boardpad"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD__kXozYBf7r8aCiuCgM1nOBTfNPBuJfg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
