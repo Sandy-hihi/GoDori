@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'food_order_screen.dart'; // 음식 주문 화면 불러오기
 import 'game_list_screen.dart'; // 게임 목록 화면 불러오기
+import 'party_screen.dart';
 import 'game_tools_screen.dart'; // 게임 도구 화면 불러오기
 import 'event_screen.dart'; // 이벤트 화면 불러오기
 import 'notice_screen.dart'; // 공지 화면 불러오기
@@ -75,6 +76,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF007E5B),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                        onPressed: () => Navigator.push(context, MaterialPageRoute(
+                          builder: (_) => PartyScreen(roomNumber: widget.roomNumber),
+                        )),
+                        icon: const Icon(Icons.groups),
+                        label: const Text('일행과 함께 · 인원별 추천 / 승패·음료 내기 / 밸런스 게임'),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     Expanded(
                       flex: 3,
                       child: Row(

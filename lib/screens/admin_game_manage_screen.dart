@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
@@ -98,7 +97,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                     child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: genreList.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (_, i) {
                         final g = genreList[i];
                         return ListTile(
@@ -220,20 +219,20 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
   void _showGameDialog(BuildContext context, List<String> genreList, {Map<String, dynamic>? existingGame, String? docId}) {
     final bool isEditMode = existingGame != null && docId != null;
 
-    final titleController = TextEditingController(text: isEditMode ? existingGame!['title'] : '');
-    final timeController = TextEditingController(text: isEditMode ? existingGame!['time'] : '');
-    final playersController = TextEditingController(text: isEditMode ? existingGame!['players'] : '');
-    final tagsController = TextEditingController(text: isEditMode ? existingGame!['tags'] : '');
-    final videoUrlController = TextEditingController(text: isEditMode ? existingGame!['videoUrl'] : '');
+    final titleController = TextEditingController(text: isEditMode ? existingGame['title'] : '');
+    final timeController = TextEditingController(text: isEditMode ? existingGame['time'] : '');
+    final playersController = TextEditingController(text: isEditMode ? existingGame['players'] : '');
+    final tagsController = TextEditingController(text: isEditMode ? existingGame['tags'] : '');
+    final videoUrlController = TextEditingController(text: isEditMode ? existingGame['videoUrl'] : '');
 
     final String defaultGenre = genreList.isNotEmpty ? genreList[0] : '';
-    String dbGenre = isEditMode ? (existingGame!['genre'] ?? defaultGenre) : defaultGenre;
+    String dbGenre = isEditMode ? (existingGame['genre'] ?? defaultGenre) : defaultGenre;
     String selectedGenre = genreList.contains(dbGenre) ? dbGenre : (genreList.isNotEmpty ? genreList[0] : '');
 
-    String dbDiff = isEditMode ? (existingGame!['difficulty'] ?? _difficultyValues[0]) : _difficultyValues[0];
+    String dbDiff = isEditMode ? (existingGame['difficulty'] ?? _difficultyValues[0]) : _difficultyValues[0];
     String selectedDifficulty = _difficultyValues.contains(dbDiff) ? dbDiff : _difficultyValues[0];
 
-    String currentImageUrl = isEditMode ? (existingGame!['imageUrl'] ?? '') : '';
+    String currentImageUrl = isEditMode ? (existingGame['imageUrl'] ?? '') : '';
 
     Uint8List? selectedImageBytes;
     bool isUploading = false;
@@ -283,14 +282,14 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                             child: genreList.isEmpty
                                 ? const TextField(decoration: InputDecoration(labelText: '장르 (장르를 먼저 추가하세요)', border: OutlineInputBorder()), enabled: false)
                                 : DropdownButtonFormField<String>(
-                                    value: selectedGenre.isNotEmpty ? selectedGenre : null,
+                                    initialValue: selectedGenre.isNotEmpty ? selectedGenre : null,
                                     decoration: const InputDecoration(labelText: '장르', border: OutlineInputBorder()),
                                     items: genreList.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                                     onChanged: (val) => setState(() => selectedGenre = val ?? ''),
                                   ),
                           ),
                           const SizedBox(width: 8),
-                          Expanded(child: DropdownButtonFormField<String>(value: selectedDifficulty, decoration: const InputDecoration(labelText: '난이도', border: OutlineInputBorder()), items: _difficultyValues.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (val) => setState(() => selectedDifficulty = val ?? _difficultyValues[0]))),
+                          Expanded(child: DropdownButtonFormField<String>(initialValue: selectedDifficulty, decoration: const InputDecoration(labelText: '난이도', border: OutlineInputBorder()), items: _difficultyValues.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(), onChanged: (val) => setState(() => selectedDifficulty = val ?? _difficultyValues[0]))),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -446,7 +445,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                 'notice': const AdminNoticeManageScreen(),
                   };
                   final target = targets[screen];
-                  if (target != null) Navigator.pushReplacement(context, PageRouteBuilder(pageBuilder: (_, __, ___) => target, transitionDuration: Duration.zero, reverseTransitionDuration: Duration.zero));
+                  if (target != null) Navigator.pushReplacement(context, PageRouteBuilder(pageBuilder: (_, _, _) => target, transitionDuration: Duration.zero, reverseTransitionDuration: Duration.zero));
                 },
               ),
 
@@ -621,14 +620,14 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                                               Switch(
                                                 value: game['isAvailable'] ?? true,
                                                 onChanged: (val) => FirebaseFirestore.instance.collection('games').doc(doc.id).update({'isAvailable': val}),
-                                                activeColor: const Color(0xFF00B37E),
+                                                activeThumbColor: const Color(0xFF00B37E),
                                               ),
                                               Text((game['isAvailable'] ?? true) ? '이용 가능' : '숨김(분실 등)', style: TextStyle(color: (game['isAvailable'] ?? true) ? Colors.black87 : Colors.red, fontWeight: FontWeight.bold)),
                                               const SizedBox(width: 24),
                                               Switch(
                                                 value: game['isRecommended'] ?? false,
                                                 onChanged: (val) => FirebaseFirestore.instance.collection('games').doc(doc.id).update({'isRecommended': val}),
-                                                activeColor: Colors.amber,
+                                                activeThumbColor: Colors.amber,
                                               ),
                                               Text('추천', style: TextStyle(color: (game['isRecommended'] ?? false) ? Colors.amber.shade700 : Colors.grey, fontWeight: FontWeight.bold)),
                                               const SizedBox(width: 24),

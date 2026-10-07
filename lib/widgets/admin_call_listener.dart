@@ -77,7 +77,7 @@ class _AdminCallListenerState extends State<AdminCallListener> {
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: _pendingCalls.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
+                separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (_, index) {
                   final call = _pendingCalls[index];
                   return Padding(
