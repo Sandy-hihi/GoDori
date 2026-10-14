@@ -154,3 +154,61 @@ class BggService {
     return BggDetailsResult(games, missing);
   }
 }
+
+/// 월정액권 앱 게임 가져오기 (서버: functions/src/p6-import.js)
+class P6ImportStartResult {
+  final int total;
+  final String backup;
+  final int backedUp;
+  P6ImportStartResult(this.total, this.backup, this.backedUp);
+}
+
+class P6ImportItem {
+  final String name;
+  final bool ok;
+  final bool photo;
+  final bool hadPhoto;
+  P6ImportItem(this.name, this.ok, this.photo, this.hadPhoto);
+}
+
+class P6ImportBatchResult {
+  final int total;
+  final int next;
+  final bool done;
+  final List<P6ImportItem> items;
+  P6ImportBatchResult(this.total, this.next, this.done, this.items);
+}
+
+class P6ImportService {
+  /// 기존 게임 백업 → 비우기 → 장르 교체. 되돌릴 수 없으니 확인 문구 '교체'가 필요해요.
+  static Future<P6ImportStartResult> start() async {
+    final body = await BggService._send(() => http.post(
+          BggService._uri('/api/import/p6/start'),
+          headers: BggService._headers,
+          body: jsonEncode({'confirm': '교체'}),
+        ));
+    return P6ImportStartResult(
+      (body['total'] as num?)?.toInt() ?? 0,
+      (body['backup'] ?? '').toString(),
+      (body['backedUp'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  static Future<P6ImportBatchResult> batch(int offset, int limit) async {
+    final body = await BggService._send(() => http.post(
+          BggService._uri('/api/import/p6/batch'),
+          headers: BggService._headers,
+          body: jsonEncode({'offset': offset, 'limit': limit}),
+        ));
+    final items = ((body['results'] as List?) ?? []).map((e) {
+      final m = Map<String, dynamic>.from(e as Map);
+      return P6ImportItem((m['name'] ?? '').toString(), m['ok'] == true, m['photo'] == true, m['hadPhoto'] == true);
+    }).toList();
+    return P6ImportBatchResult(
+      (body['total'] as num?)?.toInt() ?? 0,
+      (body['next'] as num?)?.toInt() ?? offset,
+      body['done'] == true,
+      items,
+    );
+  }
+}
