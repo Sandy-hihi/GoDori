@@ -1010,7 +1010,7 @@ class _StopwatchTabState extends State<_StopwatchTab> {
                   child: ListView.separated(
                     padding: const EdgeInsets.all(8),
                     itemCount: _laps.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, _) => const Divider(height: 1),
                     itemBuilder: (context, index) => ListTile(
                       dense: true,
                       leading: CircleAvatar(

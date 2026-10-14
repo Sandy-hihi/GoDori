@@ -927,7 +927,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                 message: available ? '이용 가능 (끄면 손님 앱에서 숨김)' : '숨김 (분실·수리 등)',
                 child: Switch(
                   value: available,
-                  activeColor: kAdminGreen,
+                  activeThumbColor: kAdminGreen,
                   onChanged: (v) => doc.reference.update({'isAvailable': v}),
                 ),
               ),

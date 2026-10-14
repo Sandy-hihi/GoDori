@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "C:/Users/doyus/Desktop/boardpad-app - 복사본/boardpad/windows"
+  "cmake.sourceDirectory": "${workspaceFolder}/windows",
+  "dart.flutterSdkPath": "C:/Users/hogye/develop/flutter"
 }
