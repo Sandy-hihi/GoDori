@@ -18,9 +18,6 @@ function getHandle() {
   const { getFirestore } = require('firebase-admin/firestore');
   const { createBggClient } = require('./src/bgg-client');
   const { createHandler } = require('./src/app');
-  const { getStorage } = require('firebase-admin/storage');
-  const { createP6Importer } = require('./src/p6-import');
-  const { createImportStore, fetcher } = require('./src/p6-import-store');
 
   initializeApp();
   const db = getFirestore();
@@ -32,7 +29,6 @@ function getHandle() {
       token: (BGG_APP_TOKEN.value() || '').trim(),
       relay: url && secret ? { resolve: async () => ({ url, secret, transport: 'appsscript' }) } : undefined,
     }),
-    importer: createP6Importer({ store: createImportStore(db, getStorage().bucket()), fetcher }),
     getAdminPassword: async () => {
       const doc = await db.collection('settings').doc('adminPin').get();
       const d = doc.data() || {};

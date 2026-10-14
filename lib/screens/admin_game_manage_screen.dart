@@ -11,7 +11,6 @@ import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
 import 'package:boardpad/widgets/game_admin/game_edit_dialog.dart';
 import 'package:boardpad/widgets/game_admin/game_form.dart';
-import 'package:boardpad/widgets/game_admin/p6_import_dialog.dart';
 import 'admin_event_manage_screen.dart';
 import 'admin_menu_manage_screen.dart';
 import 'admin_notice_manage_screen.dart';
@@ -1117,24 +1116,6 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                     children: [
                       const Text('보드게임 관리', style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
                       const Spacer(),
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          final changed = await showDialog<bool>(
-                            context: context,
-                            barrierDismissible: false,
-                            builder: (_) => const P6ImportDialog(),
-                          );
-                          if (changed == true) _toast('월정액권 앱 게임을 가져왔어요. "손님 앱 새로고침"을 눌러 주세요.');
-                        },
-                        icon: const Icon(Icons.download, size: 18),
-                        label: const Text('월정액권 앱에서 가져오기'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: kAdminNavy,
-                          side: const BorderSide(color: kAdminNavy),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
                       OutlinedButton.icon(
                         onPressed: _showGenreManageDialog,
                         icon: const Icon(Icons.settings, size: 18),

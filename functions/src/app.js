@@ -92,7 +92,7 @@ function createLimiter(now) {
 // 로컬 개발(flutter run -d chrome = localhost)과 배포된 관리자 웹에서만 다른 주소로 부를 수 있게 허용
 const ALLOWED_ORIGIN_RE = /^(https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?|https:\/\/platform6-boardpad\.(web\.app|firebaseapp\.com))$/;
 
-function createHandler({ bgg, getAdminPassword, importer = null, now = () => Date.now() }) {
+function createHandler({ bgg, getAdminPassword, now = () => Date.now() }) {
   const limit = createLimiter(now);
   let pwCache = null; // { value, at }
 
@@ -137,7 +137,7 @@ function createHandler({ bgg, getAdminPassword, importer = null, now = () => Dat
     try {
       if (path === '/api/health' && req.method === 'GET') return reply(200, { ok: true });
 
-      if (path.startsWith('/api/bgg/') || path.startsWith('/api/import/')) {
+      if (path.startsWith('/api/bgg/')) {
         try {
           await requireAdmin(req);
         } catch (e) {
@@ -211,32 +211,6 @@ function createHandler({ bgg, getAdminPassword, importer = null, now = () => Dat
           else games.push(detailView(d));
         }
         return reply(200, { games, missing });
-      }
-
-      // ---- 월정액권 앱 게임 가져오기 (src/p6-import.js) ----
-      if (path === '/api/import/p6/start' && req.method === 'POST') {
-        if (!importer) throw httpError(503, 'NO_IMPORTER', '가져오기 기능이 준비되지 않았어요.');
-        if (!req.body || req.body.confirm !== '교체') throw httpError(400, 'NOT_CONFIRMED', "확인 문구 '교체'가 필요해요.");
-        rate('import-start', 3, 10 * MIN);
-        try {
-          return reply(200, await importer.start());
-        } catch (e) {
-          if (e.status) throw e;
-          console.error('[가져오기 시작 실패]', e);
-          throw httpError(502, 'IMPORT_FAILED', '월정액권 앱 게임 목록을 가져오지 못했어요. 잠시 후 다시 시도해 주세요.');
-        }
-      }
-      if (path === '/api/import/p6/batch' && req.method === 'POST') {
-        if (!importer) throw httpError(503, 'NO_IMPORTER', '가져오기 기능이 준비되지 않았어요.');
-        const offset = Number(req.body && req.body.offset);
-        const limit = Number(req.body && req.body.limit);
-        if (!Number.isInteger(offset) || offset < 0) throw httpError(400, 'BAD_OFFSET', 'offset을 확인해 주세요.');
-        try {
-          return reply(200, await importer.batch(offset, limit));
-        } catch (e) {
-          console.error('[가져오기 실패]', e);
-          throw httpError(502, 'IMPORT_FAILED', '월정액권 앱에서 게임을 가져오지 못했어요. 잠시 후 다시 시도해 주세요.');
-        }
       }
 
       throw httpError(404, 'NOT_FOUND', '없는 주소예요.');
