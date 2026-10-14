@@ -11,9 +11,11 @@ class AdminSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 250,
+    // ListTile의 선택 배경·클릭 효과가 보이도록 Container(color) 대신 Material로 배경을 칠함
+    return Material(
       color: const Color(0xFF1E2B3C),
+      child: SizedBox(
+      width: 250,
       child: Column(
         children: [
           const Padding(
@@ -45,6 +47,7 @@ class AdminSidebar extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
+      ),
       ),
     );
   }
