@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/screens/admin_web_login_screen.dart';
 
 /// currentScreen: 'menu' | 'game' | 'event' | 'notice'
 class AdminSidebar extends StatelessWidget {
@@ -24,6 +25,21 @@ class AdminSidebar extends StatelessWidget {
           _buildItem(Icons.casino, '보드게임 관리', 'game'),
           _buildItem(Icons.campaign, '이벤트 관리', 'event'),
           _buildItem(Icons.info_outline, '공지 관리', 'notice'),
+          const Spacer(),
+          const Divider(color: Colors.white24),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.white54),
+            title: const Text('로그아웃', style: TextStyle(color: Colors.white54)),
+            onTap: () => Navigator.pushAndRemoveUntil(
+              context,
+              PageRouteBuilder(
+                pageBuilder: (_, __, ___) => const AdminWebLoginScreen(),
+                transitionDuration: Duration.zero,
+              ),
+              (route) => false,
+            ),
+          ),
+          const SizedBox(height: 8),
         ],
       ),
     );
