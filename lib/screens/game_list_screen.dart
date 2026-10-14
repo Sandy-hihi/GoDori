@@ -382,11 +382,11 @@ class _GameListScreenState extends State<GameListScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(game['title'] ?? '', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                          Text((game['title'] ?? '').toString(), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 4),
-                          Text(game['players'] ?? '', style: const TextStyle(fontSize: 14, color: Colors.black87)),
+                          Text((game['players'] ?? '').toString(), style: const TextStyle(fontSize: 14, color: Colors.black87)),
                           const SizedBox(height: 4),
-                          Text(game['tags'] ?? '', style: const TextStyle(fontSize: 12, color: Colors.blueAccent)),
+                          Text((game['tags'] ?? '').toString(), style: const TextStyle(fontSize: 12, color: Colors.blueAccent)),
                         ],
                       ),
                     ),
@@ -395,16 +395,16 @@ class _GameListScreenState extends State<GameListScreen> {
                     Row(
                       children: [
                         _buildInfoIcon(Icons.theater_comedy, '게임장르', gameGenres(game).join(', ')),
-                        _buildInfoIcon(Icons.timer, '소요시간', game['time'] ?? ''),
-                        _buildInfoIcon(Icons.people, '인원', game['players'] ?? ''),
-                        _buildInfoIcon(Icons.star, '난이도', game['difficulty'] ?? ''),
+                        _buildInfoIcon(Icons.timer, '소요시간', (game['time'] ?? '').toString()),
+                        _buildInfoIcon(Icons.people, '인원', (game['players'] ?? '').toString()),
+                        _buildInfoIcon(Icons.star, '난이도', (game['difficulty'] ?? '').toString()),
                       ],
                     ),
                     const SizedBox(width: 24),
 
                     // 설명영상 버튼
                     ElevatedButton.icon(
-                      onPressed: () => _launchVideo(context, game['videoUrl']),
+                      onPressed: () => _launchVideo(context, game['videoUrl']?.toString()),
                       icon: const Icon(Icons.play_circle_fill),
                       label: const Text('설명영상', style: TextStyle(fontWeight: FontWeight.bold)),
                       style: ElevatedButton.styleFrom(
