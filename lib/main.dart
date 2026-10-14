@@ -39,21 +39,19 @@ class RoleSelectionScreen extends StatefulWidget {
 }
 
 class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
-  // PIN을 Firestore settings/adminPin 문서의 'pin' 필드에서 가져옴
-  // 문서가 없으면 기본값 사용 (Firebase 콘솔에서 언제든 변경 가능)
-  static const String _fallbackPin = '786248';
-
-  Future<String> _fetchPin() async {
+  // PIN은 Firestore settings/adminPin 문서의 'pin' 필드에서만 가져옴
+  // (공개 저장소에 노출되지 않도록 코드에는 기본 PIN을 두지 않음)
+  // 문서가 없거나 읽기에 실패하면 null → 관리자 진입 불가
+  Future<String?> _fetchPin() async {
     try {
       final doc = await FirebaseFirestore.instance
           .collection('settings')
           .doc('adminPin')
           .get();
-      if (doc.exists && doc.data()?['pin'] != null) {
-        return doc.data()!['pin'].toString();
-      }
+      final pin = doc.data()?['pin']?.toString();
+      if (pin != null && pin.isNotEmpty) return pin;
     } catch (_) {}
-    return _fallbackPin;
+    return null;
   }
 
   Future<void> _showPinDialog(BuildContext context) async {
@@ -99,7 +97,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
                 ),
                 onSubmitted: (_) async {
                   final correctPin = await _fetchPin();
-                  if (pinController.text == correctPin) {
+                  if (correctPin != null && pinController.text == correctPin) {
                     if (ctx.mounted) {
                       Navigator.pop(ctx);
                       if (context.mounted) {
@@ -122,7 +120,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
             ElevatedButton(
               onPressed: () async {
                 final correctPin = await _fetchPin();
-                if (pinController.text == correctPin) {
+                if (correctPin != null && pinController.text == correctPin) {
                   if (ctx.mounted) {
                     Navigator.pop(ctx);
                     if (context.mounted) {
