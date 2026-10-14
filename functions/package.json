@@ -1,0 +1,17 @@
+{
+  "name": "boardpad-functions",
+  "version": "1.0.0",
+  "private": true,
+  "description": "보드패드 관리자 웹용 서버 함수 (BGG 보드게임긱 조회)",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.4.0",
+    "firebase-functions": "^7.4.0"
+  }
+}

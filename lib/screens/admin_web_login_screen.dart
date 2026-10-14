@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'admin_menu_manage_screen.dart';
+import 'package:boardpad/services/admin_session.dart';
 
 /// 관리자 웹 로그인 화면
 /// 비밀번호는 Firestore settings/adminPin 문서에서 읽어옵니다.
@@ -63,6 +64,7 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
     }
 
     if (input == correct) {
+      AdminSession.password = input; // BGG 조회 서버에 보낼 때 사용 (앱 메모리에만 보관)
       Navigator.pushReplacement(
         context,
         PageRouteBuilder(

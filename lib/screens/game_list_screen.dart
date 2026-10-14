@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/services/staff_call_service.dart';
 import 'package:boardpad/widgets/store_contact_label.dart';
+import 'package:boardpad/utils/game_meta.dart';
 
 class GameListScreen extends StatefulWidget {
   final String initialSearchQuery;
@@ -317,7 +318,7 @@ class _GameListScreenState extends State<GameListScreen> {
       // isAvailable 필터는 Firestore 쿼리에서 서버 사이드로 처리됨
       final bool isRecommended = game['isRecommended'] == true;
       final bool matchesTab = selectedTab == '전체' || (selectedTab == '추천' && isRecommended);
-      final bool matchesGenre = selectedGenre == '전체' || game['genre'] == selectedGenre;
+      final bool matchesGenre = selectedGenre == '전체' || gameGenres(game).contains(selectedGenre); // 장르 여러 개 지원
       final bool matchesSearch = (game['title'] ?? '').toString().toLowerCase().contains(searchQuery.toLowerCase());
       final bool matchesPlayers = _matchesPlayerFilter(game['players']?.toString(), selectedPlayers);
       final bool matchesTime = _matchesTimeFilter(game['time']?.toString(), selectedTime);
@@ -393,7 +394,7 @@ class _GameListScreenState extends State<GameListScreen> {
                     // 아이콘 정보
                     Row(
                       children: [
-                        _buildInfoIcon(Icons.theater_comedy, '게임장르', game['genre'] ?? ''),
+                        _buildInfoIcon(Icons.theater_comedy, '게임장르', gameGenres(game).join(', ')),
                         _buildInfoIcon(Icons.timer, '소요시간', game['time'] ?? ''),
                         _buildInfoIcon(Icons.people, '인원', game['players'] ?? ''),
                         _buildInfoIcon(Icons.star, '난이도', game['difficulty'] ?? ''),

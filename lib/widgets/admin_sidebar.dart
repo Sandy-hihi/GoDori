@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:boardpad/screens/admin_web_login_screen.dart';
+import 'package:boardpad/services/admin_session.dart';
 
 /// currentScreen: 'menu' | 'game' | 'event' | 'notice'
 class AdminSidebar extends StatelessWidget {
@@ -30,14 +31,17 @@ class AdminSidebar extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.white54),
             title: const Text('로그아웃', style: TextStyle(color: Colors.white54)),
-            onTap: () => Navigator.pushAndRemoveUntil(
+            onTap: () {
+              AdminSession.password = null;
+              Navigator.pushAndRemoveUntil(
               context,
               PageRouteBuilder(
                 pageBuilder: (_, __, ___) => const AdminWebLoginScreen(),
                 transitionDuration: Duration.zero,
               ),
               (route) => false,
-            ),
+              );
+            },
           ),
           const SizedBox(height: 8),
         ],
