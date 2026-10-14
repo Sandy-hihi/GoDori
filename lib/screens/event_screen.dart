@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../widgets/custom_app_bar.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:boardpad/widgets/app_network_image.dart';
 
 class EventScreen extends StatelessWidget {
   const EventScreen({super.key});
@@ -96,7 +96,7 @@ class EventScreen extends StatelessWidget {
                               child: isImage
                                   ? ClipRRect(
                                       borderRadius: BorderRadius.circular(8),
-                                      child: CachedNetworkImage(
+                                      child: AppNetworkImage(
                                         imageUrl: item['content'] ?? '',
                                         width: double.infinity,
                                         fit: BoxFit.contain,

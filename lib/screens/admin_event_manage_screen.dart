@@ -9,7 +9,7 @@ import 'admin_menu_manage_screen.dart';
 import 'admin_game_manage_screen.dart';
 import 'admin_notice_manage_screen.dart';
 
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
 
 class AdminEventManageScreen extends StatefulWidget {
@@ -156,7 +156,7 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                             : (currentImageUrl.isNotEmpty
                                   ? ClipRRect(
                                       borderRadius: BorderRadius.circular(8),
-                                      child: CachedNetworkImage(
+                                      child: AppNetworkImage(
                                         imageUrl: currentImageUrl,
                                         fit: BoxFit.contain,
                                         errorWidget: (c, u, e) => const Icon(

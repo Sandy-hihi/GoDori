@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/services/staff_call_service.dart';
 
@@ -852,7 +852,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen>
                 child: Container(
                   color: const Color(0xFFF8F9FA),
                   child: (hasValidImage(imageUrl))
-                      ? CachedNetworkImage(
+                      ? AppNetworkImage(
                           imageUrl: imageUrl!,
                           fit: BoxFit.cover,
                           errorWidget: (c, u, e) =>

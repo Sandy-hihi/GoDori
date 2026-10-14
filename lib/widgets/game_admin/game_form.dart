@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -308,7 +308,7 @@ class _GameFormFieldsState extends State<GameFormFields> {
     if (bytes != null) {
       preview = Image.memory(bytes, fit: BoxFit.cover);
     } else if (hasUrl) {
-      preview = CachedNetworkImage(imageUrl: url, fit: BoxFit.cover, errorWidget: (c, u, e) => const Icon(Icons.image, color: Colors.grey));
+      preview = AppNetworkImage(imageUrl: url, fit: BoxFit.cover, errorWidget: (c, u, e) => const Icon(Icons.image, color: Colors.grey));
     } else {
       preview = const Icon(Icons.add_photo_alternate, color: Colors.grey);
     }

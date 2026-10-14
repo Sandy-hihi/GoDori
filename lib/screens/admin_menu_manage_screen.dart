@@ -7,7 +7,7 @@ import 'admin_game_manage_screen.dart'; // 💡 추가!
 import 'admin_event_manage_screen.dart';
 import 'admin_notice_manage_screen.dart';
 
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
 
@@ -421,7 +421,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                       fit: BoxFit.cover,
                                     )
                                   : (currentImageUrl.isNotEmpty
-                                        ? CachedNetworkImage(
+                                        ? AppNetworkImage(
                                             imageUrl: currentImageUrl,
                                             fit: BoxFit.cover,
                                             errorWidget: (c, u, e) =>
@@ -956,7 +956,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                             menu['imageUrl']
                                                 .toString()
                                                 .isNotEmpty)
-                                        ? CachedNetworkImage(
+                                        ? AppNetworkImage(
                                             imageUrl: menu['imageUrl'],
                                             fit: BoxFit.cover,
                                             errorWidget: (c, u, e) =>

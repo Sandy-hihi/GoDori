@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -866,7 +866,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
               decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(8)),
               clipBehavior: Clip.hardEdge,
               child: hasValidImage(imageUrl)
-                  ? CachedNetworkImage(imageUrl: imageUrl, fit: BoxFit.cover, errorWidget: (c, u, e) => const Icon(Icons.image, color: Colors.grey))
+                  ? AppNetworkImage(imageUrl: imageUrl, fit: BoxFit.cover, errorWidget: (c, u, e) => const Icon(Icons.image, color: Colors.grey))
                   : const Icon(Icons.casino, color: Colors.grey),
             ),
             const SizedBox(width: 16),

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/services/staff_call_service.dart';
 import 'package:boardpad/widgets/store_contact_label.dart';
@@ -361,7 +361,7 @@ class _GameListScreenState extends State<GameListScreen> {
                           decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(8)),
                           clipBehavior: Clip.hardEdge,
                           child: (hasValidImage(game['imageUrl']))
-                              ? CachedNetworkImage(imageUrl: game['imageUrl'], fit: BoxFit.cover, errorWidget: (c,u,e) => const Icon(Icons.image, size: 40, color: Colors.grey))
+                              ? AppNetworkImage(imageUrl: game['imageUrl'], fit: BoxFit.cover, errorWidget: (c,u,e) => const Icon(Icons.image, size: 40, color: Colors.grey))
                               : const Icon(Icons.image, size: 40, color: Colors.grey),
                         ),
                         if (isRecommended)
