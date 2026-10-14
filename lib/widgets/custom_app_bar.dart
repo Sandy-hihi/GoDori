@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 import 'package:boardpad/services/staff_call_service.dart';
+import 'package:boardpad/widgets/store_contact_label.dart';
 
 class CustomAppBar extends StatefulWidget {
   final bool showBackButton;
@@ -23,32 +23,6 @@ class CustomAppBar extends StatefulWidget {
 
 class _CustomAppBarState extends State<CustomAppBar> {
   Timer? _logoutTimer;
-  String _phoneNumber = '010-5519-1525';
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPhoneNumber();
-  }
-
-  Future<void> _loadPhoneNumber() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('settings')
-          .doc('storeInfo')
-          .get();
-      if (doc.exists && mounted) {
-        final data = doc.data();
-        if (data != null && data['phoneNumber'] is String) {
-          setState(() {
-            _phoneNumber = data['phoneNumber'] as String;
-          });
-        }
-      }
-    } catch (_) {
-      // 실패 시 기본값 유지
-    }
-  }
 
   @override
   void dispose() {
@@ -58,6 +32,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
 
   void _startLogoutTimer() {
     _logoutTimer = Timer(const Duration(seconds: 5), () {
+      if (!mounted) return;
       // 역할 선택 화면(RoleSelectionScreen)은 항상 첫 번째 라우트이므로
       // popUntil(isFirst)로 한 번에 이동
       Navigator.popUntil(context, (route) => route.isFirst);
@@ -109,13 +84,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
             onTapCancel: () => _cancelLogoutTimer(),
             child: Container(
               color: Colors.transparent,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  const Text('플랫폼6 보드카페', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  Text(_phoneNumber, style: const TextStyle(color: Colors.white, fontSize: 12)),
-                ],
-              ),
+              child: const StoreContactLabel(),
             ),
           ),
         ],

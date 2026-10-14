@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/services/staff_call_service.dart';
+import 'package:boardpad/widgets/store_contact_label.dart';
 
 class GameListScreen extends StatefulWidget {
   final String initialSearchQuery;
@@ -197,13 +198,7 @@ class _GameListScreenState extends State<GameListScreen> {
                     ),
                   ),
                   const Spacer(),
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text('플랫폼6 보드카페', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                      Text('010-5519-1525', style: TextStyle(color: Colors.white, fontSize: 12)),
-                    ],
-                  ),
+                  const StoreContactLabel(),
                 ],
               ),
             ),
