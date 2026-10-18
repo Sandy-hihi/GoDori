@@ -98,3 +98,5 @@ MSVC 14.39에서 현재 Firebase Windows 라이브러리를 링크하면 `__std_
 Visual Studio Installer에서 Visual Studio 2022와 설치된 C++ 도구를 업데이트하세요.
 그 후 프로젝트 루트에서 `flutter clean`, `flutter pub get`,
 `flutter run -d windows` 순서로 다시 실행하세요. LNK4099는 별도의 디버그 기호 경고입니다.
+
+.
