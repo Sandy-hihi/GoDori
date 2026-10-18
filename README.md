@@ -100,3 +100,45 @@ Visual Studio Installer에서 Visual Studio 2022와 설치된 C++ 도구를 업�
 `flutter run -d windows` 순서로 다시 실행하세요. LNK4099는 별도의 디버그 기호 경고입니다.
 
 .
+
+## 앞으로 보안 사항
+
+2026-10-18 점검 결과, 아래 세 가지를 순서대로 처리해야 합니다.
+
+### 1. 관리자 PIN 바꾸기 (바로)
+
+예전 코드에 들어 있던 기본 관리자 PIN은 10/14 커밋(8abebed)에서 지웠지만,
+**git 커밋 기록에는 그대로 남아 있습니다.** 이 저장소는 공개 저장소라 누구나 그 값을 볼 수 있습니다.
+
+- Firebase 콘솔 → Firestore → `settings/adminPin` 문서의 `pin`, `webPassword` 값을 새 값으로 바꾸세요.
+- 새 값은 코드·README·커밋 메시지에 절대 적지 마세요.
+
+### 2. Firestore 보안 규칙 실제로 적용하기
+
+`firestore.rules`(1단계 초안)는 저장소에 있지만 `firebase.json`에 연결되어 있지 않아
+**아직 배포되지 않은 상태**입니다. 지금 Firestore는 콘솔에 설정된 규칙으로 동작합니다.
+
+`firebase.json`에 아래 항목을 추가한 뒤 배포하세요.
+
+~~~json
+"firestore": {
+  "rules": "firestore.rules"
+}
+~~~
+
+~~~powershell
+firebase deploy --only firestore:rules
+~~~
+
+배포 전에 손님 패드 주문·직원 호출, 관리자 웹 수정이 정상 동작하는지 확인하세요.
+
+### 3. Firebase Authentication 도입 (Sprint 1)
+
+1단계 규칙을 적용해도 `settings` 문서는 누구나 읽을 수 있습니다(`allow read: if true`).
+관리자 비밀번호가 `settings/adminPin`에 평문으로 있으므로 **그대로 보일 수 있습니다.**
+또 `games`, `menus`는 누구나 쓸 수 있습니다(`allow write: if true`).
+
+- 관리자: Firebase Authentication 이메일 로그인으로 바꾸고, 비밀번호 비교를 앱이 아닌 Firebase에서 하도록 합니다.
+- 손님 태블릿: 익명 로그인을 사용합니다.
+- 보안 규칙 2단계: `games`, `menus`, `settings` 쓰기는 관리자만 가능하게, `settings/adminPin`은 읽기도 막습니다.
+- BGG 조회 서버 함수(`functions/`)도 비밀번호 헤더 대신 Firebase ID 토큰으로 확인하도록 바꿉니다.
