@@ -11,8 +11,21 @@ import 'package:boardpad/utils/game_meta.dart';
 class GameListScreen extends StatefulWidget {
   final String initialSearchQuery;
   final int? roomNumber;
+  // 메인 화면 바로가기에서 미리 걸어 둘 필터 (없으면 전체)
+  final String? initialTab;
+  final String? initialGenre;
+  final String? initialPlayers;
+  final String? initialDifficulty;
 
-  const GameListScreen({super.key, this.initialSearchQuery = '', this.roomNumber});
+  const GameListScreen({
+    super.key,
+    this.initialSearchQuery = '',
+    this.roomNumber,
+    this.initialTab,
+    this.initialGenre,
+    this.initialPlayers,
+    this.initialDifficulty,
+  });
 
   @override
   State<GameListScreen> createState() => _GameListScreenState();
@@ -43,6 +56,10 @@ class _GameListScreenState extends State<GameListScreen> {
   void initState() {
     super.initState();
     searchQuery = widget.initialSearchQuery;
+    selectedTab = widget.initialTab ?? '전체';
+    selectedGenre = widget.initialGenre ?? '전체';
+    selectedPlayers = widget.initialPlayers;
+    selectedDifficulty = widget.initialDifficulty;
     _searchController = TextEditingController(text: widget.initialSearchQuery);
     _gamesFuture = _fetchGames();
     _listenForRemoteRefresh();
