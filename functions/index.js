@@ -4,23 +4,36 @@
 //   BGG_APPS_SCRIPT_URL : BGG 중계용 Google Apps Script 주소 (월정액권 앱과 같은 것)
 //   BGG_RELAY_SECRET    : 그 중계의 비밀키
 //   BGG_APP_TOKEN       : BGG API 토큰 (중계를 못 쓸 때 직접 호출용)
+// AI 게임 추천은 비밀값 1개가 더 필요하다 — "AI 비밀값 등록.ps1" 참고.
+//   ANTHROPIC_API_KEY   : Claude API 키. 비어 있으면 AI 없이 규칙으로만 추천한다.
 const { onRequest } = require('firebase-functions/https');
+const { onSchedule } = require('firebase-functions/scheduler');
 const { defineSecret } = require('firebase-functions/params');
 
 const BGG_APP_TOKEN = defineSecret('BGG_APP_TOKEN');
 const BGG_RELAY_SECRET = defineSecret('BGG_RELAY_SECRET');
 const BGG_APPS_SCRIPT_URL = defineSecret('BGG_APPS_SCRIPT_URL');
+const ANTHROPIC_API_KEY = defineSecret('ANTHROPIC_API_KEY');
+
+const REGION = 'asia-northeast3'; // 서울
+
+let db = null;
+function getDb() {
+  if (db) return db;
+  const { initializeApp, getApps } = require('firebase-admin/app');
+  const { getFirestore } = require('firebase-admin/firestore');
+  if (!getApps().length) initializeApp();
+  db = getFirestore();
+  return db;
+}
 
 let handle = null;
 function getHandle() {
   if (handle) return handle;
-  const { initializeApp } = require('firebase-admin/app');
-  const { getFirestore } = require('firebase-admin/firestore');
   const { createBggClient } = require('./src/bgg-client');
   const { createHandler } = require('./src/app');
 
-  initializeApp();
-  const db = getFirestore();
+  const db = getDb();
   const url = (BGG_APPS_SCRIPT_URL.value() || '').trim();
   const secret = (BGG_RELAY_SECRET.value() || '').trim();
 
@@ -38,27 +51,110 @@ function getHandle() {
   return handle;
 }
 
+// Express 스타일 요청을 우리 핸들러 형식으로 바꿔 부르고 응답을 돌려줌
+async function serve(handler, req, res) {
+  const headers = {};
+  for (const [k, v] of Object.entries(req.headers || {})) headers[k.toLowerCase()] = Array.isArray(v) ? v[0] : v;
+  const out = await handler({
+    method: req.method,
+    path: req.path,
+    query: req.query || {},
+    headers,
+    body: req.body,
+  });
+  res.status(out.status);
+  for (const [k, v] of Object.entries(out.headers || {})) res.set(k, v);
+  if (out.body == null) res.end();
+  else res.json(out.body);
+}
+
 exports.api = onRequest(
   {
-    region: 'asia-northeast3', // 서울
+    region: REGION,
     secrets: [BGG_APP_TOKEN, BGG_RELAY_SECRET, BGG_APPS_SCRIPT_URL],
     maxInstances: 3, // 요청 폭주 시 비용 상한
     timeoutSeconds: 120, // BGG 중계가 느릴 때 재시도까지 기다릴 수 있게
     memory: '256MiB',
   },
-  async (req, res) => {
-    const headers = {};
-    for (const [k, v] of Object.entries(req.headers || {})) headers[k.toLowerCase()] = Array.isArray(v) ? v[0] : v;
-    const out = await getHandle()({
-      method: req.method,
-      path: req.path,
-      query: req.query || {},
-      headers,
-      body: req.body,
+  (req, res) => serve(getHandle(), req, res)
+);
+
+// ── AI 게임 추천 ──
+
+function makeLlm() {
+  const { callClaude, DEFAULT_MODEL } = require('./src/ai');
+  const apiKey = (ANTHROPIC_API_KEY.value() || '').trim();
+  if (!apiKey) return null; // 키가 없으면 규칙 추천만
+  const model = (process.env.AI_MODEL || DEFAULT_MODEL).trim();
+  return ({ system, user }) => callClaude({ apiKey, model, system, user });
+}
+
+async function loadAvailableGames() {
+  const snap = await getDb().collection('games').where('isAvailable', '==', true).get();
+  return new Map(snap.docs.map((d) => [d.id, d.data()]));
+}
+
+let aiHandle = null;
+function getAiHandle() {
+  if (aiHandle) return aiHandle;
+  const { createAiHandler } = require('./src/ai');
+  aiHandle = createAiHandler({ loadGames: loadAvailableGames, llm: makeLlm() });
+  return aiHandle;
+}
+
+// 손님 패드의 "우리 테이블 맞춤 추천" (Hosting이 /api/ai/** 를 이 함수로 넘김)
+exports.ai = onRequest(
+  {
+    region: REGION,
+    secrets: [ANTHROPIC_API_KEY],
+    maxInstances: 3,
+    timeoutSeconds: 60,
+    memory: '256MiB',
+  },
+  (req, res) => serve(getAiHandle(), req, res)
+);
+
+function seoulDateKey(date = new Date()) {
+  // 한국 시간 기준 날짜 (YYYY-MM-DD)
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(date);
+}
+
+// 매일 오전 10시(한국 시간)에 "오늘의 추천 게임"을 골라 settings/aiPicks 에 저장
+exports.dailyPicks = onSchedule(
+  {
+    region: REGION,
+    schedule: 'every day 10:00',
+    timeZone: 'Asia/Seoul',
+    secrets: [ANTHROPIC_API_KEY],
+    timeoutSeconds: 120,
+    memory: '256MiB',
+  },
+  async () => {
+    const { dailyPicks } = require('./src/ai');
+    const db = getDb();
+
+    // 홈 화면 배치의 AI 위젯 설정에서 "추천에서 뺄 게임"을 읽음
+    let exclude = [];
+    try {
+      const layout = (await db.collection('settings').doc('homeLayout').get()).data() || {};
+      for (const w of Array.isArray(layout.widgets) ? layout.widgets : []) {
+        if (w && w.type === 'aiPick' && w.options && Array.isArray(w.options.exclude)) {
+          exclude = exclude.concat(w.options.exclude.map(String));
+        }
+      }
+    } catch (e) {
+      console.warn('[오늘의 추천] 배치 읽기 실패', e && e.message);
+    }
+
+    const result = await dailyPicks({
+      games: await loadAvailableGames(),
+      llm: makeLlm(),
+      dateKey: seoulDateKey(),
+      exclude,
+      count: 4,
     });
-    res.status(out.status);
-    for (const [k, v] of Object.entries(out.headers || {})) res.set(k, v);
-    if (out.body == null) res.end();
-    else res.json(out.body);
+    const { FieldValue } = require('firebase-admin/firestore');
+    await db.collection('settings').doc('aiPicks').set({ ...result, generatedAt: FieldValue.serverTimestamp() });
+    console.log(`[오늘의 추천] ${result.date} ${result.source} ${result.picks.map((p) => p.title).join(', ')}`);
   }
 );

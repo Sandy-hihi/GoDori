@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'admin_home_layout_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -344,6 +345,7 @@ class _AdminNoticeManageScreenState extends State<AdminNoticeManageScreen> {
             currentScreen: 'notice',
             onNavigate: (screen) {
               final targets = <String, Widget>{
+                'home': const AdminHomeLayoutScreen(),
                 'menu': const AdminMenuManageScreen(),
                 'game': const AdminGameManageScreen(),
                 'event': const AdminEventManageScreen(),

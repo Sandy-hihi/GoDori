@@ -79,7 +79,7 @@ service cloud.firestore {
       // adminPin은 현재 앱이 PIN 확인을 위해 읽어야 해서 읽기를 막을 수 없음 (2단계에서 해결)
       allow read: if true;
       // 관리자 페이지가 수정하는 문서만 쓰기 허용. adminPin / storeInfo는 콘솔 전용.
-      allow write: if docId in ['genres', 'categories', 'events', 'notices', 'appRefresh'];
+      allow write: if docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout'];
     }
 
     // 위에 없는 컬렉션은 기본적으로 모두 차단됩니다.
