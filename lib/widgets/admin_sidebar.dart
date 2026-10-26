@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:boardpad/screens/admin_web_login_screen.dart';
 import 'package:boardpad/services/admin_session.dart';
 
-/// currentScreen: 'menu' | 'game' | 'event' | 'notice' | 'home'
+/// currentScreen: 'menu' | 'game' | 'event' | 'notice' | 'home' | 'store'
 class AdminSidebar extends StatelessWidget {
   final String currentScreen;
   final void Function(String screen) onNavigate;
@@ -29,6 +29,7 @@ class AdminSidebar extends StatelessWidget {
           _buildItem(Icons.campaign, '이벤트 관리', 'event'),
           _buildItem(Icons.info_outline, '공지 관리', 'notice'),
           _buildItem(Icons.dashboard_customize_outlined, '홈 화면 꾸미기', 'home'),
+          _buildItem(Icons.storefront_outlined, '매장 설정', 'store'),
           const Spacer(),
           const Divider(color: Colors.white24),
           ListTile(

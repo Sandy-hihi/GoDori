@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'admin_store_settings_screen.dart';
 import 'admin_home_layout_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
@@ -710,6 +711,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
             currentScreen: 'menu',
             onNavigate: (screen) {
               final targets = <String, Widget>{
+                'store': const AdminStoreSettingsScreen(),
                 'home': const AdminHomeLayoutScreen(),
                 'game': const AdminGameManageScreen(),
                 'event': const AdminEventManageScreen(),

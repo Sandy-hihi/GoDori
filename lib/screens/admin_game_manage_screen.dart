@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'admin_store_settings_screen.dart';
 import 'admin_home_layout_screen.dart';
 
 import 'package:boardpad/services/bgg_service.dart';
@@ -1094,6 +1095,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
             currentScreen: 'game',
             onNavigate: (screen) {
               final targets = <String, Widget>{
+                'store': const AdminStoreSettingsScreen(),
                 'home': const AdminHomeLayoutScreen(),
                 'menu': const AdminMenuManageScreen(),
                 'event': const AdminEventManageScreen(),

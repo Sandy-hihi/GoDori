@@ -18,6 +18,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // 방 번호 검사: 관리자 웹 '매장 설정'에서 정한 settings/rooms 의 count 이하 (문서가 없으면 11개)
+    function roomOk(n) {
+      let roomsPath = /databases/$(database)/documents/settings/rooms;
+      return n is int && n >= 1
+          && ((!exists(roomsPath) && n <= 11)
+              || (exists(roomsPath) && n <= get(roomsPath).data.count));
+    }
+
+
     // ── 주문 ──
     match /orders/{orderId} {
       allow read: if true;
@@ -26,7 +35,8 @@ service cloud.firestore {
       allow create: if request.resource.data.keys().hasOnly(
                          ['room', 'time', 'price', 'items', 'notes', 'roomColor', 'status', 'timestamp'])
                     && request.resource.data.room is string
-                    && request.resource.data.room.matches('#([1-9]|1[01])')   // #1 ~ #11 방
+                    && request.resource.data.room.matches('#[1-9][0-9]?')                 // #1 ~ #99 형식
+                    && roomOk(int(request.resource.data.room.replace('#', '')))   // 매장 설정의 방 개수 이하
                     && request.resource.data.items is list
                     && request.resource.data.items.size() > 0
                     && request.resource.data.items.size() <= 100
@@ -52,8 +62,7 @@ service cloud.firestore {
       // 손님 태블릿의 호출 생성 (staff_call_service.dart)
       allow create: if request.resource.data.keys().hasOnly(['roomNumber', 'timestamp', 'isAcknowledged'])
                     && request.resource.data.roomNumber is int
-                    && request.resource.data.roomNumber >= 0
-                    && request.resource.data.roomNumber <= 11
+                    && (request.resource.data.roomNumber == 0 || roomOk(request.resource.data.roomNumber))
                     && request.resource.data.isAcknowledged == false
                     && request.resource.data.timestamp == request.time;
 
@@ -80,6 +89,12 @@ service cloud.firestore {
       allow read: if true;
       // 관리자 페이지가 수정하는 문서만 쓰기 허용. adminPin / storeInfo는 콘솔 전용.
       allow write: if docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout'];
+      // 방 개수 (관리자 웹 '매장 설정'): 1 ~ 30 사이 숫자만
+      allow write: if docId == 'rooms'
+                    && request.resource.data.keys().hasOnly(['count', 'updatedAt'])
+                    && request.resource.data.count is int
+                    && request.resource.data.count >= 1
+                    && request.resource.data.count <= 30;
     }
 
     // 위에 없는 컬렉션은 기본적으로 모두 차단됩니다.
