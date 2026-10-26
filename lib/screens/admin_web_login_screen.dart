@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/store_brand.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'admin_menu_manage_screen.dart';
 import 'package:boardpad/services/admin_session.dart';
@@ -96,9 +97,7 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ClipOval(
-                child: Image.asset('assets/images/logo.jpg', width: 72, height: 72, fit: BoxFit.cover),
-              ),
+              StoreLogo(size: 72),
               const SizedBox(height: 16),
               const Text('보드패드 관리자', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/store_brand.dart';
 import 'dart:async';
 import 'package:boardpad/services/staff_call_service.dart';
 import 'package:boardpad/widgets/store_contact_label.dart';
@@ -55,14 +56,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
               icon: const Icon(Icons.arrow_back, color: Colors.white),
               onPressed: () => Navigator.pop(context),
             ),
-          ClipOval(
-            child: Image.asset(
-              'assets/images/logo.jpg',
-              width: 40,
-              height: 40,
-              fit: BoxFit.cover,
-            ),
-          ),
+          StoreLogo(size: 40),
           const SizedBox(width: 16),
           Expanded(flex: 2, child: widget.centerWidget),
           const SizedBox(width: 16),

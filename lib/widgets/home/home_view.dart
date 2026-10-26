@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/store_brand.dart';
 
 import 'package:boardpad/models/home_layout.dart';
 import 'package:boardpad/services/staff_call_service.dart';
@@ -145,7 +146,7 @@ class HomeSidebar extends StatelessWidget {
                     : fallbackLogo,
               ),
               const SizedBox(height: 10),
-              Text(storeName.isEmpty ? '플랫폼6 보드카페' : storeName,
+              Text(storeName.isEmpty ? StoreBrand.defaultName : storeName,
                   textAlign: TextAlign.center, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: fg)),
             ],
           ),

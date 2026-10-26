@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/store_brand.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
@@ -183,7 +184,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                 child: Row(
                   children: [
                     IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
-                    ClipOval(child: Image.asset('assets/images/logo.jpg', width: 40, height: 40, fit: BoxFit.cover)),
+                    StoreLogo(size: 40),
                     const SizedBox(width: 16),
                     const Text('게임 도구', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
                     const Spacer(),

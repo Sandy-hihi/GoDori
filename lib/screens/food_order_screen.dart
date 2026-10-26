@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/store_brand.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/utils/image_helper.dart';
@@ -526,14 +527,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen>
                           ),
                           onPressed: () => Navigator.pop(context),
                         ),
-                        ClipOval(
-                          child: Image.asset(
-                            'assets/images/logo.jpg',
-                            width: 40,
-                            height: 40,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
+                        StoreLogo(size: 40),
                         const Spacer(),
                         ElevatedButton.icon(
                           onPressed: () => StaffCallService.callStaff(
@@ -554,9 +548,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen>
                           ),
                         ),
                         const SizedBox(width: 16),
-                        const Text(
-                          '플랫폼6 보드카페',
-                          style: TextStyle(
+                        const StoreName(style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
                           ),

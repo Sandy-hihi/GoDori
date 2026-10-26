@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/store_brand.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
@@ -180,7 +181,7 @@ class _GameListScreenState extends State<GameListScreen> {
               child: Row(
                 children: [
                   IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
-                  ClipOval(child: Image.asset('assets/images/logo.jpg', width: 40, height: 40, fit: BoxFit.cover)),
+                  StoreLogo(size: 40),
                   const SizedBox(width: 16),
                   Expanded(
                     flex: 2,
