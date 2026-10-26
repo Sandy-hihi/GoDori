@@ -11,6 +11,7 @@ import 'package:boardpad/services/home_layout_service.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
+import 'package:boardpad/widgets/home/grid_edit_overlay.dart';
 import 'package:boardpad/widgets/home/home_view.dart';
 import 'admin_event_manage_screen.dart';
 import 'admin_game_manage_screen.dart';
@@ -53,6 +54,32 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
   bool get _dirty => _layout != null && jsonEncode(_layout!.toMap()) != _savedJson;
 
   void _update(HomeLayout next) => setState(() => _layout = next);
+
+  /// 바꾼 결과가 규칙에 맞을 때만 적용. 안 맞으면 그대로 두고 이유를 알려 줌
+  bool _tryUpdate(HomeLayout next) {
+    final before = _layout!.validate().toSet();
+    final problems = next.validate().where((e) => !before.contains(e)).toList();
+    if (problems.isNotEmpty) {
+      _warn(problems.first);
+      return false;
+    }
+    _update(next);
+    return true;
+  }
+
+  void _warn(String msg) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Row(children: [
+          const Icon(Icons.block, color: Colors.white, size: 18),
+          const SizedBox(width: 8),
+          Expanded(child: Text(msg)),
+        ]),
+        backgroundColor: const Color(0xFFB33A2A),
+        duration: const Duration(seconds: 3),
+      ));
+  }
 
   void _snack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -146,29 +173,46 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
     _snack('빈자리가 없어요. 다른 위젯을 빼거나 작게 줄인 뒤 다시 넣어 주세요.');
   }
 
-  void _replaceItem(GridItem next) {
+  /// 위치·크기 바꾸기 (겹치거나 허용 안 되는 크기면 경고만)
+  bool _replaceItem(GridItem next) {
     final layout = _layout!;
+    final problem = layout.problemFor(next);
+    if (problem != null) {
+      _warn(problem);
+      return false;
+    }
     _update(layout.copyWith(widgets: [for (final w in layout.widgets) w.id == next.id ? next : w]));
+    return true;
   }
 
   void _removeItem(GridItem item) {
     final layout = _layout!;
-    _update(layout.copyWith(widgets: layout.widgets.where((w) => w.id != item.id).toList()));
-    if (_selectedId == item.id) setState(() => _selectedId = null);
+    if (_tryUpdate(layout.copyWith(widgets: layout.widgets.where((w) => w.id != item.id).toList()))) {
+      if (_selectedId == item.id) setState(() => _selectedId = null);
+    }
   }
 
   void _resize(GridItem item, WidgetSize size) {
+    final spec = specOf(item.type)!;
+    if (!spec.sizes.contains(size)) {
+      _warn('${spec.name}은(는) ${size.label} 크기를 쓸 수 없어요. (가능: ${spec.sizes.map((s) => s.label).join(', ')})');
+      return;
+    }
+    // 오른쪽·아래로 넘치면 안쪽으로 당겨서 시도
     final cols = _layout!.cols;
-    final x = item.x.clamp(0, cols - size.w).toInt();
-    final y = item.y.clamp(0, HomeLayout.rows - size.h).toInt();
-    _replaceItem(item.copyWith(w: size.w, h: size.h, x: x, y: y));
+    final x = item.x + size.w > cols ? cols - size.w : item.x;
+    final y = item.y + size.h > HomeLayout.rows ? HomeLayout.rows - size.h : item.y;
+    _replaceItem(item.copyWith(w: size.w, h: size.h, x: x < 0 ? 0 : x, y: y < 0 ? 0 : y));
   }
 
   Future<void> _editGridOptions(GridItem item) async {
     final result = await _showOptionsDialog(item.type, item.options);
     if (result != null) {
       final current = _layout!.widgets.where((w) => w.id == item.id);
-      if (current.isNotEmpty) _replaceItem(current.first.copyWith(options: result));
+      if (current.isNotEmpty) {
+        final next = current.first.copyWith(options: result);
+        _update(_layout!.copyWith(widgets: [for (final w in _layout!.widgets) w.id == next.id ? next : w]));
+      }
     }
   }
 
@@ -176,13 +220,13 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
 
   void _addSidebarItem(String type) {
     final layout = _layout!;
-    _update(layout.copyWith(sidebarItems: [...layout.sidebarItems, SidebarItem(type)]));
+    _tryUpdate(layout.copyWith(sidebarItems: [...layout.sidebarItems, SidebarItem(type)]));
   }
 
   void _removeSidebarItem(int index) {
     final layout = _layout!;
     final items = [...layout.sidebarItems]..removeAt(index);
-    _update(layout.copyWith(sidebarItems: items));
+    _tryUpdate(layout.copyWith(sidebarItems: items));
   }
 
   void _reorderSidebar(int oldIndex, int newIndex) {
@@ -200,7 +244,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
     if (result != null) {
       final items = [..._layout!.sidebarItems];
       items[index] = item.copyWith(options: result);
-      _update(_layout!.copyWith(sidebarItems: items));
+      _tryUpdate(_layout!.copyWith(sidebarItems: items));
     }
   }
 
@@ -300,27 +344,48 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
   }
 
   Widget _buildPreview() {
-    return SingleChildScrollView(
-      child: Column(
+    // 스크롤 안에 두면 위아래로 끌 때 화면이 스크롤돼서, 남는 공간에 맞춰 줄여서 보여 줌
+    return Column(
       children: [
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E1B18),
-            borderRadius: BorderRadius.circular(30),
-            boxShadow: const [BoxShadow(color: Color(0x40281E14), blurRadius: 30, offset: Offset(0, 14))],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: AspectRatio(
-              aspectRatio: HomeLayout.designWidth / HomeLayout.designHeight,
-              child: AbsorbPointer(
-                child: FittedBox(
-                  child: HomeView(
-                    layout: _layout!,
-                    roomNumber: 7,
-                    highlightId: _tab == 0 ? _selectedId : null,
-                    highlightSidebar: _tab == 1,
+        Flexible(
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1B18),
+                borderRadius: BorderRadius.circular(30),
+                boxShadow: const [BoxShadow(color: Color(0x40281E14), blurRadius: 30, offset: Offset(0, 14))],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: AspectRatio(
+                  aspectRatio: HomeLayout.designWidth / HomeLayout.designHeight,
+                  child: FittedBox(
+                    child: SizedBox(
+                      width: HomeLayout.designWidth,
+                      height: HomeLayout.designHeight,
+                      child: Stack(
+                        children: [
+                          AbsorbPointer(
+                            child: HomeView(
+                              layout: _layout!,
+                              roomNumber: 7,
+                              highlightSidebar: _tab == 1,
+                            ),
+                          ),
+                          if (_tab == 0)
+                            Positioned.fill(
+                              child: GridEditOverlay(
+                                layout: _layout!,
+                                selectedId: _selectedId,
+                                onSelect: (id) => setState(() => _selectedId = id),
+                                onCommit: _replaceItem,
+                                onReject: _warn,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -329,11 +394,12 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
         ),
         const SizedBox(height: 12),
         Text(
-          '미리보기는 7번 룸 기준이에요. 공지·이벤트·추천 게임은 실제 데이터로 보여요.',
+          _tab == 0
+              ? '위젯을 끌어서 옮기고, 선택한 위젯의 오른쪽 아래 손잡이로 크기를 바꿔요. 미리보기는 7번 룸 기준이에요.'
+              : '왼쪽 영역은 오른쪽 목록에서 순서를 바꾸고, 로고 설정에서 사진과 매장 이름을 바꿔요.',
           style: TextStyle(color: Colors.black.withValues(alpha: 0.5), fontSize: 13),
         ),
       ],
-      ),
     );
   }
 
@@ -380,7 +446,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
           ],
         ),
         const SizedBox(height: 4),
-        const Text('위치는 "열·행"으로, 크기는 위젯마다 정해진 것 중에서 골라요.',
+        const Text('미리보기에서 위젯을 끌어 옮기고, 오른쪽 아래 손잡이로 크기를 바꿀 수 있어요.',
             style: TextStyle(fontSize: 12, color: Colors.black54)),
         const SizedBox(height: 12),
         Expanded(
@@ -437,8 +503,9 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                   _miniDropdown<WidgetSize>(
                     label: '크기',
                     value: WidgetSize(item.w, item.h),
-                    items: spec.sizes,
+                    items: allGridSizes,
                     text: (s) => s.label,
+                    enabled: (s) => spec.sizes.contains(s),
                     onChanged: (s) => _resize(item, s),
                   ),
                   const SizedBox(width: 10),
@@ -472,6 +539,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
     required List<T> items,
     required String Function(T) text,
     required void Function(T) onChanged,
+    bool Function(T)? enabled,
   }) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -482,7 +550,19 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
           value: items.contains(value) ? value : items.first,
           isDense: true,
           underline: const SizedBox.shrink(),
-          items: [for (final i in items) DropdownMenuItem<T>(value: i, child: Text(text(i)))],
+          items: [
+            for (final i in items)
+              DropdownMenuItem<T>(
+                value: i,
+                child: Text(
+                  text(i),
+                  style: TextStyle(
+                    color: (enabled == null || enabled(i)) ? Colors.black87 : Colors.black26,
+                    decoration: (enabled == null || enabled(i)) ? null : TextDecoration.lineThrough,
+                  ),
+                ),
+              ),
+          ],
           onChanged: (v) {
             if (v != null) onChanged(v);
           },
@@ -503,7 +583,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
           title: const Text('왼쪽 영역 보이기', style: TextStyle(fontWeight: FontWeight.bold)),
           subtitle: const Text('끄면 격자가 7×4칸이 돼요. 직원 호출을 격자에 넣어야 저장돼요.', style: TextStyle(fontSize: 12)),
           value: layout.sidebarVisible,
-          onChanged: (v) => _update(layout.copyWith(sidebarVisible: v)),
+          onChanged: (v) => _tryUpdate(layout.copyWith(sidebarVisible: v)),
         ),
         if (layout.sidebarVisible) ...[
           const SizedBox(height: 8),
@@ -650,6 +730,9 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
       case 'banner':
         c1.text = (o['caption'] ?? '').toString();
         break;
+      case 'logo':
+        c1.text = (o['name'] ?? '').toString();
+        break;
       case 'timer':
         c1.text = (o['minutes'] ?? 5).toString();
         break;
@@ -776,6 +859,40 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                 ),
               ]);
               break;
+            case 'logo':
+              body = Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                const Text('로고 사진', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Center(
+                  child: SizedBox(
+                    width: 160,
+                    height: 160,
+                    child: _ImageUploadBox(
+                      imageUrl: o['imageUrl']?.toString(),
+                      folder: 'home_logo',
+                      circle: true,
+                      emptyText: '눌러서 로고 올리기',
+                      onImage: (url) => setDlg(() => o['imageUrl'] = url),
+                    ),
+                  ),
+                ),
+                if (o['imageUrl'] != null && o['imageUrl'].toString().isNotEmpty)
+                  Center(
+                    child: TextButton(
+                      onPressed: () => setDlg(() => o.remove('imageUrl')),
+                      child: const Text('기본 로고로 되돌리기'),
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: c1,
+                  maxLength: 14,
+                  decoration: const InputDecoration(labelText: '매장 이름', hintText: '플랫폼6 보드카페'),
+                ),
+                const Text('정사각형 사진이 가장 잘 맞아요. 동그랗게 잘려서 보여요.',
+                    style: TextStyle(fontSize: 12, color: Colors.black54)),
+              ]);
+              break;
             case 'banner':
               body = _BannerOptions(
                 imageUrl: o['imageUrl']?.toString(),
@@ -811,6 +928,9 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                       break;
                     case 'banner':
                       o['caption'] = c1.text.trim();
+                      break;
+                    case 'logo':
+                      o['name'] = c1.text.trim();
                       break;
                     case 'timer':
                       o['minutes'] = (int.tryParse(c1.text.trim()) ?? 5).clamp(1, 99);
@@ -969,8 +1089,74 @@ class _GameExcludeListState extends State<_GameExcludeList> {
   }
 }
 
+/// 사진 올리기 상자 (Firebase Storage에 올리고 주소를 돌려줌)
+class _ImageUploadBox extends StatefulWidget {
+  final String? imageUrl;
+  final String folder;
+  final bool circle;
+  final String emptyText;
+  final void Function(String url) onImage;
+
+  const _ImageUploadBox({
+    required this.imageUrl,
+    required this.folder,
+    required this.onImage,
+    this.circle = false,
+    this.emptyText = '눌러서 사진 올리기',
+  });
+
+  @override
+  State<_ImageUploadBox> createState() => _ImageUploadBoxState();
+}
+
+class _ImageUploadBoxState extends State<_ImageUploadBox> {
+  bool _uploading = false;
+
+  Future<void> _pick() async {
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 1600);
+    if (picked == null) return;
+    setState(() => _uploading = true);
+    try {
+      final bytes = await picked.readAsBytes();
+      final ref = FirebaseStorage.instance.ref().child('${widget.folder}/${DateTime.now().millisecondsSinceEpoch}.jpg');
+      final task = await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      widget.onImage(await task.ref.getDownloadURL());
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('사진을 올리지 못했어요. ($e)')));
+      }
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF1F1F3),
+      shape: widget.circle ? const CircleBorder() : RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: _uploading ? null : _pick,
+        child: _uploading
+            ? const Center(child: CircularProgressIndicator())
+            : hasValidImage(widget.imageUrl)
+                ? AppNetworkImage(imageUrl: widget.imageUrl!, fit: BoxFit.cover)
+                : Center(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.add_photo_alternate_outlined, size: 36, color: Colors.black45),
+                      const SizedBox(height: 6),
+                      Text(widget.emptyText,
+                          textAlign: TextAlign.center, style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                    ]),
+                  ),
+      ),
+    );
+  }
+}
+
 /// 사진 배너 설정 (사진 올리기 + 문구 + 누르면 갈 곳)
-class _BannerOptions extends StatefulWidget {
+class _BannerOptions extends StatelessWidget {
   final String? imageUrl;
   final String link;
   final TextEditingController captionController;
@@ -986,31 +1172,6 @@ class _BannerOptions extends StatefulWidget {
   });
 
   @override
-  State<_BannerOptions> createState() => _BannerOptionsState();
-}
-
-class _BannerOptionsState extends State<_BannerOptions> {
-  bool _uploading = false;
-
-  Future<void> _pick() async {
-    final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 80, maxWidth: 1600);
-    if (picked == null) return;
-    setState(() => _uploading = true);
-    try {
-      final bytes = await picked.readAsBytes();
-      final ref = FirebaseStorage.instance.ref().child('home_banners/${DateTime.now().millisecondsSinceEpoch}.jpg');
-      final task = await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
-      widget.onImage(await task.ref.getDownloadURL());
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('사진을 올리지 못했어요. ($e)')));
-      }
-    } finally {
-      if (mounted) setState(() => _uploading = false);
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1018,41 +1179,23 @@ class _BannerOptionsState extends State<_BannerOptions> {
       children: [
         AspectRatio(
           aspectRatio: 2,
-          child: Material(
-            color: const Color(0xFFF1F1F3),
-            borderRadius: BorderRadius.circular(12),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: _uploading ? null : _pick,
-              child: _uploading
-                  ? const Center(child: CircularProgressIndicator())
-                  : hasValidImage(widget.imageUrl)
-                      ? AppNetworkImage(imageUrl: widget.imageUrl!, fit: BoxFit.cover)
-                      : const Center(
-                          child: Column(mainAxisSize: MainAxisSize.min, children: [
-                            Icon(Icons.add_photo_alternate_outlined, size: 36, color: Colors.black45),
-                            SizedBox(height: 6),
-                            Text('눌러서 사진 올리기', style: TextStyle(color: Colors.black54)),
-                          ]),
-                        ),
-            ),
-          ),
+          child: _ImageUploadBox(imageUrl: imageUrl, folder: 'home_banners', onImage: onImage),
         ),
         const SizedBox(height: 12),
         TextField(
-          controller: widget.captionController,
+          controller: captionController,
           maxLength: 30,
           decoration: const InputDecoration(labelText: '사진 위 문구 (없어도 돼요)'),
         ),
         const SizedBox(height: 4),
         DropdownButtonFormField<String>(
-          initialValue: widget.link,
+          initialValue: link,
           decoration: const InputDecoration(labelText: '누르면 갈 곳'),
           items: [
             const DropdownMenuItem(value: 'none', child: Text('없음')),
             for (final e in linkTargets.entries) DropdownMenuItem(value: e.key, child: Text(e.value)),
           ],
-          onChanged: (v) => widget.onLink(v ?? 'none'),
+          onChanged: (v) => onLink(v ?? 'none'),
         ),
       ],
     );

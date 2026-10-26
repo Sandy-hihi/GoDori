@@ -118,7 +118,7 @@ class SidebarSpec {
 }
 
 const List<SidebarSpec> sidebarCatalog = [
-  SidebarSpec('logo', '로고 · 매장 이름', Icons.storefront, 126, locked: true),
+  SidebarSpec('logo', '로고 · 매장 이름', Icons.storefront, 126, locked: true, hasOptions: true),
   SidebarSpec('room', '방 번호', Icons.meeting_room_outlined, 88),
   SidebarSpec('staffCall', '직원 호출', Icons.notifications_active_outlined, 64),
   SidebarSpec('phone', '매장 전화번호', Icons.call_outlined, 22),
@@ -136,6 +136,17 @@ SidebarSpec? sidebarSpecOf(String type) {
   }
   return null;
 }
+
+/// 관리자 화면 크기 목록에 보여줄 크기들 (위젯마다 허용되지 않는 크기는 고르면 경고)
+const List<WidgetSize> allGridSizes = [
+  WidgetSize(1, 1),
+  WidgetSize(2, 1),
+  WidgetSize(3, 1),
+  WidgetSize(4, 1),
+  WidgetSize(2, 2),
+  WidgetSize(3, 2),
+  WidgetSize(2, 3),
+];
 
 /// 메뉴 바로가기(links)에서 고를 수 있는 화면
 const Map<String, String> linkTargets = {
@@ -385,6 +396,42 @@ class HomeLayout {
       }
     }
     return errors;
+  }
+
+  // ── 화면 위 위치 계산 (1280×800 기준). 손님 화면과 관리자 끌어 놓기가 같이 씀 ──
+  static const double gap = 16;
+  static const double gridPadH = 28;
+  static const double gridPadV = 26;
+
+  double get gridLeft => (sidebarVisible ? sidebarWidth : 0) + gridPadH;
+  double get gridTop => gridPadV;
+  double get gridWidth => designWidth - (sidebarVisible ? sidebarWidth : 0) - gridPadH * 2;
+  double get gridHeight => designHeight - gridPadV * 2;
+  double get cellWidth => (gridWidth - gap * (cols - 1)) / cols;
+  double get cellHeight => (gridHeight - gap * (rows - 1)) / rows;
+
+  /// 칸 위치·크기 → 화면 위 사각형 (격자 안쪽 기준이면 inGrid: true)
+  Rect cellRect(int x, int y, int w, int h, {bool inGrid = false}) {
+    final left = (inGrid ? 0 : gridLeft) + x * (cellWidth + gap);
+    final top = (inGrid ? 0 : gridTop) + y * (cellHeight + gap);
+    return Rect.fromLTWH(left, top, w * cellWidth + (w - 1) * gap, h * cellHeight + (h - 1) * gap);
+  }
+
+  /// 위젯을 이 자리·크기로 바꿨을 때 문제 (없으면 null)
+  String? problemFor(GridItem moved) {
+    final spec = specOf(moved.type);
+    if (spec != null && !spec.sizes.contains(WidgetSize(moved.w, moved.h))) {
+      return '${spec.name}은(는) ${moved.w}×${moved.h} 크기를 쓸 수 없어요. (가능: ${spec.sizes.map((s) => s.label).join(', ')})';
+    }
+    if (moved.x < 0 || moved.y < 0 || moved.x + moved.w > cols || moved.y + moved.h > rows) {
+      return '화면 밖으로 나가서 놓을 수 없어요.';
+    }
+    for (final o in widgets) {
+      if (o.id != moved.id && o.overlaps(moved)) {
+        return '${specOf(o.type)?.name ?? '다른 위젯'}과(와) 겹쳐서 놓을 수 없어요.';
+      }
+    }
+    return null;
   }
 
   /// 위젯이 들어갈 빈자리 찾기 (위→아래, 왼→오른). 없으면 null

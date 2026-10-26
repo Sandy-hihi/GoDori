@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'package:boardpad/models/home_layout.dart';
 import 'package:boardpad/services/staff_call_service.dart';
+import 'package:boardpad/utils/image_helper.dart';
+import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/home_common.dart';
 import 'home_grid_widgets.dart';
 import 'home_theme.dart';
@@ -21,8 +23,8 @@ class HomeView extends StatelessWidget {
     this.highlightSidebar = false,
   });
 
-  static const double _gap = 16;
-  static const EdgeInsets _gridPadding = EdgeInsets.fromLTRB(28, 26, 28, 26);
+  static const EdgeInsets _gridPadding = EdgeInsets.fromLTRB(
+      HomeLayout.gridPadH, HomeLayout.gridPadV, HomeLayout.gridPadH, HomeLayout.gridPadV);
 
   @override
   Widget build(BuildContext context) {
@@ -66,20 +68,13 @@ class HomeView extends StatelessWidget {
       );
 
   Widget _buildGrid() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cols = layout.cols;
-        const rows = HomeLayout.rows;
-        final cellW = (constraints.maxWidth - _gap * (cols - 1)) / cols;
-        final cellH = (constraints.maxHeight - _gap * (rows - 1)) / rows;
+    return Builder(
+      builder: (context) {
         return Stack(
           children: [
             for (final item in layout.widgets)
-              Positioned(
-                left: item.x * (cellW + _gap),
-                top: item.y * (cellH + _gap),
-                width: item.w * cellW + (item.w - 1) * _gap,
-                height: item.h * cellH + (item.h - 1) * _gap,
+              Positioned.fromRect(
+                rect: layout.cellRect(item.x, item.y, item.w, item.h, inGrid: true),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -132,12 +127,25 @@ class HomeSidebar extends StatelessWidget {
     final boxColor = fg.withValues(alpha: light ? 0.07 : 0.09);
     switch (item.type) {
       case 'logo':
+        final logoUrl = (o['imageUrl'] ?? '').toString().trim();
+        final storeName = (o['name'] ?? '').toString().trim();
+        final fallbackLogo = Image.asset('assets/images/logo.jpg', width: 76, height: 76, fit: BoxFit.cover);
         return HoldToExit(
           child: Column(
             children: [
-              ClipOval(child: Image.asset('assets/images/logo.jpg', width: 76, height: 76, fit: BoxFit.cover)),
+              ClipOval(
+                child: hasValidImage(logoUrl)
+                    ? AppNetworkImage(
+                        imageUrl: logoUrl,
+                        width: 76,
+                        height: 76,
+                        fit: BoxFit.cover,
+                        errorWidget: (c, u, e) => fallbackLogo,
+                      )
+                    : fallbackLogo,
+              ),
               const SizedBox(height: 10),
-              Text('플랫폼6 보드카페',
+              Text(storeName.isEmpty ? '플랫폼6 보드카페' : storeName,
                   textAlign: TextAlign.center, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: fg)),
             ],
           ),
