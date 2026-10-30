@@ -110,6 +110,8 @@ class GameForm {
     recommended.text = g.recommendedPlayers ?? '';
     weight.text = g.weight != null ? g.weight!.toStringAsFixed(2) : '';
     rank.text = g.rank != null ? '${g.rank}' : '';
+    final t = g.playTimeText;
+    if (t != null) time.text = t; // BGG 플레이 시간 (없으면 적힌 값 그대로)
     bggName = g.bggName;
     bggInfo = bggInfoText(g);
   }

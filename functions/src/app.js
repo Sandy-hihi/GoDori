@@ -63,6 +63,10 @@ function detailView(d) {
     weight: d.weight ?? null,
     rank: d.rank ?? null,
     difficulty: difficultyFromWeight(d.weight),
+    // 플레이 시간(분, BGG 박스 기준) — 관리자 웹이 소요시간 글자로 바꿔 저장
+    minPlayTime: d.minPlayTime ?? null,
+    maxPlayTime: d.maxPlayTime ?? null,
+    playingTime: d.playingTime ?? null,
   };
 }
 

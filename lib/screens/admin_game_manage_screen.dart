@@ -65,6 +65,11 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
   final TextEditingController _bulkCtrl = TextEditingController();
   bool _bulkMarkNew = false;
   bool _bulkRunning = false;
+
+  // BGG 플레이 시간으로 소요시간 전체 채우기
+  bool _timeFillRunning = false;
+  String? _timeFillProgress;
+  String? _timeFillResult;
   String? _bulkError;
   String? _bulkProgress;
   List<_BulkResult> _bulkResults = [];
@@ -457,7 +462,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
             'rank': g.rank,
             'geekId': g.geekId,
             'bggName': g.bggName,
-            'time': '',
+            'time': g.playTimeText ?? '',
             'tags': '',
             'videoUrl': '',
             'pickNote': '',
@@ -541,6 +546,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
         'recommendedPlayers': info.recommendedPlayers,
         'weight': info.weight,
         'rank': info.rank,
+        if (info.playTimeText != null) 'time': info.playTimeText,
         ...legacyGameFields(
           genres: genres,
           minPlayers: info.minPlayers,
@@ -717,6 +723,133 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
             ),
           ],
         ),
+      ],
+    );
+  }
+
+  // ───────────────────────── 소요시간 전체 채우기 ─────────────────────────
+
+  /// geek ID가 있는 모든 게임의 소요시간을 BGG 플레이 시간으로 덮어씀.
+  /// geek ID가 없거나 BGG에 시간이 없는 게임은 그대로 둠.
+  Future<void> _fillAllTimes(List<GameDoc> all) async {
+    String idOf(GameDoc d) => (d.data()['geekId'] ?? '').toString().trim();
+    final targets = all.where((d) => RegExp(r'^\d+$').hasMatch(idOf(d))).toList();
+    final noId = all.length - targets.length;
+    final rounds = (targets.length / _bulkChunk).ceil();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('소요시간을 BGG 시간으로 바꿀까요?'),
+        content: Text('geek ID가 있는 게임 ${targets.length}개의 소요시간을 BGG 플레이 시간(박스 기준)으로 바꿔요.\n'
+            '지금 적힌 소요시간은 덮어써요. geek ID가 없는 $noId개와 BGG에 시간이 없는 게임은 그대로 둬요.\n\n'
+            '약 ${(rounds * 5 / 60).ceil()}분 걸려요. 그동안 이 화면을 닫지 마세요.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: kAdminNavy, foregroundColor: Colors.white),
+            child: const Text('바꾸기'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() {
+      _timeFillRunning = true;
+      _timeFillResult = null;
+      _timeFillProgress = '0 / ${targets.length}';
+    });
+    var updated = 0, noTime = 0, failed = 0, done = 0;
+    String? stopReason;
+    for (var i = 0; i < targets.length; i += _bulkChunk) {
+      final chunk = targets.sublist(i, math.min(i + _bulkChunk, targets.length));
+      final ids = chunk.map(idOf).toSet().toList();
+      BggDetailsResult? r;
+      for (var attempt = 0; attempt < 3 && r == null; attempt++) {
+        try {
+          r = await BggService.details(ids);
+        } catch (e) {
+          // 너무 자주 불러서 막혔으면(429) 잠깐 쉬고 다시
+          if (e is BggException && e.status == 429 && attempt < 2) {
+            await Future.delayed(const Duration(seconds: 30));
+            continue;
+          }
+          if (e is BggException && (e.status == 401 || e.status == 404 || e.status == 503)) stopReason = e.toString();
+          break;
+        }
+      }
+      if (r == null) {
+        failed += chunk.length;
+      } else {
+        final byId = {for (final g in r.games) g.geekId: g};
+        final batch = FirebaseFirestore.instance.batch();
+        var writes = 0;
+        for (final d in chunk) {
+          final t = byId[idOf(d)]?.playTimeText;
+          if (t == null) {
+            noTime++;
+            continue;
+          }
+          batch.update(d.reference, {'time': t});
+          writes++;
+        }
+        try {
+          if (writes > 0) await batch.commit();
+          updated += writes;
+        } catch (_) {
+          failed += writes;
+        }
+      }
+      done += chunk.length;
+      if (mounted) setState(() => _timeFillProgress = '$done / ${targets.length}');
+      if (stopReason != null) break;
+      // 서버 제한(1분에 15번)에 걸리지 않게 조금씩 쉬면서
+      if (i + _bulkChunk < targets.length) await Future.delayed(const Duration(milliseconds: 4500));
+    }
+
+    // 손님 앱 게임 목록 새로고침
+    if (updated > 0) {
+      await FirebaseFirestore.instance
+          .collection('settings')
+          .doc('appRefresh')
+          .set({'gamesUpdatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+    }
+    final summary = '$updated개 바꿈 · BGG에 시간 없음 $noTime개 · 실패 $failed개 · geek ID 없음 $noId개'
+        '${stopReason != null ? '\n멈춘 이유: $stopReason' : ''}';
+    if (!mounted) return;
+    setState(() {
+      _timeFillRunning = false;
+      _timeFillResult = summary;
+    });
+    _toast('소요시간 채우기 끝: $updated개 바꿈', error: failed > 0 || stopReason != null);
+  }
+
+  Widget _buildTimeFillCard(List<GameDoc> all) {
+    return _card(
+      title: '소요시간 BGG로 채우기',
+      subtitle: 'geek ID가 있는 모든 게임의 소요시간을 BGG 플레이 시간(박스 기준, 예: 30~60분)으로 바꿔요. '
+          '새로 추가하거나 BGG로 다시 불러온 게임은 자동으로 채워져요.',
+      children: [
+        Row(
+          children: [
+            if (_timeFillRunning && _timeFillProgress != null)
+              Text('바꾸는 중… $_timeFillProgress', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const Spacer(),
+            ElevatedButton(
+              onPressed: _timeFillRunning ? null : () => _fillAllTimes(all),
+              style: ElevatedButton.styleFrom(backgroundColor: kAdminNavy, foregroundColor: Colors.white),
+              child: _timeFillRunning
+                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Text('전체 채우기'),
+            ),
+          ],
+        ),
+        if (_timeFillResult != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(_timeFillResult!, style: const TextStyle(fontSize: 13, color: Colors.black87)),
+          ),
       ],
     );
   }
@@ -1170,6 +1303,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                                 children: [
                                   _buildAddCard(registeredGeekIds),
                                   _buildBulkCard(registeredGeekIds),
+                                  _buildTimeFillCard(all),
                                   _buildPicksCard(picks),
                                 ],
                               ),

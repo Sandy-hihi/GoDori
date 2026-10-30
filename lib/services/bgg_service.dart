@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import 'admin_session.dart';
+import 'package:boardpad/utils/game_meta.dart';
 
 /// BGG(보드게임긱) 조회. 브라우저에서 BGG를 직접 부를 수 없어서 보드패드 서버 함수(/api/bgg/...)를 거칩니다.
 /// (서버 코드: functions/src/app.js)
@@ -42,6 +43,10 @@ class BggGameInfo {
   final String? recommendedPlayers;
   final double? weight;
   final int? rank;
+  // BGG 플레이 시간(분). 서버를 새로 배포하기 전에는 null
+  final int? minPlayTime;
+  final int? maxPlayTime;
+  final int? playingTime;
 
   BggGameInfo({
     required this.geekId,
@@ -52,6 +57,9 @@ class BggGameInfo {
     this.recommendedPlayers,
     this.weight,
     this.rank,
+    this.minPlayTime,
+    this.maxPlayTime,
+    this.playingTime,
   });
 
   factory BggGameInfo.fromJson(Map<String, dynamic> j) => BggGameInfo(
@@ -63,7 +71,13 @@ class BggGameInfo {
         recommendedPlayers: j['recommendedPlayers'] as String?,
         weight: (j['weight'] as num?)?.toDouble(),
         rank: (j['rank'] as num?)?.toInt(),
+        minPlayTime: (j['minPlayTime'] as num?)?.toInt(),
+        maxPlayTime: (j['maxPlayTime'] as num?)?.toInt(),
+        playingTime: (j['playingTime'] as num?)?.toInt(),
       );
+
+  /// 소요시간 글자 ("30분", "30~60분"). BGG에 시간이 없으면 null
+  String? get playTimeText => playTimeTextOf(minPlayTime, maxPlayTime, playingTime);
 }
 
 class BggImage {
