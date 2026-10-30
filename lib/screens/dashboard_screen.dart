@@ -28,11 +28,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
           initialData: HomeLayout.defaults(),
           builder: (context, snapshot) {
             final layout = snapshot.data ?? HomeLayout.defaults();
-            return Center(
-              child: FittedBox(
-                fit: BoxFit.contain,
-                child: HomeView(layout: layout, roomNumber: widget.roomNumber),
-              ),
+            // 화면 비율에 맞춘 크기로 그린 뒤 확대·축소 → 위아래·양옆 빈 띠 없이 꽉 참
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final size = HomeLayout.designSizeFor(constraints.biggest);
+                // FittedBox를 화면 크기에 딱 맞춰 둬야 기준보다 큰 화면에서도 늘려서 꽉 채움
+                // (그냥 두면 작은 화면에서 줄이기만 하고 큰 화면에서는 원래 크기로 그려 빈 곳이 생김)
+                return SizedBox(
+                  width: constraints.maxWidth,
+                  height: constraints.maxHeight,
+                  child: FittedBox(
+                    fit: BoxFit.fill,
+                    child: HomeView(layout: layout, roomNumber: widget.roomNumber, size: size),
+                  ),
+                );
+              },
             );
           },
         ),

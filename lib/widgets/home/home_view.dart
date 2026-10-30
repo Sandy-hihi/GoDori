@@ -16,12 +16,17 @@ class HomeView extends StatelessWidget {
   final String? highlightId; // 관리자 미리보기에서 선택한 위젯 강조
   final bool highlightSidebar;
 
+  /// 그리는 크기. 관리자 미리보기는 기준 크기(1280×800) 그대로,
+  /// 손님 화면은 기기 비율에 맞춘 크기(HomeLayout.designSizeFor)를 넘겨 꽉 차게 그림
+  final Size size;
+
   const HomeView({
     super.key,
     required this.layout,
     this.roomNumber,
     this.highlightId,
     this.highlightSidebar = false,
+    this.size = const Size(HomeLayout.designWidth, HomeLayout.designHeight),
   });
 
   static const EdgeInsets _gridPadding = EdgeInsets.fromLTRB(
@@ -30,8 +35,8 @@ class HomeView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: HomeLayout.designWidth,
-      height: HomeLayout.designHeight,
+      width: size.width,
+      height: size.height,
       child: ColoredBox(
         color: kBg,
         child: Stack(
@@ -51,7 +56,7 @@ class HomeView extends StatelessWidget {
                 left: 4,
                 top: 4,
                 width: HomeLayout.sidebarWidth - 8,
-                height: HomeLayout.designHeight - 8,
+                height: size.height - 8,
                 child: IgnorePointer(child: _highlightBox()),
               ),
           ],
@@ -69,13 +74,23 @@ class HomeView extends StatelessWidget {
       );
 
   Widget _buildGrid() {
-    return Builder(
-      builder: (context) {
+    // 칸 크기는 실제 격자 영역에서 계산 (화면 비율에 따라 가로·세로가 늘어남)
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = HomeLayout.gap;
+        final cellW = (constraints.maxWidth - gap * (layout.cols - 1)) / layout.cols;
+        final cellH = (constraints.maxHeight - gap * (HomeLayout.rows - 1)) / HomeLayout.rows;
+        Rect rectOf(GridItem i) => Rect.fromLTWH(
+              i.x * (cellW + gap),
+              i.y * (cellH + gap),
+              i.w * cellW + (i.w - 1) * gap,
+              i.h * cellH + (i.h - 1) * gap,
+            );
         return Stack(
           children: [
             for (final item in layout.widgets)
               Positioned.fromRect(
-                rect: layout.cellRect(item.x, item.y, item.w, item.h, inGrid: true),
+                rect: rectOf(item),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [

@@ -52,6 +52,12 @@ class WidgetSpec {
   });
 }
 
+/// AI 게임 추천(격자 위젯 '오늘의 추천 게임 (AI)' + 손님 맞춤 추천 팝업) 사용 여부.
+/// 지금은 꺼 둠: 다른 앱에서 이미 AI 추천을 만들어서 패드에는 필요 없음. 코드는 남겨 둠.
+/// false면 관리자 '홈 화면 꾸미기' 목록에 안 보이고, 저장된 배치에 있어도 손님 화면에 안 그려짐.
+/// 다시 켜려면 true로 바꾸고 functions/index.js의 AI_ENABLED, firebase.json의 "/api/ai/**" 경로도 되살릴 것.
+const bool kAiRecommendEnabled = false;
+
 const List<WidgetSpec> widgetCatalog = [
   // 게임
   WidgetSpec('gameList', '게임 목록', '사진 카드 — 누르면 게임 목록', Icons.casino_outlined, WidgetCategory.game,
@@ -100,6 +106,7 @@ const List<WidgetSpec> widgetCatalog = [
 ];
 
 WidgetSpec? specOf(String type) {
+  if (type == 'aiPick' && !kAiRecommendEnabled) return null; // AI 추천 꺼 둠 → 모르는 위젯처럼 취급
   for (final s in widgetCatalog) {
     if (s.type == type) return s;
   }
@@ -284,6 +291,16 @@ class HomeLayout {
   static const double sidebarWidth = 196;
   static const double sidebarMaxContent = 740; // 왼쪽 영역 안쪽 높이 (위아래 여백 제외)
 
+  /// 손님 화면 크기에 맞춘 그리기 크기. 1280×800(16:10)을 기준으로
+  /// 화면이 더 넓으면 가로를, 더 길쭉하면 세로를 늘려서 빈 띠 없이 꽉 차게 그림.
+  static Size designSizeFor(Size screen) {
+    if (screen.width <= 0 || screen.height <= 0) return const Size(designWidth, designHeight);
+    final aspect = screen.width / screen.height;
+    const base = designWidth / designHeight;
+    if (aspect >= base) return Size(designHeight * aspect, designHeight);
+    return Size(designWidth, designWidth / aspect);
+  }
+
   final bool sidebarVisible;
   final Color sidebarColor;
   final List<SidebarItem> sidebarItems;
@@ -458,9 +475,11 @@ class HomeLayout {
           SidebarItem('phone'),
         ],
         widgets: [
-          GridItem(id: 'w1', type: 'gameList', x: 0, y: 0, w: 2, h: 2),
-          GridItem(id: 'w2', type: 'foodOrder', x: 2, y: 0, w: 2, h: 2),
-          GridItem(id: 'w3', type: 'aiPick', x: 4, y: 0, w: 2, h: 2),
+          // AI 추천을 끄면 그 자리(2×2)를 게임 목록·음식 주문이 3×2로 나눠 씀
+          GridItem(id: 'w1', type: 'gameList', x: 0, y: 0, w: kAiRecommendEnabled ? 2 : 3, h: 2),
+          GridItem(
+              id: 'w2', type: 'foodOrder', x: kAiRecommendEnabled ? 2 : 3, y: 0, w: kAiRecommendEnabled ? 2 : 3, h: 2),
+          if (kAiRecommendEnabled) GridItem(id: 'w3', type: 'aiPick', x: 4, y: 0, w: 2, h: 2),
           GridItem(id: 'w4', type: 'search', x: 0, y: 2, w: 2, h: 1),
           GridItem(id: 'w5', type: 'notice', x: 2, y: 2, w: 2, h: 1),
           GridItem(id: 'w6', type: 'clock', x: 4, y: 2, w: 1, h: 1),
