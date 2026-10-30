@@ -522,7 +522,9 @@ class _GameListScreenState extends State<GameListScreen> {
                       controller: _scroll,
                       padding: const EdgeInsets.only(left: padL, right: padR),
                       // 아래 몇 줄을 미리 만들어 두어 사진이 늦게 뜨는 걸 줄임
-                      scrollCacheExtent: const ScrollCacheExtent.pixels(_rowStride * 3),
+                      // (cacheExtent는 Flutter 3.44부터 '사용 중단 예정' 안내가 뜨지만 지금 버전에서 정상 동작함.
+                      //  새 scrollCacheExtent로 바꿨다가 이 PC의 Flutter 3.47.7에서 빌드가 깨져서 되돌림)
+                      cacheExtent: _rowStride * 3,
                       // itemCount 없음 → 끝없이 이어짐. 줄 높이를 미리 알려 줘서 위치 계산이 정확·가벼움
                       itemExtentBuilder: (index, _) => index % n == rows ? _loopMarkH : _rowStride,
                       itemBuilder: (context, index) {
