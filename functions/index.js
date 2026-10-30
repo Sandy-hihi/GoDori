@@ -17,6 +17,11 @@ const ANTHROPIC_API_KEY = defineSecret('ANTHROPIC_API_KEY');
 
 const REGION = 'asia-northeast3'; // 서울
 
+// AI 게임 추천(ai, dailyPicks 함수) 사용 여부. 지금은 꺼 둠 — 코드는 남겨 두고 배포만 안 함.
+// 다시 켜려면 true로 바꾸고, firebase.json에 "/api/ai/**" → ai 경로를 "/api/**" 앞에 되살리고,
+// 앱의 kAiRecommendEnabled(lib/models/home_layout.dart)도 true로.
+const AI_ENABLED = false;
+
 let db = null;
 function getDb() {
   if (db) return db;
@@ -103,7 +108,7 @@ function getAiHandle() {
 }
 
 // 손님 패드의 "우리 테이블 맞춤 추천" (Hosting이 /api/ai/** 를 이 함수로 넘김)
-exports.ai = onRequest(
+const aiFunction = onRequest(
   {
     region: REGION,
     secrets: [ANTHROPIC_API_KEY],
@@ -120,7 +125,7 @@ function seoulDateKey(date = new Date()) {
 }
 
 // 매일 오전 10시(한국 시간)에 "오늘의 추천 게임"을 골라 settings/aiPicks 에 저장
-exports.dailyPicks = onSchedule(
+const dailyPicksFunction = onSchedule(
   {
     region: REGION,
     schedule: 'every day 10:00',
@@ -158,3 +163,8 @@ exports.dailyPicks = onSchedule(
     console.log(`[오늘의 추천] ${result.date} ${result.source} ${result.picks.map((p) => p.title).join(', ')}`);
   }
 );
+
+if (AI_ENABLED) {
+  exports.ai = aiFunction;
+  exports.dailyPicks = dailyPicksFunction;
+}

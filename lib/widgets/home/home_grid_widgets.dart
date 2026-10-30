@@ -45,6 +45,7 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
         onTap: () => openHomeTarget(context, 'food', roomNumber),
       );
     case 'aiPick':
+      if (!kAiRecommendEnabled) return const SizedBox.shrink(); // AI 추천 꺼 둠 (home_layout.dart)
       return AiPickWidget(
         roomNumber: roomNumber,
         count: _optInt(o, 'count', 3).clamp(2, 4).toInt(),

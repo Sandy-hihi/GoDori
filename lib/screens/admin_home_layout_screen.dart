@@ -976,7 +976,7 @@ class _WidgetPickerDialog extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(4, 12, 4, 6),
                 child: Text(widgetCategoryNames[cat]!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               ),
-              for (final spec in widgetCatalog.where((s) => s.category == cat))
+              for (final spec in widgetCatalog.where((s) => s.category == cat && specOf(s.type) != null))
                 ListTile(
                   leading: Icon(spec.icon, color: _adminNavy),
                   title: Text(spec.name),

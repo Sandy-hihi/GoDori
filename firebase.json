@@ -30,13 +30,6 @@
     ],
     "rewrites": [
       {
-        "source": "/api/ai/**",
-        "function": {
-          "functionId": "ai",
-          "region": "asia-northeast3"
-        }
-      },
-      {
         "source": "/api/**",
         "function": {
           "functionId": "api",
