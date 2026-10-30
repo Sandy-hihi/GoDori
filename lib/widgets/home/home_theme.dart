@@ -36,13 +36,13 @@ void openHomeTarget(BuildContext context, String target, int? roomNumber) {
       homeGo(context, FoodOrderScreen(roomNumber: roomNumber));
       break;
     case 'event':
-      homeGo(context, const EventScreen());
+      homeGo(context, EventScreen(roomNumber: roomNumber));
       break;
     case 'notice':
-      homeGo(context, const NoticeScreen());
+      homeGo(context, NoticeScreen(roomNumber: roomNumber));
       break;
     case 'tools':
-      homeGo(context, const GameToolsScreen());
+      homeGo(context, GameToolsScreen(roomNumber: roomNumber));
       break;
   }
 }

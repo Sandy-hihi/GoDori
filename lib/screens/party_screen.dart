@@ -8,18 +8,24 @@ import '../models/party_session.dart';
 import '../services/party_session_store.dart';
 import 'game_list_screen.dart';
 import 'food_order_screen.dart';
+import '../widgets/home/home_theme.dart';
+import '../widgets/pad_shell.dart';
 
 class PartyScreen extends StatefulWidget {
   final int? roomNumber;
   final PartySessionStore? store;
   final Future<List<Map<String, dynamic>>>? catalog;
   final Future<List<Map<String, dynamic>>>? menuCatalog;
+
+  /// false면 왼쪽 사이드바 없이 (Firebase 없이 도는 위젯 테스트용)
+  final bool showSidebar;
   const PartyScreen({
     super.key,
     this.roomNumber,
     this.store,
     this.catalog,
     this.menuCatalog,
+    this.showSidebar = true,
   });
 
   @override
@@ -262,25 +268,18 @@ class _PartyScreenState extends State<PartyScreen> {
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 3,
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF4F6F8),
-        appBar: AppBar(
-          backgroundColor: const Color(0xFF00B37E),
-          foregroundColor: Colors.white,
-          title: Text(
-            '일행과 함께${widget.roomNumber == null ? '' : ' · ${widget.roomNumber}번 방'}',
-          ),
-          bottom: const TabBar(
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white70,
-            tabs: [
-              Tab(text: '인원별 추천'),
-              Tab(text: '승패 · 음료 내기'),
-              Tab(text: '밸런스 게임 · 팀'),
-            ],
-          ),
+      child: PadShell(
+        current: 'party',
+        roomNumber: widget.roomNumber,
+        showSidebar: widget.showSidebar,
+        title: '일행과 함께',
+        subtitle: '인원별 추천 · 승패 기록과 음료 내기 · 밸런스 게임으로 팀 나누기',
+        headerBottom: const PadTabBar(
+          tabs: [
+            Tab(text: '인원별 추천'),
+            Tab(text: '승패 · 음료 내기'),
+            Tab(text: '밸런스 게임 · 팀'),
+          ],
         ),
         body: _loading
             ? const Center(child: CircularProgressIndicator())
@@ -298,7 +297,7 @@ class _PartyScreenState extends State<PartyScreen> {
                 absorbing: _saving,
                 child: Column(
                   children: [
-                    if (_saving) const LinearProgressIndicator(),
+                    if (_saving) const LinearProgressIndicator(color: kOrange),
                     Expanded(
                       child: TabBarView(
                         children: [_recommendations(), _records(), _balance()],
@@ -312,10 +311,13 @@ class _PartyScreenState extends State<PartyScreen> {
   }
 
   Widget _page(List<Widget> children) =>
-      ListView(padding: const EdgeInsets.all(20), children: children);
+      ListView(padding: const EdgeInsets.fromLTRB(32, 0, 32, 24), children: children);
 
   Widget _card(String title, List<Widget> children) => Card(
     margin: const EdgeInsets.only(bottom: 16),
+    color: Colors.white,
+    elevation: 0,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
     child: Padding(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -323,7 +325,7 @@ class _PartyScreenState extends State<PartyScreen> {
         children: [
           Text(
             title,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kInk),
           ),
           const SizedBox(height: 12),
           ...children,
@@ -387,7 +389,7 @@ class _PartyScreenState extends State<PartyScreen> {
               contentPadding: EdgeInsets.zero,
               leading: Icon(
                 game['isRecommended'] == true ? Icons.star : Icons.extension,
-                color: const Color(0xFF007E5B),
+                color: kOrange,
               ),
               title: Text((game['title'] ?? '이름 없는 게임').toString()),
               subtitle: Text(
@@ -716,7 +718,7 @@ class _PartyScreenState extends State<PartyScreen> {
         style: const TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.bold,
-          color: Color(0xFF007E5B),
+          color: kOrange,
         ),
       ),
       Text('${_session.cafe} · ${_session.drink}'),

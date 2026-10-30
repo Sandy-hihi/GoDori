@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:boardpad/widgets/store_brand.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/utils/image_helper.dart';
-import 'package:boardpad/services/staff_call_service.dart';
+import 'package:boardpad/widgets/home/home_theme.dart';
+import 'package:boardpad/widgets/pad_shell.dart';
 
 class FoodOrderScreen extends StatefulWidget {
   final int? roomNumber;
@@ -15,90 +15,95 @@ class FoodOrderScreen extends StatefulWidget {
   State<FoodOrderScreen> createState() => _FoodOrderScreenState();
 }
 
-class _FoodOrderScreenState extends State<FoodOrderScreen>
-    with SingleTickerProviderStateMixin {
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+class _FoodOrderScreenState extends State<FoodOrderScreen> {
   final TextEditingController _noteController = TextEditingController();
+  late final Stream<DocumentSnapshot> _categoryStream =
+      FirebaseFirestore.instance.collection('settings').doc('categories').snapshots();
+  // 전체 메뉴를 한 번에 구독 → 카테고리별로 화면에서 나눔 (구독 1개)
+  late final Stream<QuerySnapshot> _menuStream = FirebaseFirestore.instance.collection('menus').snapshots();
 
   bool _isSubmitting = false;
+  String? _selectedCategory;
+
+  // ── 인피니티 스크롤: 모든 카테고리를 한 목록에 이어 붙이고, 마지막 카테고리 다음에 다시 처음 카테고리가
+  //    끝없이 반복됨. 위 버튼과 스크롤 위치를 서로 맞춤 ──
+  final ScrollController _scroll = ScrollController();
+  List<String> _sections = []; // 메뉴가 있는 카테고리 (화면 순서)
+  List<double> _sectionTops = []; // 한 바퀴 안에서 각 카테고리 제목의 위치
+  double _cycleH = 0; // 한 바퀴(모든 카테고리 한 번)의 높이
+  bool _jumping = false; // 버튼을 눌러 이동하는 중에는 스크롤 감지로 버튼을 바꾸지 않음
+  final Map<String, GlobalKey> _pillKeys = {};
+
+  static const double _sectionHeaderH = 58;
+  static const double _sectionGapBottom = 28;
+  static const double _cardH = 250;
+  static const double _cardMinW = 220;
+  static const double _gridGap = 16;
+  static const double _loopMarkH = 64; // 한 바퀴 끝 '처음으로' 표시
+
+  // 장바구니 (메뉴명(옵션) : {단가, 수량})
+  Map<String, Map<String, dynamic>> cart = {};
 
   @override
   void initState() {
     super.initState();
+    _scroll.addListener(_onScroll);
     if (widget.initialMenuId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openInitialMenu());
     }
   }
 
-  Future<void> _openInitialMenu() async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('menus')
-          .doc(widget.initialMenuId)
-          .get();
-      if (!mounted) return;
-      final menu = doc.data();
-      if (menu == null ||
-          menu['isSoldOut'] == true ||
-          menu['isSoldOut'] == 'true') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('선택 메뉴가 삭제되었거나 품절되었습니다. 다른 메뉴를 골라주세요.')),
-        );
-        return;
-      }
-      _scaffoldKey.currentState?.openEndDrawer();
-      _showMenuOptionDialog(context, menu);
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('선택 메뉴를 불러오지 못했습니다. 주문 화면에서 다시 선택해주세요.')),
-      );
-    }
-  }
-
-  // 💡 1. 장바구니 구조 확장 (메뉴명(옵션) : {단가, 수량})
-  Map<String, Map<String, dynamic>> cart = {};
-
   @override
   void dispose() {
     _noteController.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
-  // 💡 2. 장바구니 담기 (옵션 및 합산 가격 반영)
-  void _addToCartWithOptions(
-    Map<String, dynamic> menu,
-    List<String> selectedOptions,
-    int additionalPrice,
-  ) {
-    String baseName = menu['name'] ?? '이름 없음';
-    int basePrice = menu['price'] is int
-        ? menu['price']
-        : int.tryParse(menu['price'].toString()) ?? 0;
+  // 메인 화면 '오늘의 추천 메뉴'에서 들어오면 그 메뉴의 옵션 창을 바로 띄움
+  Future<void> _openInitialMenu() async {
+    try {
+      final doc = await FirebaseFirestore.instance.collection('menus').doc(widget.initialMenuId).get();
+      if (!mounted) return;
+      final menu = doc.data();
+      if (menu == null || menu['isSoldOut'] == true || menu['isSoldOut'] == 'true') {
+        padSnack(context, '선택한 메뉴가 없어졌거나 품절이에요. 다른 메뉴를 골라 주세요.');
+        return;
+      }
+      _showMenuOptionDialog(context, menu);
+    } catch (_) {
+      if (!mounted) return;
+      padSnack(context, '선택한 메뉴를 불러오지 못했어요. 목록에서 다시 골라 주세요.', error: true);
+    }
+  }
 
-    int finalPrice = basePrice + additionalPrice;
-    String optionsText = selectedOptions.isNotEmpty
-        ? '(${selectedOptions.join(', ')})'
-        : '';
+  static int _price(dynamic v) => v is int ? v : int.tryParse((v ?? '').toString()) ?? 0;
+
+  static String _won(int v) {
+    final s = v.toString();
+    final buf = StringBuffer();
+    for (int i = 0; i < s.length; i++) {
+      if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
+      buf.write(s[i]);
+    }
+    return '$buf원';
+  }
+
+  // 장바구니 담기 (옵션 및 합산 가격 반영)
+  void _addToCartWithOptions(Map<String, dynamic> menu, List<String> selectedOptions, int additionalPrice) {
+    String baseName = menu['name'] ?? '이름 없음';
+    int finalPrice = _price(menu['price']) + additionalPrice;
+    String optionsText = selectedOptions.isNotEmpty ? '(${selectedOptions.join(', ')})' : '';
     String cartKey = '$baseName $optionsText'.trim(); // 예: 아메리카노 (HOT, 샷 추가)
 
     setState(() {
       if (cart.containsKey(cartKey)) {
-        cart[cartKey]!['quantity'] =
-            (cart[cartKey]!['quantity'] as num).toInt() + 1;
+        cart[cartKey]!['quantity'] = (cart[cartKey]!['quantity'] as num).toInt() + 1;
       } else {
         cart[cartKey] = {'unitPrice': finalPrice, 'quantity': 1};
       }
     });
-
-    ScaffoldMessenger.of(context).removeCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$cartKey 담겼습니다.'),
-        duration: const Duration(seconds: 1),
-        backgroundColor: const Color(0xFF00B37E),
-      ),
-    );
+    padSnack(context, '$cartKey 담았어요');
   }
 
   // 수량 조절 및 삭제
@@ -113,24 +118,86 @@ class _FoodOrderScreenState extends State<FoodOrderScreen>
     });
   }
 
-  // 💡 3. 총 결제 금액 계산 (장바구니 내부의 unitPrice 활용)
   int _getTotalPrice() {
     int total = 0;
     cart.forEach((key, item) {
-      total +=
-          (item['unitPrice'] as num).toInt() *
-          (item['quantity'] as num).toInt();
+      total += (item['unitPrice'] as num).toInt() * (item['quantity'] as num).toInt();
     });
     return total;
   }
 
-  // 장바구니 총 수량 계산
-  int _getTotalCount() => cart.values.fold(
-    0,
-    (total, item) => total + (item['quantity'] as num).toInt(),
-  );
+  int _getTotalCount() => cart.values.fold(0, (total, item) => total + (item['quantity'] as num).toInt());
 
-  // 💡 4. 옵션 선택 팝업창 (선택 옵션도 단일 선택으로 변경 완료)
+  // 주문 보내기 (orders 컬렉션 — 관리자 대시보드가 실시간으로 받음)
+  Future<void> _submitOrder() async {
+    setState(() => _isSubmitting = true);
+    try {
+      List<String> orderItems = [];
+      cart.forEach((cartKey, item) => orderItems.add('$cartKey x ${item['quantity']}'));
+
+      final now = DateTime.now();
+      final timeString = '${now.hour}시 ${now.minute.toString().padLeft(2, '0')}분';
+
+      await FirebaseFirestore.instance.collection('orders').add({
+        'room': '#${widget.roomNumber ?? 1}',
+        'time': timeString,
+        'price': _getTotalPrice().toString(),
+        'items': orderItems,
+        'notes': _noteController.text.isEmpty ? '추가사항 없음' : _noteController.text,
+        'roomColor': 0xFFC2365A,
+        'status': 'pending',
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+      setState(() {
+        cart.clear();
+        _noteController.clear();
+        _isSubmitting = false;
+      });
+      _showOrderDone();
+    } catch (e) {
+      debugPrint('Order error: $e');
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      padSnack(context, '주문을 보내지 못했어요. 다시 눌러 주세요.', error: true);
+    }
+  }
+
+  void _showOrderDone() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        contentPadding: const EdgeInsets.fromLTRB(32, 32, 32, 12),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check_circle_rounded, color: kOrange, size: 64),
+            SizedBox(height: 12),
+            Text('주문이 접수됐어요', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
+            SizedBox(height: 6),
+            Text('준비되면 자리로 가져다드릴게요.', style: TextStyle(fontSize: 15, color: kMuted)),
+          ],
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: FilledButton.styleFrom(
+              backgroundColor: kInk,
+              minimumSize: const Size(160, 48),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+            child: const Text('확인', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 옵션 선택 팝업 (그룹마다 하나씩 선택, 선택 옵션은 다시 누르면 취소)
   void _showMenuOptionDialog(BuildContext context, Map<String, dynamic> menu) {
     final List<dynamic> optionGroups = menu['optionGroups'] ?? [];
 
@@ -140,27 +207,25 @@ class _FoodOrderScreenState extends State<FoodOrderScreen>
       return;
     }
 
-    // 그룹별 선택된 옵션을 저장할 상태 변수 (필수는 첫 번째 항목 자동 선택)
+    // 그룹별 선택된 옵션 (필수는 첫 번째 항목 자동 선택)
     Map<int, List<Map<String, dynamic>>> selectedOptionsMap = {};
     for (int i = 0; i < optionGroups.length; i++) {
-      if (optionGroups[i]['isRequired'] == true &&
-          (optionGroups[i]['options'] as List).isNotEmpty) {
+      if (optionGroups[i]['isRequired'] == true && (optionGroups[i]['options'] as List).isNotEmpty) {
         selectedOptionsMap[i] = [optionGroups[i]['options'][0]];
       } else {
         selectedOptionsMap[i] = [];
       }
     }
 
+    final imageUrl = menu['imageUrl']?.toString();
+
     showDialog(
       context: context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
-            int basePrice = menu['price'] is int
-                ? menu['price']
-                : int.tryParse(menu['price'].toString()) ?? 0;
+            int basePrice = _price(menu['price']);
             int additionalPrice = 0;
-
             for (var list in selectedOptionsMap.values) {
               for (var opt in list) {
                 additionalPrice += (opt['price'] as int? ?? 0);
@@ -168,101 +233,143 @@ class _FoodOrderScreenState extends State<FoodOrderScreen>
             }
             int totalPrice = basePrice + additionalPrice;
 
-            return AlertDialog(
-              title: Text(
-                '${menu['name']} 옵션 선택',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              content: SingleChildScrollView(
-                child: SizedBox(
-                  width: 400,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: optionGroups.asMap().entries.map((entry) {
-                      int gIndex = entry.key;
-                      var group = entry.value;
-                      bool isRequired = group['isRequired'] ?? false;
-                      List<dynamic> opts = group['options'] ?? [];
-
-                      return RadioGroup<String>(
-                        groupValue:
-                            selectedOptionsMap[gIndex]?.isNotEmpty == true
-                            ? selectedOptionsMap[gIndex]!.first['name']
-                            : null,
-                        onChanged: (val) {
-                          setDialogState(() {
-                            selectedOptionsMap[gIndex] = val == null
-                                ? []
-                                : [
-                                    opts.firstWhere(
-                                      (option) => option['name'] == val,
-                                    ),
-                                  ];
-                          });
-                        },
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 8.0,
-                              ),
-                              child: Text(
-                                '${group['groupName']} ${isRequired ? "(필수)" : "(선택)"}',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: Colors.blueAccent,
-                                ),
-                              ),
+            return Dialog(
+              backgroundColor: kBg,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+              clipBehavior: Clip.antiAlias,
+              child: SizedBox(
+                width: 520,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 22, 12, 6),
+                      child: Row(
+                        children: [
+                          if (hasValidImage(imageUrl)) ...[
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: AppNetworkImage(imageUrl: imageUrl!, width: 64, height: 64, fit: BoxFit.cover),
                             ),
-                            // 💡 여기서부터 수정됨! (체크박스를 없애고 모두 라디오 버튼으로 통일)
-                            ...opts.map((opt) {
-                              String titleText =
-                                  '${opt['name']} (+${opt['price']}원)';
-
-                              return RadioListTile<String>(
-                                title: Text(titleText),
-                                value: opt['name'],
-                                // 💡 핵심: 선택 옵션(!isRequired)은 한 번 더 누르면 취소할 수 있음!
-                                toggleable: !isRequired,
-                                activeColor: const Color(0xFF00B37E),
-                              );
-                            }),
-                            const Divider(),
+                            const SizedBox(width: 14),
                           ],
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('${menu['name'] ?? ''}',
+                                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
+                                Text(_won(basePrice), style: const TextStyle(fontSize: 15, color: kMuted)),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close, color: kMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: optionGroups.asMap().entries.map((entry) {
+                            int gIndex = entry.key;
+                            var group = entry.value;
+                            bool isRequired = group['isRequired'] ?? false;
+                            List<dynamic> opts = group['options'] ?? [];
+                            final selectedName = selectedOptionsMap[gIndex]?.isNotEmpty == true
+                                ? selectedOptionsMap[gIndex]!.first['name']
+                                : null;
+
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text('${group['groupName']}',
+                                          style: const TextStyle(
+                                              fontSize: 16, fontWeight: FontWeight.w800, color: kInk)),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: isRequired ? kOrange : Colors.white,
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: isRequired ? kOrange : kLine),
+                                        ),
+                                        child: Text(isRequired ? '필수' : '선택',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w700,
+                                              color: isRequired ? Colors.white : kMuted,
+                                            )),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      for (final opt in opts)
+                                        _optionChip(
+                                          name: '${opt['name']}',
+                                          price: (opt['price'] as int? ?? 0),
+                                          selected: selectedName == opt['name'],
+                                          onTap: () => setDialogState(() {
+                                            if (selectedName == opt['name']) {
+                                              // 선택 옵션은 다시 누르면 취소 (필수는 그대로)
+                                              if (!isRequired) selectedOptionsMap[gIndex] = [];
+                                            } else {
+                                              selectedOptionsMap[gIndex] = [
+                                                Map<String, dynamic>.from(opt as Map),
+                                              ];
+                                            }
+                                          }),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
                         ),
-                      );
-                    }).toList(),
-                  ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                      child: SizedBox(
+                        height: 58,
+                        child: FilledButton(
+                          onPressed: () {
+                            List<String> finalOptions = [];
+                            for (var list in selectedOptionsMap.values) {
+                              for (var opt in list) {
+                                finalOptions.add(opt['name']);
+                              }
+                            }
+                            _addToCartWithOptions(menu, finalOptions, additionalPrice);
+                            Navigator.pop(context);
+                          },
+                          style: FilledButton.styleFrom(
+                            backgroundColor: kOrange,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          ),
+                          child: Text('${_won(totalPrice)} 담기',
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('취소', style: TextStyle(color: Colors.grey)),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    List<String> finalOptions = [];
-                    for (var list in selectedOptionsMap.values) {
-                      for (var opt in list) {
-                        finalOptions.add(opt['name']);
-                      }
-                    }
-                    _addToCartWithOptions(menu, finalOptions, additionalPrice);
-                    Navigator.pop(context);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00B37E),
-                    foregroundColor: Colors.white,
-                  ),
-                  child: Text(
-                    '$totalPrice원 담기',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
             );
           },
         );
@@ -270,545 +377,295 @@ class _FoodOrderScreenState extends State<FoodOrderScreen>
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: const Color(0xFFF4F6F8),
-
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-        backgroundColor: const Color(0xFF007E5B),
-        child: Badge(
-          isLabelVisible: cart.isNotEmpty,
-          label: Text('${_getTotalCount()}'),
-          child: const Icon(Icons.shopping_cart, color: Colors.white, size: 28),
-        ),
-      ),
-
-      // 장바구니 서랍 부분
-      endDrawer: Drawer(
-        width: MediaQuery.of(context).size.width * 0.4,
-        child: SafeArea(
+  Widget _optionChip({required String name, required int price, required bool selected, required VoidCallback onTap}) {
+    return Material(
+      color: selected ? kInk : Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          constraints: const BoxConstraints(minWidth: 110),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: selected ? kInk : kLine),
+          ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                color: const Color(0xFF00B37E),
-                child: const Row(
-                  children: [
-                    Icon(Icons.shopping_cart_checkout, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text(
-                      '장바구니',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: cart.isEmpty
-                    ? const Center(
-                        child: Text(
-                          '장바구니가 비어있습니다.',
-                          style: TextStyle(fontSize: 18, color: Colors.grey),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: cart.length,
-                        itemBuilder: (context, index) {
-                          String cartKey = cart.keys.elementAt(index);
-                          int quantity = cart[cartKey]!['quantity'];
-                          int unitPrice = cart[cartKey]!['unitPrice'];
-
-                          return Card(
-                            margin: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 8,
-                            ),
-                            child: ListTile(
-                              title: Text(
-                                cartKey,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              subtitle: Text(
-                                '${unitPrice * quantity}원',
-                                style: const TextStyle(
-                                  color: Colors.blueAccent,
-                                ),
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.remove_circle_outline,
-                                    ),
-                                    onPressed: () =>
-                                        _updateQuantity(cartKey, -1),
-                                  ),
-                                  Text(
-                                    '$quantity',
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.add_circle_outline),
-                                    onPressed: () =>
-                                        _updateQuantity(cartKey, 1),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.delete,
-                                      color: Colors.red,
-                                    ),
-                                    onPressed: () =>
-                                        setState(() => cart.remove(cartKey)),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-              const Divider(height: 1),
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('총 결제금액', style: TextStyle(fontSize: 18)),
-                        Text(
-                          '${_getTotalPrice()}원',
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.redAccent,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _noteController,
-                      decoration: InputDecoration(
-                        hintText: '요청사항을 입력해주세요 (예: 얼음 적게)',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 56,
-                      child: ElevatedButton(
-                        onPressed: cart.isEmpty || _isSubmitting
-                            ? null
-                            : () async {
-                                setState(() => _isSubmitting = true);
-                                try {
-                                  List<String> orderItems = [];
-                                  cart.forEach(
-                                    (cartKey, item) => orderItems.add(
-                                      '$cartKey x ${item['quantity']}',
-                                    ),
-                                  );
-
-                                  final now = DateTime.now();
-                                  final timeString =
-                                      '${now.hour}시 ${now.minute.toString().padLeft(2, '0')}분';
-
-                                  await FirebaseFirestore.instance
-                                      .collection('orders')
-                                      .add({
-                                        'room': '#${widget.roomNumber ?? 1}',
-                                        'time': timeString,
-                                        'price': _getTotalPrice().toString(),
-                                        'items': orderItems,
-                                        'notes': _noteController.text.isEmpty
-                                            ? '추가사항 없음'
-                                            : _noteController.text,
-                                        'roomColor': 0xFFC2365A,
-                                        'status': 'pending',
-                                        'timestamp':
-                                            FieldValue.serverTimestamp(),
-                                      });
-
-                                  if (mounted) {
-                                    setState(() {
-                                      cart.clear();
-                                      _noteController.clear();
-                                      _isSubmitting = false;
-                                    });
-                                  }
-                                  if (context.mounted) {
-                                    Navigator.pop(context);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('주문이 전송되었습니다! 🚀'),
-                                        backgroundColor: Color(0xFF00B37E),
-                                      ),
-                                    );
-                                  }
-                                } catch (e) {
-                                  debugPrint('Order error: $e');
-                                  if (mounted) {
-                                    setState(() => _isSubmitting = false);
-                                  }
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          '주문 전송에 실패했습니다. 다시 시도해주세요.',
-                                        ),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                  }
-                                }
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF007E5B),
-                          foregroundColor: Colors.white,
-                        ),
-                        child: const Text(
-                          '주문하기',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              Text(name,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: selected ? Colors.white : kInk,
+                  )),
+              Text(price > 0 ? '+${_won(price)}' : '추가 금액 없음',
+                  style: TextStyle(fontSize: 12, color: selected ? Colors.white70 : kMuted)),
             ],
           ),
         ),
       ),
+    );
+  }
 
-      // 메인 화면 (탭 + 메뉴 리스트)
-      body: Row(
+  // 스크롤하면 지금 보고 있는 카테고리 버튼을 켬 (몇 바퀴째든 한 바퀴 안의 위치로 계산)
+  void _onScroll() {
+    if (_jumping || _sectionTops.isEmpty || _cycleH <= 0 || !_scroll.hasClients) return;
+    final y = (_scroll.offset + 12) % _cycleH;
+    var idx = 0;
+    for (var i = 0; i < _sectionTops.length; i++) {
+      if (_sectionTops[i] <= y) idx = i;
+    }
+    final c = _sections[idx];
+    if (c != _selectedCategory) {
+      setState(() => _selectedCategory = c);
+      _revealPill(c);
+    }
+  }
+
+  // 카테고리 버튼을 누르면 지금 바퀴 안의 그 카테고리로 스크롤
+  void _jumpTo(String category) {
+    final idx = _sections.indexOf(category);
+    if (idx < 0 || _cycleH <= 0 || !_scroll.hasClients) return;
+    setState(() => _selectedCategory = category);
+    _revealPill(category);
+    final base = (_scroll.offset / _cycleH).floor() * _cycleH;
+    final target = base + _sectionTops[idx];
+    _jumping = true;
+    _scroll
+        .animateTo(target, duration: const Duration(milliseconds: 380), curve: Curves.easeOutCubic)
+        .whenComplete(() => _jumping = false);
+  }
+
+  // 켜진 버튼이 버튼 줄 밖에 있으면 보이게 옆으로 밀어 줌
+  void _revealPill(String category) {
+    final ctx = _pillKeys[category]?.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(ctx, alignment: 0.5, duration: const Duration(milliseconds: 250));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: _categoryStream,
+      builder: (context, catSnap) {
+        List<String> categories = [];
+        if (catSnap.hasData && catSnap.data!.exists) {
+          categories = List<dynamic>.from((catSnap.data!.data() as Map? ?? {})['list'] ?? [])
+              .map((e) => e.toString())
+              .toList();
+        }
+        return StreamBuilder<QuerySnapshot>(
+          stream: _menuStream,
+          builder: (context, menuSnap) {
+            final loading = catSnap.connectionState == ConnectionState.waiting ||
+                (menuSnap.connectionState == ConnectionState.waiting && !menuSnap.hasData);
+
+            // 카테고리별 주문 가능한 메뉴 (품절 제외). 메뉴가 없는 카테고리는 건너뜀
+            final byCategory = <String, List<Map<String, dynamic>>>{};
+            for (final doc in menuSnap.data?.docs ?? const <QueryDocumentSnapshot>[]) {
+              final data = doc.data() as Map<String, dynamic>;
+              final bool isSoldOut = data['isSoldOut'] == true || data['isSoldOut'] == 'true';
+              if (isSoldOut) continue;
+              byCategory.putIfAbsent((data['category'] ?? '').toString(), () => []).add(data);
+            }
+            _sections = [for (final c in categories) if (byCategory[c]?.isNotEmpty == true) c];
+            if (_selectedCategory == null || !_sections.contains(_selectedCategory)) {
+              _selectedCategory = _sections.isEmpty ? null : _sections.first;
+            }
+
+            return PadShell(
+              current: 'food',
+              roomNumber: widget.roomNumber,
+              title: '음식 주문',
+              subtitle: '${widget.roomNumber ?? '-'}번 룸으로 가져다드려요',
+              headerBottom: _sections.isEmpty ? null : _categoryBar(),
+              rightPanel: _cartPanel(),
+              body: loading
+                  ? const Center(child: CircularProgressIndicator(color: kOrange))
+                  : _sections.isEmpty
+                      ? const PadEmpty(icon: Icons.restaurant_menu, text: '지금 주문할 수 있는 메뉴가 없어요.')
+                      : _menuScroll(byCategory),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // 위쪽 카테고리 버튼 줄 (모두 그려 두어야 버튼 위치로 밀어 줄 수 있음)
+  Widget _categoryBar() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
         children: [
-          Expanded(
-            child: SafeArea(
-              child: Column(
-                children: [
-                  // 상단 바
-                  Container(
-                    color: const Color(0xFF00B37E),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24.0,
-                      vertical: 12.0,
-                    ),
+          for (final c in _sections)
+            Padding(
+              key: _pillKeys.putIfAbsent(c, () => GlobalKey()),
+              padding: const EdgeInsets.only(right: 8),
+              child: PadPill(
+                label: c,
+                fontSize: 16,
+                selected: c == _selectedCategory,
+                onTap: () => _jumpTo(c),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // 모든 카테고리를 이어 붙인 메뉴 목록 — 끝없이 반복 (한 바퀴 = 제목·카드 줄·'처음으로' 표시)
+  Widget _menuScroll(Map<String, List<Map<String, dynamic>>> byCategory) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const padL = 32.0, padR = 24.0;
+        final usable = constraints.maxWidth - padL - padR;
+        final cols = ((usable + _gridGap) / (_cardMinW + _gridGap)).floor().clamp(2, 6).toInt();
+
+        // 한 바퀴를 줄 단위로 펼침. 줄마다 높이가 정해져 있어 위치 계산·이동이 정확함
+        final items = <({int kind, String cat, int row, double h})>[]; // kind 0 제목, 1 카드 줄, 2 처음으로
+        final tops = <double>[];
+        var y = 0.0;
+        for (final c in _sections) {
+          tops.add(y);
+          items.add((kind: 0, cat: c, row: 0, h: _sectionHeaderH));
+          y += _sectionHeaderH;
+          final rows = (byCategory[c]!.length / cols).ceil();
+          for (var r = 0; r < rows; r++) {
+            final h = _cardH + (r == rows - 1 ? _sectionGapBottom : _gridGap);
+            items.add((kind: 1, cat: c, row: r, h: h));
+            y += h;
+          }
+        }
+        items.add((kind: 2, cat: '', row: 0, h: _loopMarkH));
+        y += _loopMarkH;
+        _sectionTops = tops;
+        _cycleH = y;
+        final n = items.length;
+
+        return ListView.builder(
+          controller: _scroll,
+          padding: const EdgeInsets.only(left: padL, right: padR),
+          // itemCount 없음 → 끝없이 이어짐. 높이를 미리 알려 줘서 멀리 이동해도 정확·가벼움
+          itemExtentBuilder: (index, _) => items[index % n].h,
+          itemBuilder: (context, index) {
+            final it = items[index % n];
+            switch (it.kind) {
+              case 0:
+                return Align(
+                  alignment: Alignment.topLeft,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(it.cat, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
+                      const SizedBox(width: 8),
+                      Text('${byCategory[it.cat]!.length}',
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kMuted)),
+                    ],
+                  ),
+                );
+              case 1:
+                final menus = byCategory[it.cat]!;
+                return Align(
+                  alignment: Alignment.topCenter,
+                  child: SizedBox(
+                    height: _cardH,
                     child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        IconButton(
-                          icon: const Icon(
-                            Icons.arrow_back,
-                            color: Colors.white,
+                        for (var k = 0; k < cols; k++) ...[
+                          if (k > 0) const SizedBox(width: _gridGap),
+                          Expanded(
+                            child: it.row * cols + k < menus.length
+                                ? _buildMenuCard(menus[it.row * cols + k])
+                                : const SizedBox.shrink(),
                           ),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                        StoreLogo(size: 40),
-                        const Spacer(),
-                        ElevatedButton.icon(
-                          onPressed: () => StaffCallService.callStaff(
-                            context,
-                            widget.roomNumber ?? 0,
-                          ),
-                          icon: const Icon(Icons.notifications_active),
-                          label: const Text(
-                            '직원 호출',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF007E5B),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        const StoreName(style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                        ],
                       ],
                     ),
                   ),
-
-                  // 카테고리 탭 & 메뉴 리스트
-                  Expanded(
-                    child: StreamBuilder<DocumentSnapshot>(
-                      stream: FirebaseFirestore.instance
-                          .collection('settings')
-                          .doc('categories')
-                          .snapshots(),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState ==
-                            ConnectionState.waiting) {
-                          return const Center(
-                            child: CircularProgressIndicator(),
-                          );
-                        }
-
-                        List<dynamic> categories = [];
-                        if (snapshot.hasData && snapshot.data!.exists) {
-                          categories = snapshot.data!.get('list') ?? [];
-                        }
-
-                        if (categories.isEmpty) {
-                          return const Center(child: Text('등록된 카테고리가 없습니다.'));
-                        }
-
-                        return DefaultTabController(
-                          length: categories.length,
-                          child: Builder(
-                            builder: (BuildContext context) {
-                              final TabController tabController =
-                                  DefaultTabController.of(context);
-
-                              // Fix #4: 단일 StreamBuilder로 전체 메뉴를 한 번에 구독 → N→1 구독으로 최적화
-                              return StreamBuilder<QuerySnapshot>(
-                                stream: FirebaseFirestore.instance
-                                    .collection('menus')
-                                    .snapshots(),
-                                builder: (context, menuSnapshot) {
-                                  final allMenuDocs =
-                                      menuSnapshot.data?.docs ?? [];
-
-                                  return Column(
-                                    children: [
-                                      Container(
-                                        color: const Color(0xFFE5E7EB),
-                                        child: TabBar(
-                                          isScrollable: true,
-                                          indicatorColor: const Color(
-                                            0xFF00B37E,
-                                          ),
-                                          labelColor: Colors.black,
-                                          unselectedLabelColor:
-                                              Colors.grey[700],
-                                          labelStyle: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16,
-                                          ),
-                                          tabs: categories
-                                              .map(
-                                                (title) =>
-                                                    Tab(text: title.toString()),
-                                              )
-                                              .toList(),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: Stack(
-                                          children: [
-                                            // TabBarView는 AnimatedBuilder 밖에 두어 탭 전환 시 재빌드 방지
-                                            // 각 탭은 단일 StreamBuilder에서 받은 allMenuDocs를 카테고리별로 클라이언트 사이드 필터링
-                                            TabBarView(
-                                              children: categories.map((
-                                                category,
-                                              ) {
-                                                // 로딩 중이고 아직 데이터가 없는 경우
-                                                if (menuSnapshot
-                                                            .connectionState ==
-                                                        ConnectionState
-                                                            .waiting &&
-                                                    allMenuDocs.isEmpty) {
-                                                  return const Center(
-                                                    child:
-                                                        CircularProgressIndicator(),
-                                                  );
-                                                }
-
-                                                // 해당 카테고리 + 품절 아닌 메뉴만 클라이언트 사이드 필터링
-                                                final menus = allMenuDocs.where(
-                                                  (doc) {
-                                                    final data =
-                                                        doc.data()
-                                                            as Map<
-                                                              String,
-                                                              dynamic
-                                                            >;
-                                                    final bool isSoldOut =
-                                                        data['isSoldOut'] ==
-                                                            true ||
-                                                        data['isSoldOut'] ==
-                                                            'true';
-                                                    return data['category'] ==
-                                                            category &&
-                                                        !isSoldOut;
-                                                  },
-                                                ).toList();
-
-                                                if (menus.isEmpty) {
-                                                  return const Center(
-                                                    child: Text(
-                                                      '이 카테고리에 등록된 메뉴가 없습니다.',
-                                                      style: TextStyle(
-                                                        fontSize: 16,
-                                                        color: Colors.grey,
-                                                      ),
-                                                    ),
-                                                  );
-                                                }
-
-                                                return Padding(
-                                                  padding: const EdgeInsets.all(
-                                                    16.0,
-                                                  ),
-                                                  child: GridView.builder(
-                                                    gridDelegate:
-                                                        const SliverGridDelegateWithFixedCrossAxisCount(
-                                                          crossAxisCount: 4,
-                                                          childAspectRatio:
-                                                              0.75,
-                                                          crossAxisSpacing: 16,
-                                                          mainAxisSpacing: 16,
-                                                        ),
-                                                    itemCount: menus.length,
-                                                    itemBuilder:
-                                                        (context, index) {
-                                                          final menuData =
-                                                              menus[index]
-                                                                      .data()
-                                                                  as Map<
-                                                                    String,
-                                                                    dynamic
-                                                                  >;
-                                                          return _buildMenuCard(
-                                                            menuData,
-                                                          );
-                                                        },
-                                                  ),
-                                                );
-                                              }).toList(),
-                                            ),
-
-                                            // 화살표 버튼만 AnimatedBuilder로 감싸 탭 인덱스 변화에만 반응
-                                            AnimatedBuilder(
-                                              animation: tabController,
-                                              builder: (context, child) {
-                                                return Stack(
-                                                  children: [
-                                                    // 좌측 화살표
-                                                    if (tabController.index > 0)
-                                                      Align(
-                                                        alignment: Alignment
-                                                            .centerLeft,
-                                                        child: Padding(
-                                                          padding:
-                                                              const EdgeInsets.only(
-                                                                left: 8.0,
-                                                              ),
-                                                          child: FloatingActionButton(
-                                                            heroTag: 'prev_btn',
-                                                            backgroundColor:
-                                                                Colors.white
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.9,
-                                                                    ),
-                                                            foregroundColor:
-                                                                const Color(
-                                                                  0xFF00B37E,
-                                                                ),
-                                                            elevation: 4,
-                                                            onPressed: () =>
-                                                                tabController
-                                                                    .animateTo(
-                                                                      tabController
-                                                                              .index -
-                                                                          1,
-                                                                    ),
-                                                            child: const Icon(
-                                                              Icons
-                                                                  .chevron_left,
-                                                              size: 36,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ),
-
-                                                    // 우측 화살표
-                                                    if (tabController.index <
-                                                        categories.length - 1)
-                                                      Align(
-                                                        alignment: Alignment
-                                                            .centerRight,
-                                                        child: Padding(
-                                                          padding:
-                                                              const EdgeInsets.only(
-                                                                right: 8.0,
-                                                              ),
-                                                          child: FloatingActionButton(
-                                                            heroTag: 'next_btn',
-                                                            backgroundColor:
-                                                                Colors.white
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.9,
-                                                                    ),
-                                                            foregroundColor:
-                                                                const Color(
-                                                                  0xFF00B37E,
-                                                                ),
-                                                            elevation: 4,
-                                                            onPressed: () =>
-                                                                tabController
-                                                                    .animateTo(
-                                                                      tabController
-                                                                              .index +
-                                                                          1,
-                                                                    ),
-                                                            child: const Icon(
-                                                              Icons
-                                                                  .chevron_right,
-                                                              size: 36,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                  ],
-                                                );
-                                              },
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                }, // StreamBuilder builder 끝
-                              ); // StreamBuilder 끝
-                            },
-                          ),
-                        );
-                      },
-                    ),
+                );
+              default:
+                return const Align(
+                  alignment: Alignment.topCenter,
+                  child: Row(
+                    children: [
+                      Expanded(child: Divider(color: kLine, thickness: 1)),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 14),
+                        child: Row(
+                          children: [
+                            Icon(Icons.replay_rounded, size: 18, color: kMuted),
+                            SizedBox(width: 6),
+                            Text('메뉴 처음부터 다시',
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: kMuted)),
+                          ],
+                        ),
+                      ),
+                      Expanded(child: Divider(color: kLine, thickness: 1)),
+                    ],
                   ),
-                ],
-              ),
+                );
+            }
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildMenuCard(Map<String, dynamic> menuData) {
+    final String name = menuData['name'] ?? '이름 없음';
+    final int price = _price(menuData['price']);
+    final String? imageUrl = menuData['imageUrl'];
+    final bool hasOptions = (menuData['optionGroups'] as List?)?.isNotEmpty == true;
+
+    return HomeCard(
+      padding: EdgeInsets.zero,
+      onTap: () => _showMenuOptionDialog(context, menuData),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: ColoredBox(
+              color: const Color(0xFFF1ECE2),
+              child: hasValidImage(imageUrl)
+                  ? AppNetworkImage(
+                      imageUrl: imageUrl!,
+                      fit: BoxFit.cover,
+                      errorWidget: (c, u, e) => const Icon(Icons.fastfood, color: kMuted, size: 40),
+                    )
+                  : const Icon(Icons.fastfood, color: kMuted, size: 40),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 10, 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: kInk)),
+                      const SizedBox(height: 2),
+                      Text(_won(price),
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: kOrange)),
+                    ],
+                  ),
+                ),
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(color: kInk, borderRadius: BorderRadius.circular(12)),
+                  child: Icon(hasOptions ? Icons.tune : Icons.add, color: Colors.white, size: 20),
+                ),
+              ],
             ),
           ),
         ],
@@ -816,82 +673,155 @@ class _FoodOrderScreenState extends State<FoodOrderScreen>
     );
   }
 
-  // 💡 5. 카드 클릭 시 팝업창을 부르도록 수정된 메뉴 카드
-  Widget _buildMenuCard(Map<String, dynamic> menuData) {
-    final String name = menuData['name'] ?? '이름 없음';
-    final int price = menuData['price'] is int
-        ? menuData['price']
-        : int.tryParse(menuData['price'].toString()) ?? 0;
-    final String? imageUrl = menuData['imageUrl'];
-
-    return GestureDetector(
-      onTap: () => _showMenuOptionDialog(context, menuData), // 클릭 시 팝업 띄우기
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade300),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              flex: 3,
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(12),
-                ),
-                child: Container(
-                  color: const Color(0xFFF8F9FA),
-                  child: (hasValidImage(imageUrl))
-                      ? AppNetworkImage(
-                          imageUrl: imageUrl!,
-                          fit: BoxFit.cover,
-                          errorWidget: (c, u, e) =>
-                              const Icon(Icons.fastfood, color: Colors.grey),
-                        )
-                      : const Center(
-                          child: Icon(
-                            Icons.image_outlined,
-                            size: 48,
-                            color: Colors.grey,
-                          ),
-                        ),
-                ),
-              ),
+  // 오른쪽 장바구니
+  Widget _cartPanel() {
+    final keys = cart.keys.toList();
+    return Container(
+      width: 330,
+      margin: const EdgeInsets.fromLTRB(0, 20, 20, 20),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 12),
+            child: Row(
+              children: [
+                const Icon(Icons.shopping_bag_outlined, color: kInk),
+                const SizedBox(width: 8),
+                const Text('장바구니', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kInk)),
+                const SizedBox(width: 8),
+                if (cart.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
+                    decoration: BoxDecoration(color: kOrange, borderRadius: BorderRadius.circular(10)),
+                    child: Text('${_getTotalCount()}',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
+                  ),
+                const Spacer(),
+                if (cart.isNotEmpty)
+                  TextButton(
+                    onPressed: () => setState(() => cart.clear()),
+                    style: TextButton.styleFrom(foregroundColor: kMuted),
+                    child: const Text('비우기'),
+                  ),
+              ],
             ),
-            Expanded(
-              flex: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+          ),
+          const Divider(height: 1, color: kLine),
+          Expanded(
+            child: cart.isEmpty
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('메뉴를 눌러 담아 주세요',
+                          textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: kMuted)),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    itemCount: keys.length,
+                    separatorBuilder: (_, _) => const Divider(height: 18, color: kLine),
+                    itemBuilder: (context, index) {
+                      final cartKey = keys[index];
+                      final int quantity = cart[cartKey]!['quantity'];
+                      final int unitPrice = cart[cartKey]!['unitPrice'];
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(cartKey,
+                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kInk)),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Text(_won(unitPrice * quantity),
+                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: kInk)),
+                              const Spacer(),
+                              _qtyButton(Icons.remove, () => _updateQuantity(cartKey, -1)),
+                              SizedBox(
+                                width: 34,
+                                child: Text('$quantity',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: kInk)),
+                              ),
+                              _qtyButton(Icons.add, () => _updateQuantity(cartKey, 1)),
+                            ],
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+          ),
+          Container(
+            color: kBg.withValues(alpha: 0.6),
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: _noteController,
+                  style: const TextStyle(fontSize: 14, color: kInk),
+                  decoration: InputDecoration(
+                    hintText: '요청사항 (예: 얼음 적게)',
+                    hintStyle: const TextStyle(color: kMuted),
+                    filled: true,
+                    fillColor: Colors.white,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: kLine),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: kOrange, width: 2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
                   children: [
-                    Text(
-                      name,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '$price 원',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.blueAccent,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    const Text('합계', style: TextStyle(fontSize: 16, color: kBody)),
+                    const Spacer(),
+                    Text(_won(_getTotalPrice()),
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: kInk)),
                   ],
                 ),
-              ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 58,
+                  child: FilledButton(
+                    onPressed: cart.isEmpty || _isSubmitting ? null : _submitOrder,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: kOrange,
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor: kLine,
+                      disabledForegroundColor: kMuted,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: _isSubmitting
+                        ? const SizedBox(
+                            width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white))
+                        : const Text('주문하기', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _qtyButton(IconData icon, VoidCallback onTap) {
+    return Material(
+      color: kBg,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: SizedBox(width: 34, height: 34, child: Icon(icon, size: 18, color: kInk)),
       ),
     );
   }

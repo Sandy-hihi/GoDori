@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:boardpad/services/room_settings_service.dart';
 import 'dashboard_screen.dart';
+import '../widgets/pad_shell.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -46,7 +47,10 @@ class _LoginScreenState extends State<LoginScreen> {
                             // 선택한 방 번호를 메인 화면으로 전달하며 화면 교체
                             Navigator.pushReplacement(
                               context,
-                              MaterialPageRoute(builder: (context) => DashboardScreen(roomNumber: roomNum)),
+                              MaterialPageRoute(
+                                settings: const RouteSettings(name: PadShell.homeRouteName),
+                                builder: (context) => DashboardScreen(roomNumber: roomNum),
+                              ),
                             );
                           },
                           style: ElevatedButton.styleFrom(

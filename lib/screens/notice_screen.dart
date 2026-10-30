@@ -1,130 +1,137 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../widgets/custom_app_bar.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
+import 'package:boardpad/widgets/home/home_theme.dart';
+import 'package:boardpad/widgets/pad_shell.dart';
 
+/// 이용안내 (settings/notices) — 관리자 웹 '공지 관리'에서 등록
 class NoticeScreen extends StatelessWidget {
-  const NoticeScreen({super.key});
+  final int? roomNumber;
+  const NoticeScreen({super.key, this.roomNumber});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F8),
-      body: SafeArea(
-        child: Column(
-          children: [
-            CustomAppBar(
-              showBackButton: true,
-              centerWidget: const Text(
-                '이용안내',
-                style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-              ),
+    return PadShell(
+      current: 'notice',
+      roomNumber: roomNumber,
+      title: '이용안내',
+      subtitle: '매장 이용 방법과 요금을 확인하세요',
+      body: const PadPostList(
+        docId: 'notices',
+        icon: Icons.article_outlined,
+        accent: kBlue,
+        emptyText: '등록된 안내가 없어요.',
+      ),
+    );
+  }
+}
+
+/// 글/이미지 카드 목록 — 이용안내(settings/notices)·이벤트(settings/events)가 같이 씀
+/// items: [{type: 'text'|'image', title, content}] (image면 content가 사진 주소)
+class PadPostList extends StatelessWidget {
+  final String docId;
+  final IconData icon;
+  final Color accent;
+  final String emptyText;
+
+  const PadPostList({
+    super.key,
+    required this.docId,
+    required this.icon,
+    required this.accent,
+    required this.emptyText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('settings').doc(docId).snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: kOrange));
+        }
+
+        List<dynamic> items = [];
+        if (snapshot.hasData && snapshot.data!.exists) {
+          items = (snapshot.data!.data() as Map? ?? {})['items'] as List<dynamic>? ?? [];
+        }
+        if (items.isEmpty) return PadEmpty(icon: icon, text: emptyText);
+
+        return Align(
+          alignment: Alignment.topLeft,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900),
+            child: ListView.builder(
+              padding: const EdgeInsets.fromLTRB(32, 0, 32, 32),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = Map<String, dynamic>.from(items[index] as Map);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 18),
+                  child: _PostCard(item: item, icon: icon, accent: accent),
+                );
+              },
             ),
-            Expanded(
-              child: StreamBuilder<DocumentSnapshot>(
-                stream: FirebaseFirestore.instance.collection('settings').doc('notices').snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+          ),
+        );
+      },
+    );
+  }
+}
 
-                  List<dynamic> items = [];
-                  if (snapshot.hasData && snapshot.data!.exists) {
-                    items = snapshot.data!.get('items') as List<dynamic>? ?? [];
-                  }
+class _PostCard extends StatelessWidget {
+  final Map<String, dynamic> item;
+  final IconData icon;
+  final Color accent;
+  const _PostCard({required this.item, required this.icon, required this.accent});
 
-                  if (items.isEmpty) {
-                    return const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.info_outline, size: 80, color: Colors.grey),
-                          SizedBox(height: 16),
-                          Text('등록된 공지가 없습니다.', style: TextStyle(fontSize: 20, color: Colors.grey)),
-                        ],
-                      ),
-                    );
-                  }
+  @override
+  Widget build(BuildContext context) {
+    final isImage = item['type'] == 'image';
+    final title = (item['title'] ?? '').toString();
+    final content = (item['content'] ?? '').toString();
 
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(24),
-                    itemCount: items.length,
-                    itemBuilder: (context, index) {
-                      final item = items[index] as Map<String, dynamic>;
-                      final isImage = item['type'] == 'image';
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 24),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.07),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // 제목 헤더
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF2C3E50),
-                                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.info_outline, color: Colors.white, size: 26),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      item['title'] ?? '',
-                                      style: const TextStyle(
-                                          color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            // 내용
-                            Padding(
-                              padding: const EdgeInsets.all(24),
-                              child: isImage
-                                  ? ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: AppNetworkImage(
-                                        imageUrl: item['content'] ?? '',
-                                        width: double.infinity,
-                                        fit: BoxFit.contain,
-                                        placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
-                                        errorWidget: (c, u, e) => const Center(
-                                          child: Padding(
-                                            padding: EdgeInsets.all(32),
-                                            child: Icon(Icons.broken_image, size: 60, color: Colors.grey),
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                  : Text(
-                                      item['content'] ?? '',
-                                      style: const TextStyle(fontSize: 18, height: 1.8, color: Colors.black87),
-                                    ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  );
-                },
+    return HomeCard(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(color: accent.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(13)),
+                child: Icon(icon, color: accent, size: 22),
               ),
-            ),
-          ],
-        ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(title,
+                    style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: kInk)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (isImage)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: AppNetworkImage(
+                imageUrl: content,
+                width: double.infinity,
+                fit: BoxFit.contain,
+                placeholder: (context, url) => const SizedBox(
+                  height: 200,
+                  child: Center(child: CircularProgressIndicator(color: kOrange)),
+                ),
+                errorWidget: (c, u, e) => const SizedBox(
+                  height: 160,
+                  child: Center(child: Icon(Icons.broken_image_outlined, size: 48, color: kMuted)),
+                ),
+              ),
+            )
+          else
+            Text(content, style: const TextStyle(fontSize: 17, height: 1.75, color: kBody)),
+        ],
       ),
     );
   }
