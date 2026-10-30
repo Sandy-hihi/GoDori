@@ -13,14 +13,14 @@ const { defineSecret } = require('firebase-functions/params');
 const BGG_APP_TOKEN = defineSecret('BGG_APP_TOKEN');
 const BGG_RELAY_SECRET = defineSecret('BGG_RELAY_SECRET');
 const BGG_APPS_SCRIPT_URL = defineSecret('BGG_APPS_SCRIPT_URL');
-const ANTHROPIC_API_KEY = defineSecret('ANTHROPIC_API_KEY');
-
-const REGION = 'asia-northeast3'; // 서울
-
 // AI 게임 추천(ai, dailyPicks 함수) 사용 여부. 지금은 꺼 둠 — 코드는 남겨 두고 배포만 안 함.
 // 다시 켜려면 true로 바꾸고, firebase.json에 "/api/ai/**" → ai 경로를 "/api/**" 앞에 되살리고,
 // 앱의 kAiRecommendEnabled(lib/models/home_layout.dart)도 true로.
+// 꺼 두면 ANTHROPIC_API_KEY 비밀값도 선언하지 않음 (선언만 있어도 배포할 때 키를 물어봄)
 const AI_ENABLED = false;
+const ANTHROPIC_API_KEY = AI_ENABLED ? defineSecret('ANTHROPIC_API_KEY') : null;
+
+const REGION = 'asia-northeast3'; // 서울
 
 let db = null;
 function getDb() {
@@ -108,7 +108,7 @@ function getAiHandle() {
 }
 
 // 손님 패드의 "우리 테이블 맞춤 추천" (Hosting이 /api/ai/** 를 이 함수로 넘김)
-const aiFunction = onRequest(
+const aiFunction = AI_ENABLED && onRequest(
   {
     region: REGION,
     secrets: [ANTHROPIC_API_KEY],
@@ -125,7 +125,7 @@ function seoulDateKey(date = new Date()) {
 }
 
 // 매일 오전 10시(한국 시간)에 "오늘의 추천 게임"을 골라 settings/aiPicks 에 저장
-const dailyPicksFunction = onSchedule(
+const dailyPicksFunction = AI_ENABLED && onSchedule(
   {
     region: REGION,
     schedule: 'every day 10:00',
