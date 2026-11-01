@@ -11,17 +11,17 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  runApp(const BoardPadApp());
+  runApp(const GodoriApp());
 }
 
-class BoardPadApp extends StatelessWidget {
-  const BoardPadApp({super.key});
+class GodoriApp extends StatelessWidget {
+  const GodoriApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: '보드패드',
+      title: '고도리',
       theme: ThemeData(
         fontFamily: 'Pretendard',
         scaffoldBackgroundColor: const Color(0xFF00B37E),

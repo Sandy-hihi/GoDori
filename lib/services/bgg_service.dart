@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'admin_session.dart';
 import 'package:boardpad/utils/game_meta.dart';
 
-/// BGG(보드게임긱) 조회. 브라우저에서 BGG를 직접 부를 수 없어서 보드패드 서버 함수(/api/bgg/...)를 거칩니다.
+/// BGG(보드게임긱) 조회. 브라우저에서 BGG를 직접 부를 수 없어서 고도리 서버 함수(/api/bgg/...)를 거칩니다.
 /// (서버 코드: functions/src/app.js)
 class BggException implements Exception {
   final String message;

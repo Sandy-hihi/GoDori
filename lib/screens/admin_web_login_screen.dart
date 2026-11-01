@@ -99,7 +99,7 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
             children: [
               StoreLogo(size: 72),
               const SizedBox(height: 16),
-              const Text('보드패드 관리자', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              const Text('고도리 관리자', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               const Text('관리자 비밀번호를 입력하세요', style: TextStyle(color: Colors.grey)),
               const SizedBox(height: 24),
