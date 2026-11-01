@@ -112,15 +112,20 @@ class BggService {
     return query == null ? u : u.replace(queryParameters: query);
   }
 
-  static Map<String, String> get _headers => {
-        'x-admin-password': AdminSession.password ?? '',
-        'content-type': 'application/json',
-      };
+  // 관리자 로그인 토큰(Firebase ID 토큰)을 같이 보냄. 서버가 admin 표시를 확인
+  static Future<Map<String, String>> _headers() async {
+    final token = await AdminSession.idToken();
+    return {
+      if (token != null) 'authorization': 'Bearer $token',
+      'content-type': 'application/json',
+    };
+  }
 
-  static Future<Map<String, dynamic>> _send(Future<http.Response> Function() request) async {
+  static Future<Map<String, dynamic>> _send(Future<http.Response> Function(Map<String, String> headers) request) async {
+    final headers = await _headers();
     http.Response res;
     try {
-      res = await request().timeout(_timeout);
+      res = await request(headers).timeout(_timeout);
     } on TimeoutException {
       throw BggException('BGG 응답이 너무 늦어요. 잠시 후 다시 시도해 주세요.');
     } catch (_) {
@@ -142,18 +147,18 @@ class BggService {
   }
 
   static Future<List<BggSearchResult>> search(String query) async {
-    final body = await _send(() => http.get(_uri('/api/bgg/search', {'q': query}), headers: _headers));
+    final body = await _send((h) => http.get(_uri('/api/bgg/search', {'q': query}), headers: h));
     final list = (body['results'] as List?) ?? [];
     return list.map((e) => BggSearchResult.fromJson(Map<String, dynamic>.from(e as Map))).toList();
   }
 
   static Future<BggGameInfo> lookup(String geekId) async {
-    final body = await _send(() => http.get(_uri('/api/bgg/lookup', {'id': geekId}), headers: _headers));
+    final body = await _send((h) => http.get(_uri('/api/bgg/lookup', {'id': geekId}), headers: h));
     return BggGameInfo.fromJson(body);
   }
 
   static Future<BggImage> image(String geekId) async {
-    final body = await _send(() => http.get(_uri('/api/bgg/image', {'id': geekId}), headers: _headers));
+    final body = await _send((h) => http.get(_uri('/api/bgg/image', {'id': geekId}), headers: h));
     final dataUrl = (body['dataUrl'] ?? '').toString();
     final comma = dataUrl.indexOf(',');
     if (comma < 0) throw BggException('BGG 사진을 읽지 못했어요.');
@@ -162,7 +167,7 @@ class BggService {
 
   /// 여러 개 상세 조회 (서버 제한: 한 번에 30개)
   static Future<BggDetailsResult> details(List<String> geekIds) async {
-    final body = await _send(() => http.post(_uri('/api/bgg/details'), headers: _headers, body: jsonEncode({'ids': geekIds})));
+    final body = await _send((h) => http.post(_uri('/api/bgg/details'), headers: h, body: jsonEncode({'ids': geekIds})));
     final games = ((body['games'] as List?) ?? []).map((e) => BggGameInfo.fromJson(Map<String, dynamic>.from(e as Map))).toList();
     final missing = ((body['missing'] as List?) ?? []).map((e) => e.toString()).toList();
     return BggDetailsResult(games, missing);

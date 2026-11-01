@@ -4,20 +4,29 @@
 // 정보·사진을 "가져오는" 일만 한다. (BGG는 브라우저에서 직접 부를 수 없어서 서버가 대신 부른다)
 //
 //   GET  /api/health              상태 확인 (로그인 불필요)
+//   POST /api/auth/login          { kind: 'pad'|'web', password } -> { token }  관리자 로그인 (로그인 불필요)
 //   GET  /api/bgg/search?q=이름     이름으로 검색 -> { results: [{ id, name, yearPublished, thumbnail }] }
 //   GET  /api/bgg/lookup?id=13     geek ID 상세 -> { geekId, name, bggName, minPlayers, maxPlayers, recommendedPlayers, weight, rank, difficulty }
 //   GET  /api/bgg/image?id=13      사진 -> { dataUrl, contentType }
 //   POST /api/bgg/details          { ids: [...] } 여러 개 상세(대용량 추가용, 한 번에 최대 30개) -> { games: [...], missing: [...] }
 //
-// 모든 /api/bgg/* 요청은 x-admin-password 헤더가 Firestore settings/adminPin 의
-// webPassword(없으면 pin) 값과 같아야 한다.
+// 관리자 로그인 흐름 (Firebase Authentication)
+//   1) 앱이 PIN(태블릿) 또는 비밀번호(관리자 웹)를 /api/auth/login 으로 보냄
+//   2) 서버가 Firestore settings/adminPin 의 값과 비교 (이 문서는 보안 규칙상 앱에서 읽을 수 없음)
+//   3) 맞으면 admin: true 표시가 붙은 Firebase 커스텀 토큰을 돌려줌 -> 앱이 signInWithCustomToken
+//   4) 이후 Firestore/Storage 보안 규칙은 request.auth.token.admin == true 로 관리자를 구별
+// 모든 /api/bgg/* 요청은 Authorization: Bearer <Firebase ID 토큰> 헤더가 필요하고, 그 토큰에 admin 표시가 있어야 한다.
 
 const crypto = require('crypto');
 
 const MIN = 60 * 1000;
 const IMAGE_MAX_BYTES = 1.5 * 1024 * 1024;
 const DETAILS_MAX_IDS = 30;
-const PASSWORD_CACHE_MS = 30 * 1000;
+// 로그인 실패 제한: 같은 IP 15분에 5번, 전체 1시간에 30번 틀리면 잠시 잠금
+const LOGIN_LIMITS = [
+  { key: (ip) => `ip:${ip}`, max: 5, windowMs: 15 * MIN },
+  { key: () => 'global', max: 30, windowMs: 60 * MIN },
+];
 
 // 난이도: BGG geek weight 구간 (월정액권 앱과 같은 기준·색 — 매장 난이도 스티커 색)
 const DIFFICULTY_BUCKETS = [
@@ -96,30 +105,62 @@ function createLimiter(now) {
 // 로컬 개발(flutter run -d chrome = localhost)과 배포된 관리자 웹에서만 다른 주소로 부를 수 있게 허용
 const ALLOWED_ORIGIN_RE = /^(https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?|https:\/\/platform6-boardpad\.(web\.app|firebaseapp\.com))$/;
 
-function createHandler({ bgg, getAdminPassword, now = () => Date.now() }) {
-  const limit = createLimiter(now);
-  let pwCache = null; // { value, at }
+// 요청한 쪽 IP (Hosting을 거치면 x-forwarded-for 맨 앞이 손님 IP). 위조될 수 있어서 전체 제한도 같이 둔다.
+function clientIp(headers) {
+  const xff = String(headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return xff || 'unknown';
+}
 
-  async function adminPassword() {
-    const t = now();
-    if (pwCache && t - pwCache.at < PASSWORD_CACHE_MS) return pwCache.value;
-    const value = String((await getAdminPassword()) || '');
-    pwCache = { value, at: t };
-    return value;
-  }
+// getAdminSecrets: async () => ({ pin, webPassword })   Firestore settings/adminPin
+// verifyIdToken:   async (idToken) => 디코딩된 토큰 (틀리면 throw)
+// createAdminToken: async (kind) => 커스텀 토큰 문자열
+// attempts:        로그인 실패 기록 (src/attempts.js)
+function createHandler({ bgg, getAdminSecrets, verifyIdToken, createAdminToken, attempts, now = () => Date.now() }) {
+  const limit = createLimiter(now);
 
   async function requireAdmin(req) {
-    const given = String(req.headers['x-admin-password'] || '');
-    const expected = await adminPassword();
+    const m = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization || ''));
+    if (!m) throw httpError(401, 'UNAUTHORIZED', '관리자 로그인이 필요해요. 다시 로그인해 주세요.');
+    let decoded;
+    try {
+      decoded = await verifyIdToken(m[1].trim());
+    } catch (_) {
+      throw httpError(401, 'UNAUTHORIZED', '로그인이 만료됐어요. 다시 로그인해 주세요.');
+    }
+    if (!decoded || decoded.admin !== true) throw httpError(403, 'FORBIDDEN', '관리자만 쓸 수 있어요.');
+  }
+
+  async function login(req) {
+    const body = req.body || {};
+    const kind = body.kind === 'web' ? 'web' : 'pad';
+    const given = typeof body.password === 'string' ? body.password.trim() : '';
+    if (!given) throw httpError(400, 'EMPTY_PASSWORD', '비밀번호를 입력해 주세요.');
+    if (given.length > 100) throw httpError(400, 'INVALID_PASSWORD', '비밀번호가 너무 길어요.');
+
+    const ip = clientIp(req.headers);
+    for (const l of LOGIN_LIMITS) {
+      if (await attempts.isLocked(l.key(ip), l.max, l.windowMs)) {
+        throw httpError(429, 'TOO_MANY', '비밀번호를 너무 많이 틀렸어요. 잠시 뒤에 다시 시도해 주세요.');
+      }
+    }
+
+    const secrets = (await getAdminSecrets()) || {};
+    const pin = String(secrets.pin || '');
+    const web = String(secrets.webPassword || '');
+    const expected = kind === 'web' ? (web || pin) : pin;
     if (!expected) throw httpError(503, 'NO_PASSWORD', '관리자 비밀번호가 설정되어 있지 않아요. (Firestore settings/adminPin)');
-    if (!given || !safeEqual(given, expected)) throw httpError(401, 'UNAUTHORIZED', '관리자 비밀번호가 맞지 않아요. 다시 로그인해 주세요.');
+
+    if (!safeEqual(given, expected)) {
+      for (const l of LOGIN_LIMITS) await attempts.recordFail(l.key(ip), l.windowMs);
+      throw httpError(401, 'WRONG_PASSWORD', kind === 'web' ? '비밀번호가 올바르지 않습니다.' : 'PIN이 올바르지 않습니다.');
+    }
+    await attempts.reset(LOGIN_LIMITS[0].key(ip));
+    return { token: await createAdminToken(kind) };
   }
 
   function rate(key, max, windowMs) {
     if (!limit(key, max, windowMs)) throw httpError(429, 'TOO_MANY', 'BGG 요청이 너무 잦아요. 잠시 후 다시 시도해 주세요.');
   }
-
-  const failLimiter = createLimiter(now);
 
   // req: { method, path, query: {k:v}, headers: {소문자 키}, body }
   // 반환: { status, headers, body }
@@ -129,7 +170,7 @@ function createHandler({ bgg, getAdminPassword, now = () => Date.now() }) {
     if (origin && ALLOWED_ORIGIN_RE.test(origin)) {
       cors['Access-Control-Allow-Origin'] = origin;
       cors['Vary'] = 'Origin';
-      cors['Access-Control-Allow-Headers'] = 'content-type, x-admin-password';
+      cors['Access-Control-Allow-Headers'] = 'content-type, authorization';
       cors['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
       cors['Access-Control-Max-Age'] = '3600';
     }
@@ -140,16 +181,10 @@ function createHandler({ bgg, getAdminPassword, now = () => Date.now() }) {
 
     try {
       if (path === '/api/health' && req.method === 'GET') return reply(200, { ok: true });
+      if (path === '/api/auth/login' && req.method === 'POST') return reply(200, await login(req));
 
       if (path.startsWith('/api/bgg/')) {
-        try {
-          await requireAdmin(req);
-        } catch (e) {
-          if (e.status === 401 && !failLimiter('auth-fail', 20, 10 * MIN)) {
-            throw httpError(429, 'TOO_MANY', '비밀번호를 너무 많이 틀렸어요. 10분 뒤에 다시 시도해 주세요.');
-          }
-          throw e;
-        }
+        await requireAdmin(req);
       }
 
       if (path === '/api/bgg/search' && req.method === 'GET') {

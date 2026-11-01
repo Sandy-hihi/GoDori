@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
+import 'package:boardpad/services/admin_session.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
 
 class FoodOrderScreen extends StatefulWidget {
@@ -140,6 +141,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
       final now = DateTime.now();
       final timeString = '${now.hour}시 ${now.minute.toString().padLeft(2, '0')}분';
 
+      await AdminSession.ensureSignedIn(); // 보안 규칙: 로그인(익명)한 패드만 주문 가능
       await FirebaseFirestore.instance.collection('orders').add({
         'room': '#${widget.roomNumber ?? 1}',
         'time': timeString,

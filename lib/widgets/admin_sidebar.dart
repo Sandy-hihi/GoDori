@@ -35,8 +35,9 @@ class AdminSidebar extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.white54),
             title: const Text('로그아웃', style: TextStyle(color: Colors.white54)),
-            onTap: () {
-              AdminSession.password = null;
+            onTap: () async {
+              await AdminSession.signOut();
+              if (!context.mounted) return;
               Navigator.pushAndRemoveUntil(
               context,
               PageRouteBuilder(

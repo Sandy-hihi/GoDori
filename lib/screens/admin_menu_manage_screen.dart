@@ -622,6 +622,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                       );
                                   final uploadTask = await storageRef.putData(
                                     selectedImageBytes!,
+                                    SettableMetadata(contentType: 'image/jpeg'), // Storage 보안 규칙이 이미지 형식을 확인함
                                   );
                                   finalImageUrl = await uploadTask.ref
                                       .getDownloadURL();

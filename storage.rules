@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// BoardPad Storage 보안 규칙
+//   - 게임 사진, 메뉴 사진, 이벤트·공지 이미지, 홈 배너·로고, 룰 설명 영상: 누구나 보기
+//   - 올리기·바꾸기·지우기: 관리자 토큰(admin: true)으로 로그인한 경우만
+//     (관리자 로그인 방식은 firestore.rules 맨 위 설명 참고)
+// 배포: "BoardPad 배포.bat" → 5번 (또는 firebase deploy --only storage)
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    match /{allPaths=**} {
+      allow read: if true;
+      // 지우기는 크기 검사 없이 관리자만
+      allow delete: if isAdmin();
+      // 올리기: 관리자 + 이미지 20MB / 영상 500MB 이하
+      allow create, update: if isAdmin()
+                            && ((request.resource.contentType.matches('image/.*') && request.resource.size < 20 * 1024 * 1024)
+                                || (request.resource.contentType.matches('video/.*') && request.resource.size < 500 * 1024 * 1024));
+    }
+  }
+}

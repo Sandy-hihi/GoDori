@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:boardpad/widgets/store_brand.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'admin_menu_manage_screen.dart';
 import 'package:boardpad/services/admin_session.dart';
 
 /// 관리자 웹 로그인 화면
-/// 비밀번호는 Firestore settings/adminPin 문서에서 읽어옵니다.
-///   - 'webPassword' 필드가 있으면 그 값을 사용
-///   - 없으면 태블릿 관리자 PIN('pin' 필드)과 같은 값을 사용
-/// 코드에는 비밀번호를 두지 않습니다. (공개 저장소 노출 방지)
+/// 비밀번호 확인은 서버 함수(/api/auth/login)가 합니다. 앱은 비밀번호를 읽을 수 없어요.
+///   - Firestore settings/adminPin 의 'webPassword' 필드가 있으면 그 값
+///   - 없으면 태블릿 관리자 PIN('pin' 필드)과 같은 값
+/// 로그인하면 Firebase 관리자 토큰이 브라우저에 남아서, 새로고침해도 다시 로그인하지 않아도 돼요.
+/// (로그아웃은 왼쪽 메뉴 맨 아래)
 class AdminWebLoginScreen extends StatefulWidget {
   const AdminWebLoginScreen({super.key});
 
@@ -27,18 +27,25 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
     super.dispose();
   }
 
-  Future<String?> _fetchPassword() async {
-    try {
-      final doc = await FirebaseFirestore.instance.collection('settings').doc('adminPin').get();
-      final data = doc.data();
-      final web = data?['webPassword']?.toString();
-      if (web != null && web.isNotEmpty) return web;
-      final pin = data?['pin']?.toString();
-      if (pin != null && pin.isNotEmpty) return pin;
-    } catch (e) {
-      debugPrint('Admin password fetch error: $e');
-    }
-    return null;
+  @override
+  void initState() {
+    super.initState();
+    _skipIfLoggedIn();
+  }
+
+  // 이미 관리자로 로그인돼 있으면 바로 관리 화면으로
+  Future<void> _skipIfLoggedIn() async {
+    if (await AdminSession.isAdmin() && mounted) _goToAdmin();
+  }
+
+  void _goToAdmin() {
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const AdminMenuManageScreen(),
+        transitionDuration: Duration.zero,
+      ),
+    );
   }
 
   Future<void> _login() async {
@@ -53,33 +60,19 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
       _errorText = null;
     });
 
-    final correct = await _fetchPassword();
-    if (!mounted) return;
-
-    if (correct == null) {
-      setState(() {
-        _isChecking = false;
-        _errorText = '비밀번호 설정을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.';
-      });
-      return;
-    }
-
-    if (input == correct) {
-      AdminSession.password = input; // BGG 조회 서버에 보낼 때 사용 (앱 메모리에만 보관)
-      Navigator.pushReplacement(
-        context,
-        PageRouteBuilder(
-          pageBuilder: (_, __, ___) => const AdminMenuManageScreen(),
-          transitionDuration: Duration.zero,
-        ),
-      );
-    } else {
+    try {
+      await AdminSession.login(kind: 'web', password: input);
+    } on AdminLoginException catch (e) {
+      if (!mounted) return;
       _passwordController.clear();
       setState(() {
         _isChecking = false;
-        _errorText = '비밀번호가 올바르지 않습니다.';
+        _errorText = e.message;
       });
+      return;
     }
+    if (!mounted) return;
+    _goToAdmin();
   }
 
   @override

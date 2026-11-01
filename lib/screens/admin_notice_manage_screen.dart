@@ -226,6 +226,7 @@ class _AdminNoticeManageScreenState extends State<AdminNoticeManageScreen> {
                               );
                               final task = await ref.putData(
                                 selectedImageBytes!,
+                                SettableMetadata(contentType: 'image/jpeg'), // Storage 보안 규칙이 이미지 형식을 확인함
                               );
                               content = await task.ref.getDownloadURL();
                             } else {

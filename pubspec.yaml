@@ -35,6 +35,8 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   firebase_core: ^4.13.0
+  # 로그인: 손님 패드는 익명, 관리자는 서버가 PIN 확인 후 발급한 토큰 (lib/services/admin_session.dart)
+  firebase_auth: ^6.0.0
   cloud_firestore: ^6.8.0
   flutter_ringtone_player: ^4.0.0+4
   image_picker: ^1.2.3
