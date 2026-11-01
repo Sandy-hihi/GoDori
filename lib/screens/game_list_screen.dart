@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/utils/game_meta.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
+import 'package:boardpad/widgets/rule_video_player.dart';
 
 class GameListScreen extends StatefulWidget {
   final String initialSearchQuery;
@@ -171,20 +171,8 @@ class _GameListScreenState extends State<GameListScreen> {
     }
   }
 
-  Future<void> _launchVideo(BuildContext context, String? urlString) async {
-    if (urlString == null || urlString.trim().isEmpty) {
-      padSnack(context, '등록된 룰 영상이 없어요. 직원에게 설명을 요청해 주세요.');
-      return;
-    }
-    String finalUrl = urlString.trim();
-    if (!finalUrl.startsWith('http')) finalUrl = 'https://$finalUrl';
-    final Uri url = Uri.parse(finalUrl);
-    try {
-      await launchUrl(url);
-    } catch (e) {
-      if (context.mounted) padSnack(context, '영상을 열 수 없어요. 직원에게 알려 주세요.', error: true);
-    }
-  }
+  // 룰 영상: 매장 영상이 있으면 앱 안에서, 없으면 유튜브 (rule_video_player.dart)
+  Future<void> _launchVideo(BuildContext context, Map<String, dynamic> game) => openRuleVideo(context, game);
 
   // 필터·검색이 바뀌면 목록 맨 위로
   void _resetPage() {
@@ -544,7 +532,7 @@ class _GameListScreenState extends State<GameListScreen> {
                                           imageCacheWidth: cacheW,
                                           onTap: () => _showDetail(games[r * cols + k]),
                                           onVideo: () =>
-                                              _launchVideo(context, games[r * cols + k]['videoUrl']?.toString()),
+                                              _launchVideo(context, games[r * cols + k]),
                                         )
                                       : const SizedBox.shrink(),
                                 ),
@@ -651,7 +639,8 @@ class _GameListScreenState extends State<GameListScreen> {
     final note = (game['pickNote'] ?? '').toString().trim();
     final tags = (game['tags'] ?? '').toString().trim();
     final genres = gameGenres(game);
-    final hasVideo = (game['videoUrl'] ?? '').toString().trim().isNotEmpty;
+    final hasVideo = hasRuleVideo(game);
+    final ownVideo = ownRuleVideoOf(game) != null;
 
     showDialog(
       context: context,
@@ -754,9 +743,9 @@ class _GameListScreenState extends State<GameListScreen> {
                         width: double.infinity,
                         height: 56,
                         child: FilledButton.icon(
-                          onPressed: () => _launchVideo(ctx, game['videoUrl']?.toString()),
+                          onPressed: () => _launchVideo(ctx, game),
                           icon: const Icon(Icons.play_circle_fill),
-                          label: Text(hasVideo ? '룰 설명 영상 보기' : '룰 영상 준비 중',
+                          label: Text(!hasVideo ? '룰 영상 준비 중' : (ownVideo ? '매장 룰 설명 영상 보기' : '룰 설명 영상 보기 (유튜브)'),
                               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                           style: FilledButton.styleFrom(
                             backgroundColor: hasVideo ? kOrange : kMuted,
@@ -859,7 +848,7 @@ class _GameCard extends StatelessWidget {
     final players = (game['players'] ?? '').toString();
     final time = (game['time'] ?? '').toString();
     final genres = gameGenres(game);
-    final hasVideo = (game['videoUrl'] ?? '').toString().trim().isNotEmpty;
+    final hasVideo = hasRuleVideo(game);
 
     return HomeCard(
       padding: EdgeInsets.zero,

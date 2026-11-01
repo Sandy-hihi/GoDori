@@ -39,6 +39,43 @@ Future<Uint8List?> pickImageBytes() async {
   return x.readAsBytes();
 }
 
+// ── 매장 룰 영상 (직접 만든 영상) ──
+/// 손님 패드는 매장 영상(ruleVideoUrl)이 있으면 그걸 앱 안에서 틀고, 없으면 유튜브 링크(videoUrl)를 엶.
+const int ruleVideoMaxMB = 300;
+
+class PickedVideo {
+  final Uint8List bytes;
+  final String ext; // mp4 | webm | mov
+  final String name;
+  PickedVideo(this.bytes, this.ext, this.name);
+  double get sizeMB => bytes.length / (1024 * 1024);
+}
+
+Future<PickedVideo?> pickVideoFile() async {
+  final x = await ImagePicker().pickVideo(source: ImageSource.gallery);
+  if (x == null) return null;
+  final name = x.name;
+  final lower = name.toLowerCase();
+  final ext = lower.endsWith('.webm') ? 'webm' : (lower.endsWith('.mov') ? 'mov' : 'mp4');
+  return PickedVideo(await x.readAsBytes(), ext, name);
+}
+
+/// Storage rule_videos/에 올리고 주소를 돌려줌. onProgress: 0.0~1.0
+Future<String> uploadRuleVideo(PickedVideo v, {void Function(double)? onProgress}) async {
+  final contentType = v.ext == 'webm' ? 'video/webm' : (v.ext == 'mov' ? 'video/quicktime' : 'video/mp4');
+  final ref = FirebaseStorage.instance.ref().child('rule_videos/${DateTime.now().millisecondsSinceEpoch}.${v.ext}');
+  final task = ref.putData(v.bytes, SettableMetadata(contentType: contentType));
+  final sub = task.snapshotEvents.listen((s) {
+    if (s.totalBytes > 0) onProgress?.call(s.bytesTransferred / s.totalBytes);
+  });
+  try {
+    await task;
+  } finally {
+    await sub.cancel();
+  }
+  return ref.getDownloadURL();
+}
+
 /// "BGG #13 · 원래 이름 "CATAN" · weight 2.29 · 긱 순위 #600"
 String bggInfoText(BggGameInfo g) {
   final parts = <String>['BGG #${g.geekId}'];
@@ -449,7 +486,10 @@ class _GameFormFieldsState extends State<GameFormFields> {
           ],
         ),
         const SizedBox(height: 12),
-        TextField(controller: f.videoUrl, decoration: adminInput('유튜브 룰 영상 링크 (선택)')),
+        TextField(
+          controller: f.videoUrl,
+          decoration: adminInput('유튜브 룰 영상 링크 (선택)', hint: '매장에서 만든 영상이 있으면 그 영상이 먼저 나와요'),
+        ),
         const SizedBox(height: 12),
         TextField(controller: f.pickNote, maxLength: 60, decoration: adminInput('매장 추천 한마디 (선택, 매장 추천 게임에만 쓰여요)')),
         CheckboxListTile(

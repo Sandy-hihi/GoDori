@@ -76,6 +76,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
 
   // 한 게임에 대한 작업이 진행 중인지 (BGG 갱신 등)
   final Set<String> _rowBusy = {};
+  final Map<String, double> _videoProgress = {}; // 매장 영상 올리는 중 (문서 id → 0~1)
 
   @override
   void initState() {
@@ -589,6 +590,48 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
     }
   }
 
+  // ── 매장 룰 영상 ──
+  Future<void> _uploadRuleVideo(GameDoc doc) async {
+    final v = await pickVideoFile();
+    if (v == null) return;
+    if (v.sizeMB > ruleVideoMaxMB) {
+      _toast('영상이 너무 커요 (${v.sizeMB.toStringAsFixed(0)}MB). $ruleVideoMaxMB MB 이하로 줄여 주세요.', error: true);
+      return;
+    }
+    if (v.ext == 'mov') {
+      _toast('MOV 영상은 일부 기기에서 안 나올 수 있어요. 가능하면 MP4(H.264)로 올려 주세요.');
+    }
+    setState(() {
+      _rowBusy.add(doc.id);
+      _videoProgress[doc.id] = 0;
+    });
+    try {
+      final url = await uploadRuleVideo(v, onProgress: (p) {
+        if (mounted) setState(() => _videoProgress[doc.id] = p);
+      });
+      final old = (doc.data()['ruleVideoUrl'] ?? '').toString();
+      await doc.reference.update({'ruleVideoUrl': url});
+      await deleteStorageUrl(old);
+      _toast('매장 룰 영상을 올렸어요. (${v.sizeMB.toStringAsFixed(1)}MB)');
+    } catch (e) {
+      _toast('영상을 올리지 못했어요: $e', error: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _rowBusy.remove(doc.id);
+          _videoProgress.remove(doc.id);
+        });
+      }
+    }
+  }
+
+  Future<void> _removeRuleVideo(GameDoc doc) async {
+    final old = (doc.data()['ruleVideoUrl'] ?? '').toString();
+    await doc.reference.update({'ruleVideoUrl': ''});
+    await deleteStorageUrl(old);
+    _toast('매장 룰 영상을 지웠어요. (유튜브 링크가 있으면 그걸로 나와요)');
+  }
+
   Future<void> _removeRulebook(GameDoc doc) async {
     final old = (doc.data()['rulebookImageUrl'] ?? '').toString();
     await doc.reference.update({'rulebookImageUrl': ''});
@@ -618,6 +661,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
     try {
       await deleteStorageUrl((data['imageUrl'] ?? '').toString());
       await deleteStorageUrl((data['rulebookImageUrl'] ?? '').toString());
+      await deleteStorageUrl((data['ruleVideoUrl'] ?? '').toString());
       await doc.reference.delete();
       _toast('삭제했어요.');
     } catch (e) {
@@ -976,6 +1020,9 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
     final geekId = (g['geekId'] ?? '').toString();
     final difficulty = difficultyFromWeight(w) ?? (g['difficulty'] ?? '').toString();
     final hasRulebook = (g['rulebookImageUrl'] ?? '').toString().isNotEmpty;
+    final hasOwnVideo = (g['ruleVideoUrl'] ?? '').toString().isNotEmpty;
+    final hasYoutube = (g['videoUrl'] ?? '').toString().trim().isNotEmpty;
+    final videoProgress = _videoProgress[doc.id];
     final imageUrl = (g['imageUrl'] ?? '').toString();
 
     final sub = <String>[
@@ -986,6 +1033,12 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
       if (geekId.isNotEmpty) 'BGG #$geekId',
       if ((g['time'] ?? '').toString().isNotEmpty) g['time'].toString(),
       if (hasRulebook) '룰북 있음',
+      if (videoProgress != null)
+        '영상 올리는 중 ${(videoProgress * 100).toStringAsFixed(0)}%'
+      else if (hasOwnVideo)
+        '매장 영상 있음'
+      else if (hasYoutube)
+        '유튜브 영상',
     ];
 
     return Opacity(
@@ -1085,6 +1138,12 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                     case 'rulebook-del':
                       _removeRulebook(doc);
                       break;
+                    case 'video':
+                      _uploadRuleVideo(doc);
+                      break;
+                    case 'video-del':
+                      _removeRuleVideo(doc);
+                      break;
                     case 'new':
                       _toggleNew(doc);
                       break;
@@ -1097,6 +1156,8 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                   PopupMenuItem(value: 'bgg', child: Text(geekId.isEmpty ? 'BGG에서 찾아 정보·사진 채우기' : 'BGG 정보·사진 다시 가져오기')),
                   PopupMenuItem(value: 'rulebook', child: Text(hasRulebook ? '룰북 이미지 바꾸기' : '룰북 이미지 올리기')),
                   if (hasRulebook) const PopupMenuItem(value: 'rulebook-del', child: Text('룰북 이미지 삭제')),
+                  PopupMenuItem(value: 'video', child: Text(hasOwnVideo ? '매장 룰 영상 바꾸기' : '매장 룰 영상 올리기')),
+                  if (hasOwnVideo) const PopupMenuItem(value: 'video-del', child: Text('매장 룰 영상 삭제')),
                   if (isNewEligible(g)) PopupMenuItem(value: 'new', child: Text(g['newHidden'] == true ? 'NEW 배지 다시 켜기' : 'NEW 배지 끄기')),
                   const PopupMenuDivider(),
                   const PopupMenuItem(value: 'delete', child: Text('삭제', style: TextStyle(color: Colors.redAccent))),
