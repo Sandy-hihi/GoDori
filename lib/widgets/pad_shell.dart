@@ -7,10 +7,8 @@ import 'package:boardpad/screens/game_list_screen.dart';
 import 'package:boardpad/screens/game_tools_screen.dart';
 import 'package:boardpad/screens/notice_screen.dart';
 import 'package:boardpad/services/home_layout_service.dart';
-import 'package:boardpad/services/staff_call_service.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
-import 'package:boardpad/widgets/home_common.dart';
-import 'package:boardpad/widgets/store_brand.dart';
+import 'package:boardpad/widgets/home/home_view.dart';
 
 /// 손님 패드 내부 화면(게임 목록·음식 주문·이벤트·이용안내·게임도구·일행과 함께) 공통 틀
 ///
@@ -55,10 +53,12 @@ class PadShell extends StatelessWidget {
     return Scaffold(
       backgroundColor: kBg,
       body: SafeArea(
-        child: Row(
+        // 사이드바가 홈과 같은 배율을 쓰도록 화면 전체 크기를 재서 넘겨줌
+        child: LayoutBuilder(
+          builder: (context, constraints) => Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (showSidebar) PadSidebar(current: current, roomNumber: roomNumber),
+            if (showSidebar) PadSidebar(current: current, roomNumber: roomNumber, screen: constraints.biggest),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -100,177 +100,76 @@ class PadShell extends StatelessWidget {
             ?rightPanel,
           ],
         ),
+        ),
       ),
     );
   }
 }
 
-/// 사이드바 메뉴 한 줄
-class _NavEntry {
-  final String key;
-  final String label;
-  final IconData icon;
-  const _NavEntry(this.key, this.label, this.icon);
-}
-
-const List<_NavEntry> _navEntries = [
-  _NavEntry('games', '게임 목록', Icons.casino_outlined),
-  _NavEntry('food', '음식 주문', Icons.restaurant),
-  _NavEntry('tools', '게임도구', Icons.timer_outlined),
-  _NavEntry('event', '이벤트', Icons.card_giftcard_outlined),
-  _NavEntry('notice', '이용안내', Icons.article_outlined),
-];
-
-/// 내부 화면 왼쪽 사이드바
+/// 내부 화면 왼쪽 사이드바 — 홈 화면의 왼쪽 영역(HomeSidebar)을 그대로, 홈과 같은 배율로 그림.
+/// 사장님이 '홈 화면 꾸미기'에서 정한 요소·색을 따르고, 지금 화면 메뉴를 주황으로 표시.
 class PadSidebar extends StatefulWidget {
   final String current;
   final int? roomNumber;
-  const PadSidebar({super.key, required this.current, this.roomNumber});
+  final Size screen; // 화면 전체 크기 (홈과 같은 배율 계산용)
+  const PadSidebar({super.key, required this.current, this.roomNumber, required this.screen});
 
   @override
   State<PadSidebar> createState() => _PadSidebarState();
 }
 
 class _PadSidebarState extends State<PadSidebar> {
-  // 화면을 옮겨도 사이드바 색이 깜빡이지 않게 마지막 값을 기억
-  static Color _lastColor = HomeLayout.defaults().sidebarColor;
+  // 화면을 옮겨도 깜빡이지 않게 마지막 배치를 기억
+  static HomeLayout _last = HomeLayout.defaults();
   late final Stream<HomeLayout> _layout = HomeLayoutService.watch();
-
-  void _goHome() {
-    Navigator.popUntil(context, (r) => r.settings.name == PadShell.homeRouteName || r.isFirst);
-  }
-
-  void _open(String key) {
-    if (key == widget.current) return;
-    final page = padPageFor(key, widget.roomNumber);
-    if (page == null) return;
-    Navigator.pushReplacement(
-      context,
-      PageRouteBuilder(
-        pageBuilder: (_, _, _) => page,
-        transitionDuration: Duration.zero,
-        reverseTransitionDuration: Duration.zero,
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
+    // 홈 화면(DashboardScreen)과 같은 기준 크기·배율 계산
+    final screen = widget.screen;
+    final design = HomeLayout.designSizeFor(screen);
+    final scale = screen.height / design.height;
     return StreamBuilder<HomeLayout>(
-      stream: _layout,
-      builder: (context, snap) {
-        if (snap.data != null) _lastColor = snap.data!.sidebarColor;
-        final color = _lastColor;
-        final light = color.computeLuminance() > 0.5;
-        final fg = light ? kInk : const Color(0xFFEFE8DC);
-        final boxColor = fg.withValues(alpha: light ? 0.07 : 0.09);
-        return Container(
-          width: HomeLayout.sidebarWidth,
-          color: color,
-          padding: const EdgeInsets.fromLTRB(14, 24, 14, 18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              HoldToExit(
-                child: Column(
-                  children: [
-                    const StoreLogo(size: 56),
-                    const SizedBox(height: 8),
-                    StoreName(
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: fg),
-                    ),
-                  ],
+          stream: _layout,
+          initialData: _last,
+          builder: (context, snap) {
+            if (snap.data != null) _last = snap.data!;
+            final layout = _last.forPadScreens();
+            return SizedBox(
+              width: HomeLayout.sidebarWidth * scale,
+              height: screen.height,
+              child: FittedBox(
+                fit: BoxFit.fill,
+                child: SizedBox(
+                  width: HomeLayout.sidebarWidth,
+                  height: design.height,
+                  child: HomeSidebar(layout: layout, roomNumber: widget.roomNumber, current: widget.current),
                 ),
               ),
-              const SizedBox(height: 18),
-              _navTile(icon: Icons.home_rounded, label: '홈', fg: fg, selected: false, onTap: _goHome),
-              Divider(height: 14, thickness: 1, color: fg.withValues(alpha: 0.12)),
-              for (final e in _navEntries)
-                _navTile(
-                  icon: e.icon,
-                  label: e.label,
-                  fg: fg,
-                  selected: e.key == widget.current,
-                  onTap: () => _open(e.key),
-                ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(color: boxColor, borderRadius: BorderRadius.circular(14)),
-                child: Row(
-                  children: [
-                    Icon(Icons.meeting_room_outlined, size: 18, color: fg.withValues(alpha: 0.7)),
-                    const SizedBox(width: 8),
-                    Text('${widget.roomNumber ?? '-'}번 룸',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: fg)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                height: 54,
-                child: FilledButton.icon(
-                  onPressed: () => StaffCallService.callStaff(context, widget.roomNumber ?? 0),
-                  icon: const Icon(Icons.notifications_active, size: 20),
-                  label: const Text('직원 호출', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: kOrange,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Center(child: StorePhoneText(style: TextStyle(fontSize: 12, color: fg.withValues(alpha: 0.6)))),
-            ],
-          ),
+            );
+          },
         );
-      },
-    );
   }
+}
 
-  Widget _navTile({
-    required IconData icon,
-    required String label,
-    required Color fg,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: Material(
-        color: selected ? kOrange : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: onTap,
-          child: SizedBox(
-            height: 46,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: [
-                  Icon(icon, size: 21, color: selected ? Colors.white : fg.withValues(alpha: 0.85)),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
-                          color: selected ? Colors.white : fg,
-                        )),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+/// 사이드바 메뉴로 이동 (홈 화면·내부 화면 공통)
+/// - current: 지금 화면 키 ('home' = 메인 화면)
+/// - target: 'home' | linkTargets 키(games, food, recommended, event, notice, tools)
+void padNavigate(BuildContext context, String target, String current, int? roomNumber) {
+  if (target == current) return;
+  if (target == 'home') {
+    Navigator.popUntil(context, (r) => r.settings.name == PadShell.homeRouteName || r.isFirst);
+    return;
   }
+  if (current == 'home') {
+    openHomeTarget(context, target, roomNumber); // 홈 위에 쌓기
+    return;
+  }
+  // 내부 화면끼리는 바꿔 끼우기 (쌓이지 않게)
+  final page = target == 'recommended'
+      ? GameListScreen(roomNumber: roomNumber, initialTab: '추천')
+      : padPageFor(target, roomNumber);
+  if (page != null) Navigator.pushReplacement(context, padRoute(page));
 }
 
 /// 사이드바 메뉴 키 → 화면

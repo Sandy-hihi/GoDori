@@ -22,7 +22,8 @@ class WidgetSize {
   final int h;
   const WidgetSize(this.w, this.h);
 
-  String get label => '$w×$h';
+  /// 관리자 화면 표시용. 세로는 반 칸 단위라 예전 칸 기준으로 보여 줌 (예: 2×4 → "2×2", 2×1 → "2×0.5")
+  String get label => '$w×${h.isEven ? '${h ~/ 2}' : (h / 2).toString()}';
 
   @override
   bool operator ==(Object other) => other is WidgetSize && other.w == w && other.h == h;
@@ -61,47 +62,55 @@ const bool kAiRecommendEnabled = false;
 const List<WidgetSpec> widgetCatalog = [
   // 게임
   WidgetSpec('gameList', '게임 목록', '사진 카드 — 누르면 게임 목록', Icons.casino_outlined, WidgetCategory.game,
-      [WidgetSize(2, 2), WidgetSize(3, 2), WidgetSize(2, 3)]),
+      [WidgetSize(2, 4), WidgetSize(3, 4), WidgetSize(2, 6), WidgetSize(2, 5), WidgetSize(3, 5), WidgetSize(3, 6)]),
   WidgetSpec('aiPick', '오늘의 추천 게임 (AI)', '매일 AI가 고른 게임 + 맞춤 추천', Icons.auto_awesome, WidgetCategory.game,
-      [WidgetSize(2, 2), WidgetSize(3, 2), WidgetSize(2, 3)],
+      [WidgetSize(2, 4), WidgetSize(3, 4), WidgetSize(2, 6)],
       hasOptions: true),
-  WidgetSpec('search', '게임 검색', '게임 이름 검색창', Icons.search, WidgetCategory.game, [WidgetSize(2, 1), WidgetSize(3, 1)]),
-  WidgetSpec('finder', '찾아보기', '인원별·장르별·난이도별 찾기', Icons.tune, WidgetCategory.game,
-      [WidgetSize(2, 1), WidgetSize(3, 1)]),
-  WidgetSpec('recommended', '추천 게임', '직원 추천 게임만 모아 보기', Icons.star_rounded, WidgetCategory.game, [WidgetSize(1, 1)]),
+  WidgetSpec('search', '게임 검색', '게임 이름 검색창 (얇게 하면 검색창만)', Icons.search, WidgetCategory.game,
+      [WidgetSize(2, 2), WidgetSize(3, 2), WidgetSize(2, 1), WidgetSize(3, 1)]),
+  WidgetSpec('finder', '찾아보기', '인원별·장르별·난이도별 찾기 (얇게 하면 버튼만)', Icons.tune, WidgetCategory.game,
+      [WidgetSize(2, 2), WidgetSize(3, 2), WidgetSize(3, 1), WidgetSize(4, 1)]),
+  WidgetSpec('recommended', '추천 게임', '직원 추천 게임만 모아 보기', Icons.star_rounded, WidgetCategory.game,
+      [WidgetSize(1, 2), WidgetSize(1, 1)]),
   // 주문
   WidgetSpec('foodOrder', '음식 주문', '사진 카드 — 누르면 주문 화면', Icons.restaurant, WidgetCategory.order,
-      [WidgetSize(2, 2), WidgetSize(3, 2), WidgetSize(2, 3)]),
+      [WidgetSize(2, 4), WidgetSize(3, 4), WidgetSize(2, 6), WidgetSize(2, 5), WidgetSize(3, 5), WidgetSize(3, 6)]),
   WidgetSpec('menuPick', '오늘의 추천 메뉴', '고른 메뉴로 바로 주문', Icons.local_cafe_outlined, WidgetCategory.order,
-      [WidgetSize(2, 1)],
+      [WidgetSize(2, 2)],
       hasOptions: true),
   // 테이블
-  WidgetSpec('clock', '시계', '현재 시각과 날짜', Icons.schedule, WidgetCategory.table, [WidgetSize(1, 1)]),
-  WidgetSpec('room', '방 번호', '지금 이용 중인 방', Icons.meeting_room_outlined, WidgetCategory.table, [WidgetSize(1, 1)]),
+  WidgetSpec('clock', '시계', '현재 시각과 날짜', Icons.schedule, WidgetCategory.table,
+      [WidgetSize(1, 2), WidgetSize(2, 2), WidgetSize(2, 1)]),
+  WidgetSpec('room', '방 번호', '지금 이용 중인 방', Icons.meeting_room_outlined, WidgetCategory.table,
+      [WidgetSize(1, 2), WidgetSize(2, 2), WidgetSize(2, 1)]),
   WidgetSpec('staffCall', '직원 호출', '직원 호출 버튼', Icons.notifications_active_outlined, WidgetCategory.table,
-      [WidgetSize(1, 1), WidgetSize(2, 1)]),
+      [WidgetSize(1, 2), WidgetSize(2, 2), WidgetSize(2, 1)]),
   // 매장 정보
-  WidgetSpec('notice', '공지사항', '가장 최근 공지 제목', Icons.campaign_outlined, WidgetCategory.info, [WidgetSize(2, 1)]),
+  WidgetSpec('notice', '공지사항', '가장 최근 공지 제목', Icons.campaign_outlined, WidgetCategory.info,
+      [WidgetSize(2, 2), WidgetSize(2, 3), WidgetSize(2, 4)]),
   WidgetSpec('event', '이벤트', '진행 중인 이벤트', Icons.card_giftcard_outlined, WidgetCategory.info,
-      [WidgetSize(2, 1), WidgetSize(1, 1)]),
-  WidgetSpec('fee', '요금 안내', '요금표 (직접 입력)', Icons.payments_outlined, WidgetCategory.info, [WidgetSize(2, 1)],
+      [WidgetSize(2, 2), WidgetSize(1, 2), WidgetSize(2, 3), WidgetSize(2, 4)]),
+  WidgetSpec('fee', '요금 안내', '요금표 (직접 입력)', Icons.payments_outlined, WidgetCategory.info, [WidgetSize(2, 2)],
       hasOptions: true),
-  WidgetSpec('info', '이용안내', '이용안내 화면 바로가기', Icons.article_outlined, WidgetCategory.info, [WidgetSize(1, 1)]),
-  WidgetSpec('wifi', '와이파이', '와이파이 이름·비밀번호', Icons.wifi, WidgetCategory.info, [WidgetSize(1, 1)],
+  WidgetSpec('info', '이용안내', '이용안내 화면 바로가기', Icons.article_outlined, WidgetCategory.info, [WidgetSize(1, 2)]),
+  WidgetSpec('wifi', '와이파이', '와이파이 이름·비밀번호', Icons.wifi, WidgetCategory.info, [WidgetSize(1, 2)],
       hasOptions: true),
-  WidgetSpec('qr', '인스타·리뷰 QR', '링크를 QR로 보여주기', Icons.qr_code_2, WidgetCategory.info, [WidgetSize(1, 1)],
+  WidgetSpec('qr', '인스타·리뷰 QR', '링크를 QR로 보여주기', Icons.qr_code_2, WidgetCategory.info, [WidgetSize(1, 2)],
       hasOptions: true),
   // 게임 도구
-  WidgetSpec('tools', '게임도구', '게임도구 화면 바로가기', Icons.timer_outlined, WidgetCategory.tools, [WidgetSize(1, 1)]),
-  WidgetSpec('timer', '타이머', '홈에서 바로 쓰는 타이머', Icons.hourglass_bottom, WidgetCategory.tools, [WidgetSize(1, 1)],
+  WidgetSpec('tools', '게임도구', '게임도구 화면 바로가기', Icons.timer_outlined, WidgetCategory.tools, [WidgetSize(1, 2)]),
+  WidgetSpec('timer', '타이머', '홈에서 바로 쓰는 타이머', Icons.hourglass_bottom, WidgetCategory.tools, [WidgetSize(1, 2)],
       hasOptions: true),
-  WidgetSpec('dice', '주사위', '눌러서 굴리기', Icons.casino, WidgetCategory.tools, [WidgetSize(1, 1)]),
+  WidgetSpec('dice', '주사위', '눌러서 굴리기', Icons.casino, WidgetCategory.tools, [WidgetSize(1, 2)]),
   // 꾸미기
   WidgetSpec('banner', '사진 배너', '사진 + 문구, 누르면 원하는 화면으로', Icons.image_outlined, WidgetCategory.decor,
-      [WidgetSize(2, 1), WidgetSize(4, 1)],
+      [WidgetSize(2, 2), WidgetSize(4, 2)],
+      hasOptions: true),
+  WidgetSpec('greeting', '인사말', '배경 없이 크게 쓰는 인사 (작은 줄 + 큰 줄)', Icons.waving_hand_outlined, WidgetCategory.decor,
+      [WidgetSize(4, 1), WidgetSize(3, 1), WidgetSize(2, 1), WidgetSize(4, 2), WidgetSize(3, 2), WidgetSize(2, 2)],
       hasOptions: true),
   WidgetSpec('memo', '자유 문구', '사장님이 쓰는 안내 문구', Icons.sticky_note_2_outlined, WidgetCategory.decor,
-      [WidgetSize(2, 1)],
+      [WidgetSize(2, 2)],
       hasOptions: true),
 ];
 
@@ -150,9 +159,17 @@ const List<WidgetSize> allGridSizes = [
   WidgetSize(2, 1),
   WidgetSize(3, 1),
   WidgetSize(4, 1),
+  WidgetSize(1, 2),
   WidgetSize(2, 2),
   WidgetSize(3, 2),
+  WidgetSize(4, 2),
   WidgetSize(2, 3),
+  WidgetSize(2, 4),
+  WidgetSize(3, 4),
+  WidgetSize(2, 5),
+  WidgetSize(3, 5),
+  WidgetSize(2, 6),
+  WidgetSize(3, 6),
 ];
 
 /// 메뉴 바로가기(links)에서 고를 수 있는 화면
@@ -219,7 +236,7 @@ class SidebarItem {
   double get estimatedHeight {
     if (type == 'links') {
       final targets = (options['targets'] is List) ? (options['targets'] as List).length : 3;
-      return targets * 60.0;
+      return (targets + 1) * 60.0; // 맨 위 '홈' 줄 포함
     }
     return sidebarSpecOf(type)?.height ?? 0;
   }
@@ -285,7 +302,8 @@ class GridItem {
 }
 
 class HomeLayout {
-  static const int rows = 4;
+  /// 세로 줄 수. 반 칸 단위라 8줄 (예전 4줄 배치는 읽을 때 y·h를 2배로 바꿈)
+  static const int rows = 8;
   static const double designWidth = 1280;
   static const double designHeight = 800;
   static const double sidebarWidth = 196;
@@ -354,12 +372,17 @@ class HomeLayout {
           if (item != null) items.add(item);
         }
       }
-      final widgets = <GridItem>[];
+      var widgets = <GridItem>[];
       if (data['widgets'] is List) {
         for (final raw in data['widgets'] as List) {
           final item = GridItem.fromMap(raw);
           if (item != null) widgets.add(item);
         }
+      }
+      // 예전에 4줄 격자로 저장한 배치면 세로 위치·크기를 2배로 (8줄 = 반 칸 단위)
+      final savedRows = _int(_optionsFrom(data['grid'])['rows'], 4);
+      if (savedRows == 4) {
+        widgets = [for (final w in widgets) w.copyWith(y: w.y * 2, h: w.h * 2)];
       }
       final layout = HomeLayout(
         sidebarVisible: sidebar['visible'] != false,
@@ -463,31 +486,158 @@ class HomeLayout {
     return null;
   }
 
-  /// 처음 설치했을 때 / 저장된 배치를 못 읽었을 때 쓰는 기본 배치
-  static HomeLayout defaults() => const HomeLayout(
-        sidebarVisible: true,
-        sidebarColor: Color(0xFF2A2420),
-        sidebarItems: [
-          SidebarItem('logo'),
-          SidebarItem('room'),
-          SidebarItem('spacer'),
-          SidebarItem('staffCall'),
-          SidebarItem('phone'),
-        ],
-        widgets: [
-          // AI 추천을 끄면 그 자리(2×2)를 게임 목록·음식 주문이 3×2로 나눠 씀
-          GridItem(id: 'w1', type: 'gameList', x: 0, y: 0, w: kAiRecommendEnabled ? 2 : 3, h: 2),
-          GridItem(
-              id: 'w2', type: 'foodOrder', x: kAiRecommendEnabled ? 2 : 3, y: 0, w: kAiRecommendEnabled ? 2 : 3, h: 2),
-          if (kAiRecommendEnabled) GridItem(id: 'w3', type: 'aiPick', x: 4, y: 0, w: 2, h: 2),
-          GridItem(id: 'w4', type: 'search', x: 0, y: 2, w: 2, h: 1),
-          GridItem(id: 'w5', type: 'notice', x: 2, y: 2, w: 2, h: 1),
-          GridItem(id: 'w6', type: 'clock', x: 4, y: 2, w: 1, h: 1),
-          GridItem(id: 'w7', type: 'info', x: 5, y: 2, w: 1, h: 1),
-          GridItem(id: 'w8', type: 'finder', x: 0, y: 3, w: 2, h: 1),
-          GridItem(id: 'w9', type: 'event', x: 2, y: 3, w: 2, h: 1),
-          GridItem(id: 'w10', type: 'tools', x: 4, y: 3, w: 1, h: 1),
-          GridItem(id: 'w11', type: 'recommended', x: 5, y: 3, w: 1, h: 1),
-        ],
-      );
+  /// 내부 화면(게임 목록·음식 주문 등) 왼쪽 사이드바용 배치.
+  /// 홈과 같은 왼쪽 영역을 쓰되, 왼쪽 영역을 꺼 뒀으면 기본 왼쪽 영역을 쓰고,
+  /// 메뉴 바로가기가 없으면 로고 아래에 넣어 줌 (화면 이동이 되도록, 넘치지 않는 만큼만)
+  HomeLayout forPadScreens() {
+    var items = sidebarVisible ? sidebarItems : HomeLayout.defaults().sidebarItems;
+    if (!items.any((e) => e.type == 'links')) {
+      final used = items.fold<double>(0, (sum, e) => sum + e.estimatedHeight) + items.length * 14;
+      final fit = ((sidebarMaxContent - used) / 60).floor() - 1; // '홈' 줄 한 칸 빼고
+      const all = ['games', 'food', 'tools', 'event', 'notice'];
+      final targets = all.take(fit.clamp(0, all.length).toInt()).toList();
+      final at = items.indexWhere((e) => e.type == 'logo') + 1;
+      items = [...items]..insert(at, SidebarItem('links', {'targets': targets}));
+    }
+    return HomeLayout(sidebarVisible: true, sidebarColor: sidebarColor, sidebarItems: items, widgets: widgets);
+  }
+
+  /// 처음 설치했을 때 / 저장된 배치를 못 읽었을 때 / '기본 배치로 되돌리기'에 쓰는 기본 배치 (L 시안)
+  static HomeLayout defaults() => homeLayoutPresets.first.layout;
 }
+
+/// '예시 배치 고르기'에 나오는 배치들. 첫 번째가 기본 배치
+class HomeLayoutPreset {
+  final String name;
+  final String description;
+  final HomeLayout layout;
+  const HomeLayoutPreset(this.name, this.description, this.layout);
+}
+
+const _kBrown = Color(0xFF2A2420);
+const _kNavy = Color(0xFF23314D);
+const _kCream = Color(0xFFEFE6D6);
+
+// 격자는 왼쪽 영역이 있으면 가로 6칸 × 세로 8줄(반 칸 단위), 없으면 7칸 × 8줄
+const List<HomeLayoutPreset> homeLayoutPresets = [
+  HomeLayoutPreset(
+    '기본 — 사진 카드',
+    '인사말·검색 한 줄, 큰 사진 카드 두 개, 아래 추천·인원별·장르별·난이도별 버튼, 오른쪽 시계·방 번호·공지·이벤트',
+    HomeLayout(
+      sidebarVisible: true,
+      sidebarColor: _kBrown,
+      sidebarItems: [
+        SidebarItem('logo'),
+        SidebarItem('links', {
+          'targets': ['event', 'tools', 'notice'],
+        }),
+        SidebarItem('spacer'),
+        SidebarItem('staffCall'),
+        SidebarItem('phone'),
+      ],
+      widgets: [
+        GridItem(id: 'w1', type: 'greeting', x: 0, y: 0, w: 4, h: 1, options: {
+          'small': '안녕하세요!',
+          'text': '오늘도 즐거운 게임 시간 보내세요',
+        }),
+        GridItem(id: 'w2', type: 'search', x: 4, y: 0, w: 2, h: 1),
+        GridItem(id: 'w3', type: 'foodOrder', x: 0, y: 1, w: 2, h: 6),
+        GridItem(id: 'w4', type: 'gameList', x: 2, y: 1, w: 2, h: 6),
+        GridItem(id: 'w5', type: 'recommended', x: 0, y: 7, w: 1, h: 1),
+        GridItem(id: 'w6', type: 'finder', x: 1, y: 7, w: 3, h: 1),
+        GridItem(id: 'w7', type: 'clock', x: 4, y: 1, w: 2, h: 1),
+        GridItem(id: 'w8', type: 'room', x: 4, y: 2, w: 2, h: 1),
+        GridItem(id: 'w9', type: 'notice', x: 4, y: 3, w: 2, h: 3),
+        GridItem(id: 'w10', type: 'event', x: 4, y: 6, w: 2, h: 2),
+      ],
+    ),
+  ),
+  HomeLayoutPreset(
+    '게임 찾기 중심',
+    '게임 목록을 가장 크게, 검색·찾아보기를 바로 옆에. 주문은 아래에 작게',
+    HomeLayout(
+      sidebarVisible: true,
+      sidebarColor: _kNavy,
+      sidebarItems: [
+        SidebarItem('logo'),
+        SidebarItem('room'),
+        SidebarItem('links', {
+          'targets': ['games', 'food', 'tools'],
+        }),
+        SidebarItem('spacer'),
+        SidebarItem('staffCall'),
+        SidebarItem('phone'),
+      ],
+      widgets: [
+        GridItem(id: 'w1', type: 'gameList', x: 0, y: 0, w: 3, h: 4),
+        GridItem(id: 'w2', type: 'search', x: 3, y: 0, w: 3, h: 2),
+        GridItem(id: 'w3', type: 'finder', x: 3, y: 2, w: 3, h: 2),
+        GridItem(id: 'w4', type: 'foodOrder', x: 0, y: 4, w: 2, h: 4),
+        GridItem(id: 'w5', type: 'recommended', x: 2, y: 4, w: 1, h: 2),
+        GridItem(id: 'w6', type: 'tools', x: 2, y: 6, w: 1, h: 2),
+        GridItem(id: 'w7', type: 'notice', x: 3, y: 4, w: 2, h: 2),
+        GridItem(id: 'w8', type: 'dice', x: 5, y: 4, w: 1, h: 2),
+        GridItem(id: 'w9', type: 'event', x: 3, y: 6, w: 2, h: 2),
+        GridItem(id: 'w10', type: 'info', x: 5, y: 6, w: 1, h: 2),
+      ],
+    ),
+  ),
+  HomeLayoutPreset(
+    '큰 카드 두 개',
+    '음식 주문·게임 목록을 크게 나란히. 아래 줄에 자주 쓰는 바로가기',
+    HomeLayout(
+      sidebarVisible: true,
+      sidebarColor: _kCream,
+      sidebarItems: [
+        SidebarItem('logo'),
+        SidebarItem('room'),
+        SidebarItem('links', {
+          'targets': ['event', 'notice'],
+        }),
+        SidebarItem('spacer'),
+        SidebarItem('staffCall'),
+        SidebarItem('phone'),
+      ],
+      widgets: [
+        GridItem(id: 'w1', type: 'foodOrder', x: 0, y: 0, w: 3, h: 4),
+        GridItem(id: 'w2', type: 'gameList', x: 3, y: 0, w: 3, h: 4),
+        GridItem(id: 'w3', type: 'search', x: 0, y: 4, w: 3, h: 2),
+        GridItem(id: 'w4', type: 'notice', x: 3, y: 4, w: 2, h: 2),
+        GridItem(id: 'w5', type: 'clock', x: 5, y: 4, w: 1, h: 2),
+        GridItem(id: 'w6', type: 'finder', x: 0, y: 6, w: 3, h: 2),
+        GridItem(id: 'w7', type: 'recommended', x: 3, y: 6, w: 1, h: 2),
+        GridItem(id: 'w8', type: 'tools', x: 4, y: 6, w: 1, h: 2),
+        GridItem(id: 'w9', type: 'event', x: 5, y: 6, w: 1, h: 2),
+      ],
+    ),
+  ),
+  HomeLayoutPreset(
+    '왼쪽 영역 없이 넓게',
+    '화면 전체를 7칸 격자로. 직원 호출·방 번호는 오른쪽 위에 (왼쪽 위 구석을 5초 누르면 패드 종료)',
+    HomeLayout(
+      sidebarVisible: false,
+      sidebarColor: _kBrown,
+      sidebarItems: [
+        SidebarItem('logo'),
+        SidebarItem('room'),
+        SidebarItem('spacer'),
+        SidebarItem('staffCall'),
+        SidebarItem('phone'),
+      ],
+      widgets: [
+        GridItem(id: 'w1', type: 'foodOrder', x: 0, y: 0, w: 3, h: 4),
+        GridItem(id: 'w2', type: 'gameList', x: 3, y: 0, w: 3, h: 4),
+        GridItem(id: 'w3', type: 'staffCall', x: 6, y: 0, w: 1, h: 2),
+        GridItem(id: 'w4', type: 'room', x: 6, y: 2, w: 1, h: 2),
+        GridItem(id: 'w5', type: 'search', x: 0, y: 4, w: 3, h: 2),
+        GridItem(id: 'w6', type: 'notice', x: 3, y: 4, w: 2, h: 2),
+        GridItem(id: 'w7', type: 'clock', x: 5, y: 4, w: 1, h: 2),
+        GridItem(id: 'w8', type: 'info', x: 6, y: 4, w: 1, h: 2),
+        GridItem(id: 'w9', type: 'finder', x: 0, y: 6, w: 3, h: 2),
+        GridItem(id: 'w10', type: 'event', x: 3, y: 6, w: 2, h: 2),
+        GridItem(id: 'w11', type: 'recommended', x: 5, y: 6, w: 1, h: 2),
+        GridItem(id: 'w12', type: 'tools', x: 6, y: 6, w: 1, h: 2),
+      ],
+    ),
+  ),
+];

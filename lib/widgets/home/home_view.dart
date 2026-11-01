@@ -6,6 +6,7 @@ import 'package:boardpad/services/staff_call_service.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/home_common.dart';
+import 'package:boardpad/widgets/pad_shell.dart';
 import 'home_grid_widgets.dart';
 import 'home_theme.dart';
 
@@ -114,7 +115,10 @@ class HomeSidebar extends StatelessWidget {
   final HomeLayout layout;
   final int? roomNumber;
 
-  const HomeSidebar({super.key, required this.layout, this.roomNumber});
+  /// 지금 화면 ('home' = 메인 화면, 내부 화면은 games·food·tools·event·notice 등). 메뉴에서 주황으로 표시
+  final String current;
+
+  const HomeSidebar({super.key, required this.layout, this.roomNumber, this.current = 'home'});
 
   @override
   Widget build(BuildContext context) {
@@ -213,36 +217,48 @@ class HomeSidebar extends StatelessWidget {
         final targets = raw is List
             ? raw.map((e) => e.toString()).where(linkTargets.containsKey).toList()
             : const ['event', 'tools', 'notice'];
-        return Column(
-          children: [
-            for (final t in targets)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Material(
-                  color: Colors.transparent,
-                  borderRadius: BorderRadius.circular(14),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
-                    onTap: () => openHomeTarget(context, t, roomNumber),
-                    child: SizedBox(
-                      height: 56,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        child: Row(
-                          children: [
-                            Icon(homeTargetIcon(t), size: 22, color: fg),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(linkTargets[t]!,
-                                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w500, color: fg)),
-                            ),
-                          ],
+        // 맨 위에 '홈', 그 아래 사장님이 고른 바로가기. 지금 화면은 주황 (홈·내부 화면 사이드바 공통)
+        Widget row(String key, String label, IconData icon) {
+          final selected = key == current;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Material(
+              color: selected ? kOrange : Colors.transparent,
+              borderRadius: BorderRadius.circular(14),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => padNavigate(context, key, current, roomNumber),
+                child: SizedBox(
+                  height: 56,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: Row(
+                      children: [
+                        Icon(icon, size: 22, color: selected ? Colors.white : fg),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+                                color: selected ? Colors.white : fg,
+                              )),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ),
               ),
+            ),
+          );
+        }
+
+        return Column(
+          children: [
+            row('home', '홈', Icons.home_rounded),
+            for (final t in targets) row(t, linkTargets[t]!, homeTargetIcon(t)),
           ],
         );
       case 'note':

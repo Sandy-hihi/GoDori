@@ -124,6 +124,91 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
     }
   }
 
+  // 예시 배치 고르기 — 미리보기를 보고 하나를 고르면 편집 화면에 불러옴 (저장해야 매장에 적용)
+  Future<void> _pickPreset() async {
+    final picked = await showDialog<HomeLayoutPreset>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('예시 배치 고르기', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: SizedBox(
+          width: 920,
+          child: SingleChildScrollView(
+            child: Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                for (final p in homeLayoutPresets)
+                  SizedBox(
+                    width: 444,
+                    child: Material(
+                      color: const Color(0xFFF6F4F0),
+                      borderRadius: BorderRadius.circular(14),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: () => Navigator.pop(ctx, p),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              AspectRatio(
+                                aspectRatio: HomeLayout.designWidth / HomeLayout.designHeight,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  // 미리보기는 눌러지지 않게
+                                  child: IgnorePointer(
+                                    child: FittedBox(child: HomeView(layout: p.layout, roomNumber: 1)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(p.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 2),
+                              Text(p.description, style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기'))],
+      ),
+    );
+    if (picked == null || !mounted) return;
+    if (_dirty) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('지금 편집 중인 배치를 바꿀까요?', style: TextStyle(fontWeight: FontWeight.bold)),
+          content: Text('저장하지 않은 변경 사항이 있어요. "${picked.name}" 배치로 바꾸면 사라져요.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('바꾸기')),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
+    // 로고 사진·매장 이름처럼 이미 설정한 왼쪽 영역 로고 정보는 그대로 가져감
+    SidebarItem? currentLogo;
+    for (final e in _layout!.sidebarItems) {
+      if (e.type == 'logo') currentLogo = e;
+    }
+    final items = [
+      for (final it in picked.layout.sidebarItems)
+        if (it.type == 'logo' && currentLogo != null) currentLogo else it,
+    ];
+    setState(() {
+      _layout = picked.layout.copyWith(sidebarItems: items);
+      _selectedId = null;
+    });
+    _snack('"${picked.name}" 배치를 불러왔어요. 확인 후 "저장하고 매장에 적용"을 눌러 주세요.');
+  }
+
   void _navigate(String screen) {
     final targets = <String, Widget>{
       'store': const AdminStoreSettingsScreen(),
@@ -303,6 +388,13 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
             padding: EdgeInsets.only(right: 12),
             child: Text('저장하지 않은 변경 사항이 있어요', style: TextStyle(color: _accent, fontWeight: FontWeight.w600)),
           ),
+        OutlinedButton.icon(
+          onPressed: _pickPreset,
+          icon: const Icon(Icons.dashboard_customize_outlined, size: 18),
+          label: const Text('예시 배치 고르기'),
+          style: OutlinedButton.styleFrom(minimumSize: const Size(0, 46)),
+        ),
+        const SizedBox(width: 4),
         TextButton(onPressed: _resetToDefault, child: const Text('기본 배치로 되돌리기')),
         const SizedBox(width: 8),
         FilledButton.icon(
@@ -727,6 +819,10 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
       case 'note':
         c1.text = (o['text'] ?? '').toString();
         break;
+      case 'greeting':
+        c1.text = (o['small'] ?? '').toString();
+        c2.text = (o['text'] ?? '').toString();
+        break;
       case 'banner':
         c1.text = (o['caption'] ?? '').toString();
         break;
@@ -772,6 +868,21 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                 maxLength: type == 'note' ? 40 : 60,
                 decoration: const InputDecoration(labelText: '보여줄 문구', hintText: '예: 주말에는 1인 1음료 부탁드려요'),
               );
+              break;
+            case 'greeting':
+              body = Column(mainAxisSize: MainAxisSize.min, children: [
+                TextField(
+                  controller: c1,
+                  maxLength: 20,
+                  decoration: const InputDecoration(labelText: '작은 줄 (선택)', hintText: '안녕하세요!'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: c2,
+                  maxLength: 30,
+                  decoration: const InputDecoration(labelText: '큰 줄', hintText: '오늘도 즐거운 게임 시간 보내세요'),
+                ),
+              ]);
               break;
             case 'timer':
               body = TextField(
@@ -925,6 +1036,10 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                     case 'memo':
                     case 'note':
                       o['text'] = c1.text.trim();
+                      break;
+                    case 'greeting':
+                      o['small'] = c1.text.trim();
+                      o['text'] = c2.text.trim();
                       break;
                     case 'banner':
                       o['caption'] = c1.text.trim();

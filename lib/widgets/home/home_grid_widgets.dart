@@ -51,13 +51,22 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
         count: _optInt(o, 'count', 3).clamp(2, 4).toInt(),
         showAsk: o['showAsk'] != false,
         exclude: _optList(o, 'exclude'),
-        tall: item.h >= 3,
+        tall: item.h >= 6,
       );
     case 'search':
-      return _SearchWidget(roomNumber: roomNumber);
+      return _SearchWidget(roomNumber: roomNumber, thin: item.h == 1);
     case 'finder':
-      return _FinderWidget(roomNumber: roomNumber);
+      return _FinderWidget(roomNumber: roomNumber, thin: item.h == 1);
     case 'recommended':
+      if (item.h == 1) {
+        // 얇은 크기: 흰 알약 버튼 (찾아보기 버튼들과 같은 모양)
+        return HomePillButton(
+          icon: Icons.star_rounded,
+          iconColor: const Color(0xFFE0A21B),
+          label: '추천 게임',
+          onTap: () => openHomeTarget(context, 'recommended', roomNumber),
+        );
+      }
       return HomeShortcutTile(
         icon: Icons.star_rounded,
         iconColor: const Color(0xFFE0A21B),
@@ -70,6 +79,35 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
     case 'menuPick':
       return _MenuPickWidget(menuId: _optStr(o, 'menuId'), roomNumber: roomNumber);
     case 'clock':
+      if (item.w >= 2) {
+        // 가로로 긴 시계: 아이콘 왼쪽, 날짜·시각 오른쪽 (얇으면 여백을 줄임)
+        return HomeCard(
+          padding: item.h == 1 ? const EdgeInsets.symmetric(horizontal: 20, vertical: 8) : const EdgeInsets.all(18),
+          child: LiveClock(
+            builder: (context, now) => Row(
+              children: [
+                const Icon(Icons.schedule, size: 30, color: kInk),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(formatDateKo(now), style: const TextStyle(fontSize: 13, color: kMuted)),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(formatTimeKo(now),
+                            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: kInk)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
       return HomeCard(
         child: LiveClock(
           builder: (context, now) => Column(
@@ -95,19 +133,25 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
     case 'room':
       return HomeCard(
         color: const Color(0xFF2A2420),
+        padding: item.h == 1 ? const EdgeInsets.symmetric(horizontal: 20, vertical: 8) : const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             const Text('지금 이용 중인 방', style: TextStyle(fontSize: 12, color: Color(0xA6F4EBDC))),
-            Text('${roomNumber ?? '-'}번 룸',
-                style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: Color(0xFFF4EBDC))),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text('${roomNumber ?? '-'}번 룸',
+                  style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: Color(0xFFF4EBDC))),
+            ),
           ],
         ),
       );
     case 'staffCall':
       return HomeCard(
         color: kOrange,
+        padding: item.h == 1 ? const EdgeInsets.symmetric(horizontal: 16, vertical: 6) : const EdgeInsets.all(18),
         onTap: () => StaffCallService.callStaff(context, roomNumber ?? 0),
         child: item.w >= 2
             ? const Row(
@@ -242,6 +286,30 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
         caption: _optStr(o, 'caption'),
         link: _optStr(o, 'link'),
         roomNumber: roomNumber,
+      );
+    case 'greeting':
+      // 배경 없는 인사말 (작은 줄 + 큰 줄)
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.only(left: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if ((_optStr(o, 'small') ?? '').isNotEmpty)
+                Text(_optStr(o, 'small')!,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, color: kBody)),
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(_optStr(o, 'text') ?? '인사말을 입력해 주세요',
+                    maxLines: 1, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: kInk)),
+              ),
+            ],
+          ),
+        ),
       );
     case 'memo':
       return HomeCard(
@@ -390,7 +458,8 @@ class _PhotoCard extends StatelessWidget {
 
 class _SearchWidget extends StatefulWidget {
   final int? roomNumber;
-  const _SearchWidget({this.roomNumber});
+  final bool thin; // 반 칸 높이: 제목 없이 흰 검색창만
+  const _SearchWidget({this.roomNumber, this.thin = false});
 
   @override
   State<_SearchWidget> createState() => _SearchWidgetState();
@@ -409,8 +478,46 @@ class _SearchWidgetState extends State<_SearchWidget> {
     homeGo(context, GameListScreen(roomNumber: widget.roomNumber, initialSearchQuery: _controller.text.trim()));
   }
 
+  Widget _field() {
+    return Row(
+      children: [
+        const Icon(Icons.search, color: kInk, size: 22),
+        const SizedBox(width: 8),
+        Expanded(
+          child: TextField(
+            controller: _controller,
+            onSubmitted: (_) => _search(),
+            textInputAction: TextInputAction.search,
+            style: const TextStyle(fontSize: 15, color: kInk),
+            decoration: const InputDecoration(
+              hintText: '게임 이름으로 검색',
+              hintStyle: TextStyle(color: Color(0xFF9A958C)),
+              border: InputBorder.none,
+              isDense: true,
+            ),
+          ),
+        ),
+        IconButton(
+          onPressed: _search,
+          icon: const Icon(Icons.arrow_forward, color: kInk, size: 20),
+          tooltip: '검색',
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.thin) {
+      return Center(
+        child: Container(
+          height: 56,
+          padding: const EdgeInsets.only(left: 18, right: 6),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(28)),
+          child: _field(),
+        ),
+      );
+    }
     return HomeCard(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       child: Column(
@@ -457,7 +564,8 @@ class _SearchWidgetState extends State<_SearchWidget> {
 
 class _FinderWidget extends StatelessWidget {
   final int? roomNumber;
-  const _FinderWidget({this.roomNumber});
+  final bool thin; // 반 칸 높이: 제목 없이 흰 알약 버튼 3개 (격자 간격과 같은 16)
+  const _FinderWidget({this.roomNumber, this.thin = false});
 
   void _open(BuildContext context, {String? genre, String? players, String? difficulty}) {
     homeGo(
@@ -502,6 +610,46 @@ class _FinderWidget extends StatelessWidget {
           margin: const EdgeInsets.only(right: 2),
           decoration: BoxDecoration(color: c, shape: BoxShape.circle),
         );
+    if (thin) {
+      void pickPlayers() => showFilterPicker(
+            context: context,
+            title: '몇 명이서 하세요?',
+            options: Future.value(homePlayerOptions),
+            onPick: (v) => _open(context, players: v),
+          );
+      void pickGenre() => showFilterPicker(
+            context: context,
+            title: '어떤 장르가 좋으세요?',
+            options: loadGenres(),
+            onPick: (v) => _open(context, genre: v),
+          );
+      void pickDifficulty() => showFilterPicker(
+            context: context,
+            title: '난이도를 골라 주세요',
+            options: Future.value(difficultyLabels),
+            showDifficultyColors: true,
+            onPick: (v) => _open(context, difficulty: v),
+          );
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: HomePillButton(icon: Icons.people_alt_outlined, label: '인원별', onTap: pickPlayers)),
+          const SizedBox(width: 16),
+          Expanded(child: HomePillButton(icon: Icons.sell_outlined, label: '장르별', onTap: pickGenre)),
+          const SizedBox(width: 16),
+          Expanded(
+            child: HomePillButton(
+              leading: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [dot(const Color(0xFF23AC3A)), dot(const Color(0xFFF29700)), dot(const Color(0xFFD80051))],
+              ),
+              label: '난이도별',
+              onTap: pickDifficulty,
+            ),
+          ),
+        ],
+      );
+    }
     return HomeCard(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       child: Column(

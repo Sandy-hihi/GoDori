@@ -27,10 +27,37 @@ class BoardPadApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFF00B37E),
         // 손님 패드 기본 강조색(진행 표시·스위치·커서 등)을 메인 화면 주황으로
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFE2711D)),
+        // 화면 전환은 모두 애니메이션 없이 바로 (왼쪽 메뉴로 이동할 때와 같게).
+        // 첫 화면 → 방 선택 → 홈, 일행과 함께 → 게임 목록 등 MaterialPageRoute로 여는 화면에 모두 적용
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: _NoAnimationTransitions(),
+            TargetPlatform.iOS: _NoAnimationTransitions(),
+            TargetPlatform.windows: _NoAnimationTransitions(),
+            TargetPlatform.macOS: _NoAnimationTransitions(),
+            TargetPlatform.linux: _NoAnimationTransitions(),
+            TargetPlatform.fuchsia: _NoAnimationTransitions(),
+          },
+        ),
       ),
       home: const RoleSelectionScreen(),
     );
   }
+}
+
+/// 화면 전환 효과 없음 (새 화면이 바로 보임)
+class _NoAnimationTransitions extends PageTransitionsBuilder {
+  const _NoAnimationTransitions();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) =>
+      child;
 }
 
 class RoleSelectionScreen extends StatefulWidget {
