@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:boardpad/widgets/store_brand.dart';
 
 import 'package:boardpad/models/home_layout.dart';
 import 'package:boardpad/services/staff_call_service.dart';
@@ -149,25 +148,32 @@ class HomeSidebar extends StatelessWidget {
       case 'logo':
         final logoUrl = (o['imageUrl'] ?? '').toString().trim();
         final storeName = (o['name'] ?? '').toString().trim();
-        final fallbackLogo = Image.asset('assets/images/logo.jpg', width: 76, height: 76, fit: BoxFit.cover);
+        // 로고·매장 이름은 매장이 설정한 경우에만 보임(기본값 없음).
+        // 둘 다 비어도 5초 누르기(나가기) 자리는 남도록 최소 높이 유지.
         return HoldToExit(
-          child: Column(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 60),
+            child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              ClipOval(
-                child: hasValidImage(logoUrl)
-                    ? AppNetworkImage(
-                        imageUrl: logoUrl,
-                        width: 76,
-                        height: 76,
-                        fit: BoxFit.cover,
-                        errorWidget: (c, u, e) => fallbackLogo,
-                      )
-                    : fallbackLogo,
-              ),
-              const SizedBox(height: 10),
-              Text(storeName.isEmpty ? StoreBrand.defaultName : storeName,
-                  textAlign: TextAlign.center, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: fg)),
+              if (hasValidImage(logoUrl)) ...[
+                ClipOval(
+                  child: AppNetworkImage(
+                    imageUrl: logoUrl,
+                    width: 76,
+                    height: 76,
+                    fit: BoxFit.cover,
+                    errorWidget: (c, u, e) => const SizedBox(width: 76, height: 76),
+                  ),
+                ),
+                if (storeName.isNotEmpty) const SizedBox(height: 10),
+              ],
+              if (storeName.isNotEmpty)
+                Text(storeName,
+                    textAlign: TextAlign.center, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: fg)),
             ],
+          ),
           ),
         );
       case 'room':

@@ -56,8 +56,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
               icon: const Icon(Icons.arrow_back, color: Colors.white),
               onPressed: () => Navigator.pop(context),
             ),
-          StoreLogo(size: 40),
-          const SizedBox(width: 16),
+          const StoreLogo(size: 40, padding: EdgeInsets.only(right: 16)),
           Expanded(flex: 2, child: widget.centerWidget),
           const SizedBox(width: 16),
           if (widget.showCallButton)
@@ -78,6 +77,8 @@ class _CustomAppBarState extends State<CustomAppBar> {
             onTapCancel: () => _cancelLogoutTimer(),
             child: Container(
               color: Colors.transparent,
+              // 매장 이름·전화번호가 비어도 5초 누르기(나가기) 자리는 남김
+              constraints: const BoxConstraints(minWidth: 120, minHeight: 40),
               child: const StoreContactLabel(),
             ),
           ),

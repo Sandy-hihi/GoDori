@@ -570,7 +570,6 @@ class _PartyScreenState extends State<PartyScreen> {
         maxLength: 80,
         decoration: const InputDecoration(
           labelText: '미리 정한 보드게임 카페',
-          hintText: '예: 플랫폼6 보드카페',
         ),
       ),
       _betInput(locked),

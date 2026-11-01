@@ -991,14 +991,14 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                   Center(
                     child: TextButton(
                       onPressed: () => setDlg(() => o.remove('imageUrl')),
-                      child: const Text('기본 로고로 되돌리기'),
+                      child: const Text('로고 지우기 (로고 없이 표시)'),
                     ),
                   ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: c1,
                   maxLength: 14,
-                  decoration: const InputDecoration(labelText: '매장 이름', hintText: '플랫폼6 보드카페'),
+                  decoration: const InputDecoration(labelText: '매장 이름', hintText: '비워 두면 이름 없이 표시'),
                 ),
                 const Text('정사각형 사진이 가장 잘 맞아요. 동그랗게 잘려서 보여요.',
                     style: TextStyle(fontSize: 12, color: Colors.black54)),
