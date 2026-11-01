@@ -20,7 +20,7 @@ class AdminSidebar extends StatelessWidget {
         children: [
           const Padding(
             padding: EdgeInsets.all(24.0),
-            child: Text('보드패드 관리자',
+            child: Text('고도리 관리자',
                 style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
           ),
           const Divider(color: Colors.white24),

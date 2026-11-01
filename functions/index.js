@@ -1,7 +1,7 @@
 'use strict';
 // Firebase Cloud Functions 진입점. Hosting이 "/api/**" 요청을 이 함수(api)로 넘겨 준다. (firebase.json)
 // 관리자 로그인(/api/auth/login)과 BGG 조회(/api/bgg/*)를 처리한다.
-// 배포 전에 BGG 비밀값 3개를 등록해야 한다 — 보드패드 폴더의 "BGG 비밀값 등록.ps1" 참고.
+// 배포 전에 BGG 비밀값 3개를 등록해야 한다 — 고도리 폴더의 "BGG 비밀값 등록.ps1" 참고.
 //   BGG_APPS_SCRIPT_URL : BGG 중계용 Google Apps Script 주소 (월정액권 앱과 같은 것)
 //   BGG_RELAY_SECRET    : 그 중계의 비밀키
 //   BGG_APP_TOKEN       : BGG API 토큰 (중계를 못 쓸 때 직접 호출용)

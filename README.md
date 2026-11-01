@@ -1,4 +1,4 @@
-# 보드패드 (GoDori)
+# 고도리 (GoDori)
 
 Flutter와 Firebase로 만든 보드게임 카페용 손님 패드 및 관리자 앱입니다.
 실제 앱 화면은 lib/main.dart와 lib/screens/에 있습니다.

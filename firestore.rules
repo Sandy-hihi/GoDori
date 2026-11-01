@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // ─────────────────────────────────────────────────────────────
-// BoardPad Firestore 보안 규칙 (2단계: Firebase Authentication 적용)
+// 고도리(GoDori) Firestore 보안 규칙 (2단계: Firebase Authentication 적용)
 //
 // 누가 무엇을 할 수 있나
 //   - 손님 패드: 앱이 켜질 때 익명 로그인 → 게임·메뉴·설정 읽기, 주문·직원 호출 "생성"만 가능

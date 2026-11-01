@@ -13,17 +13,17 @@ void main() async {
   );
   // 패드는 켜질 때 손님(익명)으로 로그인. 지난번 관리자 로그인이 남아 있으면 여기서 정리됨
   await AdminSession.ensureGuest();
-  runApp(const BoardPadApp());
+  runApp(const GodoriApp());
 }
 
-class BoardPadApp extends StatelessWidget {
-  const BoardPadApp({super.key});
+class GodoriApp extends StatelessWidget {
+  const GodoriApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: '보드패드',
+      title: '고도리',
       theme: ThemeData(
         fontFamily: 'Pretendard',
         scaffoldBackgroundColor: const Color(0xFF00B37E),

@@ -13,7 +13,7 @@ class AdminLoginException implements Exception {
   String toString() => message;
 }
 
-/// 보드패드 로그인 상태 (Firebase Authentication)
+/// 고도리 로그인 상태 (Firebase Authentication)
 ///
 /// - 손님 패드: 익명 로그인 → 주문·직원 호출 생성만 가능
 /// - 관리자(태블릿 PIN / 관리자 웹 비밀번호): 서버 함수(/api/auth/login)가 PIN을 확인하고
