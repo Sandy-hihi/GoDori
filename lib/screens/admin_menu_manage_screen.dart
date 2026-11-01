@@ -10,6 +10,7 @@ import 'admin_event_manage_screen.dart';
 import 'admin_notice_manage_screen.dart';
 
 import 'package:boardpad/widgets/app_network_image.dart';
+import 'package:boardpad/widgets/arrow_scroll_row.dart';
 import 'package:flutter/foundation.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
 
@@ -861,9 +862,8 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                       if (!allCats.contains(_selectedCategory)) {
                         _selectedCategory = '전체';
                       }
-                      return SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
+                      // 카테고리가 많아 넘치면 좌우 화살표로 넘김
+                      return ArrowScrollRow(
                           children: allCats.map((cat) {
                             final isSelected = _selectedCategory == cat;
                             return Padding(
@@ -885,7 +885,6 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                               ),
                             );
                           }).toList(),
-                        ),
                       );
                     },
                   ),
