@@ -77,6 +77,8 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
     }
   }
 
+  static bool _isSoldOut(Map<String, dynamic> m) => m['isSoldOut'] == true || m['isSoldOut'] == 'true';
+
   static int _price(dynamic v) => v is int ? v : int.tryParse((v ?? '').toString()) ?? 0;
 
   static String _won(int v) {
@@ -462,13 +464,19 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
             final loading = catSnap.connectionState == ConnectionState.waiting ||
                 (menuSnap.connectionState == ConnectionState.waiting && !menuSnap.hasData);
 
-            // 카테고리별 주문 가능한 메뉴 (품절 제외). 메뉴가 없는 카테고리는 건너뜀
+            // 카테고리별 메뉴. 품절 메뉴도 보여 주되 '품절'로 표시하고 카테고리 맨 뒤로. 메뉴가 없는 카테고리는 건너뜀
             final byCategory = <String, List<Map<String, dynamic>>>{};
             for (final doc in menuSnap.data?.docs ?? const <QueryDocumentSnapshot>[]) {
               final data = doc.data() as Map<String, dynamic>;
-              final bool isSoldOut = data['isSoldOut'] == true || data['isSoldOut'] == 'true';
-              if (isSoldOut) continue;
               byCategory.putIfAbsent((data['category'] ?? '').toString(), () => []).add(data);
+            }
+            for (final list in byCategory.values) {
+              final open = list.where((m) => !_isSoldOut(m)).toList();
+              final soldOut = list.where(_isSoldOut).toList();
+              list
+                ..clear()
+                ..addAll(open)
+                ..addAll(soldOut);
             }
             _sections = [for (final c in categories) if (byCategory[c]?.isNotEmpty == true) c];
             if (_selectedCategory == null || !_sections.contains(_selectedCategory)) {
@@ -621,24 +629,58 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
     final int price = _price(menuData['price']);
     final String? imageUrl = menuData['imageUrl'];
     final bool hasOptions = (menuData['optionGroups'] as List?)?.isNotEmpty == true;
+    final bool soldOut = _isSoldOut(menuData);
+
+    final Widget photo = ColoredBox(
+      color: const Color(0xFFF1ECE2),
+      child: hasValidImage(imageUrl)
+          ? AppNetworkImage(
+              imageUrl: imageUrl!,
+              fit: BoxFit.cover,
+              errorWidget: (c, u, e) => const Icon(Icons.fastfood, color: kMuted, size: 40),
+            )
+          : const Icon(Icons.fastfood, color: kMuted, size: 40),
+    );
 
     return HomeCard(
       padding: EdgeInsets.zero,
-      onTap: () => _showMenuOptionDialog(context, menuData),
+      color: soldOut ? const Color(0xFFF7F5F1) : Colors.white,
+      onTap: soldOut
+          ? () => padSnack(context, '$name은(는) 지금 품절이에요.')
+          : () => _showMenuOptionDialog(context, menuData),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Expanded(
-            child: ColoredBox(
-              color: const Color(0xFFF1ECE2),
-              child: hasValidImage(imageUrl)
-                  ? AppNetworkImage(
-                      imageUrl: imageUrl!,
-                      fit: BoxFit.cover,
-                      errorWidget: (c, u, e) => const Icon(Icons.fastfood, color: kMuted, size: 40),
-                    )
-                  : const Icon(Icons.fastfood, color: kMuted, size: 40),
-            ),
+            child: !soldOut
+                ? photo
+                : Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // 품절: 사진을 흑백으로 + 어둡게 + 가운데 '품절'
+                      ColorFiltered(
+                        colorFilter: const ColorFilter.matrix(<double>[
+                          0.2126, 0.7152, 0.0722, 0, 0, //
+                          0.2126, 0.7152, 0.0722, 0, 0, //
+                          0.2126, 0.7152, 0.0722, 0, 0, //
+                          0, 0, 0, 1, 0, //
+                        ]),
+                        child: photo,
+                      ),
+                      ColoredBox(color: Colors.black.withValues(alpha: 0.35)),
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: kInk.withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text('품절',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
+                        ),
+                      ),
+                    ],
+                  ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 10, 10, 12),
@@ -652,19 +694,31 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                       Text(name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: kInk)),
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: soldOut ? kMuted : kInk)),
                       const SizedBox(height: 2),
                       Text(_won(price),
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: kOrange)),
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: soldOut ? kMuted : kOrange,
+                            decoration: soldOut ? TextDecoration.lineThrough : null,
+                          )),
                     ],
                   ),
                 ),
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(color: kInk, borderRadius: BorderRadius.circular(12)),
-                  child: Icon(hasOptions ? Icons.tune : Icons.add, color: Colors.white, size: 20),
-                ),
+                if (soldOut)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(color: kLine, borderRadius: BorderRadius.circular(12)),
+                    child: const Text('품절', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: kMuted)),
+                  )
+                else
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(color: kInk, borderRadius: BorderRadius.circular(12)),
+                    child: Icon(hasOptions ? Icons.tune : Icons.add, color: Colors.white, size: 20),
+                  ),
               ],
             ),
           ),
