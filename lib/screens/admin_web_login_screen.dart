@@ -107,6 +107,7 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
                   prefixIcon: const Icon(Icons.lock),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                   errorText: _errorText,
+                  errorMaxLines: 3, // 서버·Firebase 오류 문구가 잘리지 않게
                 ),
               ),
               const SizedBox(height: 20),
