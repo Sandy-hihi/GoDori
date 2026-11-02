@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/home/home_theme.dart';
+import 'package:boardpad/widgets/pad_shell.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 class GameToolsScreen extends StatefulWidget {
-  const GameToolsScreen({super.key});
+  final int? roomNumber;
+  const GameToolsScreen({super.key, this.roomNumber});
 
   @override
   State<GameToolsScreen> createState() => _GameToolsScreenState();
@@ -13,7 +16,7 @@ class GameToolsScreen extends StatefulWidget {
 class _GameToolsScreenState extends State<GameToolsScreen> {
 
   static const List<Color> _teamColors = [
-    Color(0xFF00B37E), Colors.blueAccent, Colors.orangeAccent,
+    kOrange, Colors.blueAccent, Colors.orangeAccent,
     Colors.purpleAccent, Colors.redAccent, Colors.teal,
     Colors.pinkAccent, Colors.indigo, Colors.amber, Colors.cyan,
   ];
@@ -147,7 +150,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
               });
               Navigator.pop(ctx);
             },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2C3E50), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: kInk, foregroundColor: Colors.white),
             child: const Text('확인'),
           ),
         ],
@@ -171,52 +174,32 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 3,
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF4F6F8),
-        body: SafeArea(
-          child: Column(
-            children: [
-              // 상단 바
-              Container(
-                color: const Color(0xFF00B37E),
-                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
-                child: Row(
-                  children: [
-                    IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
-                    ClipOval(child: Image.asset('assets/images/logo.jpg', width: 40, height: 40, fit: BoxFit.cover)),
-                    const SizedBox(width: 16),
-                    const Text('게임 도구', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                    const Spacer(),
-                  ],
-                ),
+      child: PadShell(
+        current: 'tools',
+        roomNumber: widget.roomNumber,
+        title: '게임도구',
+        subtitle: '타이머 · 주사위 · 팀 나누기',
+        headerBottom: const PadTabBar(
+          tabs: [
+            Tab(height: 46, child: _ToolTabLabel(Icons.timer, '타이머')),
+            Tab(height: 46, child: _ToolTabLabel(Icons.casino, '주사위')),
+            Tab(height: 46, child: _ToolTabLabel(Icons.group, '팀 나누기 / 선 뽑기')),
+          ],
+        ),
+        body: Padding(
+          padding: const EdgeInsets.fromLTRB(32, 0, 32, 24),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: ColoredBox(
+              color: Colors.white,
+              child: TabBarView(
+                children: [
+                  _buildTimerTab(),
+                  _buildDiceTab(),
+                  _buildTeamTab(),
+                ],
               ),
-              // 도구 선택 탭
-              Container(
-                color: const Color(0xFF2C3E50),
-                child: const TabBar(
-                  indicatorColor: Color(0xFF00B37E),
-                  indicatorWeight: 4,
-                  labelColor: Colors.white,
-                  unselectedLabelColor: Colors.grey,
-                  labelStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  tabs: [
-                    Tab(icon: Icon(Icons.timer), text: '타이머'),
-                    Tab(icon: Icon(Icons.casino), text: '주사위'),
-                    Tab(icon: Icon(Icons.group), text: '팀 나누기 / 선 뽑기'),
-                  ],
-                ),
-              ),
-              // 탭 내용
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    _buildTimerTab(),
-                    _buildDiceTab(),
-                    _buildTeamTab(),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -256,7 +239,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 10),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFF2C3E50) : Colors.grey.shade200,
+          color: selected ? kInk : Colors.grey.shade200,
           borderRadius: BorderRadius.circular(24),
         ),
         child: Row(
@@ -274,7 +257,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
   Widget _buildCountdown() {
     final Color timeColor = _cdFinished
         ? Colors.redAccent
-        : (_flashRed ? Colors.redAccent : const Color(0xFF2C3E50));
+        : (_flashRed ? Colors.redAccent : kInk);
 
     return SingleChildScrollView(
       child: Padding(
@@ -337,8 +320,8 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                   label: const Text('직접 입력'),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                    side: const BorderSide(color: Color(0xFF2C3E50)),
-                    foregroundColor: const Color(0xFF2C3E50),
+                    side: const BorderSide(color: kInk),
+                    foregroundColor: kInk,
                   ),
                 ),
               ],
@@ -368,7 +351,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                 FloatingActionButton.large(
                   heroTag: 'cd_play',
                   onPressed: _cdRunning ? _cdPause : _cdStart,
-                  backgroundColor: _cdRunning ? Colors.orange : const Color(0xFF00B37E),
+                  backgroundColor: _cdRunning ? Colors.orange : kOrange,
                   child: Icon(_cdRunning ? Icons.pause : Icons.play_arrow, size: 40),
                 ),
               ],
@@ -388,7 +371,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
     return ElevatedButton(
       onPressed: _cdRunning ? null : () => _addTime(seconds),
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFF2C3E50),
+        backgroundColor: kInk,
         foregroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -420,7 +403,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
             onPressed: _rollDice,
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
-              backgroundColor: const Color(0xFF00B37E),
+              backgroundColor: kOrange,
             ),
             child: const Text('주사위 굴리기', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
           ),
@@ -525,7 +508,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 10),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFF2C3E50) : Colors.grey.shade200,
+          color: selected ? kInk : Colors.grey.shade200,
           borderRadius: BorderRadius.circular(24),
         ),
         child: Row(
@@ -573,7 +556,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                         border: const OutlineInputBorder(),
                         prefixIcon: CircleAvatar(
                           radius: 14,
-                          backgroundColor: const Color(0xFF2C3E50),
+                          backgroundColor: kInk,
                           child: Text('${i + 1}', style: const TextStyle(color: Colors.white, fontSize: 11)),
                         ),
                       ),
@@ -590,7 +573,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                   icon: const Icon(Icons.shuffle),
                   label: const Text('랜덤 팀 배분', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00B37E),
+                    backgroundColor: kOrange,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
@@ -709,7 +692,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                         border: const OutlineInputBorder(),
                         prefixIcon: CircleAvatar(
                           radius: 14,
-                          backgroundColor: const Color(0xFF2C3E50),
+                          backgroundColor: kInk,
                           child: Text('${i + 1}', style: const TextStyle(color: Colors.white, fontSize: 11)),
                         ),
                       ),
@@ -725,8 +708,8 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                   icon: const Icon(Icons.refresh),
                   label: const Text('뽑기 초기화', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF2C3E50),
-                    side: const BorderSide(color: Color(0xFF2C3E50), width: 2),
+                    foregroundColor: kInk,
+                    side: const BorderSide(color: kInk, width: 2),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
                 ),
@@ -752,10 +735,10 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                   child: _drawFinished
                       ? Column(
                           children: [
-                            const Icon(Icons.check_circle, color: Color(0xFF00B37E), size: 60),
+                            const Icon(Icons.check_circle, color: kOrange, size: 60),
                             const SizedBox(height: 8),
                             const Text('모든 순서가 결정됐습니다!',
-                                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF00B37E))),
+                                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kOrange)),
                           ],
                         )
                       : (_remainingPool.isEmpty && _drawOrder.isEmpty)
@@ -771,7 +754,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                                   icon: const Icon(Icons.play_arrow),
                                   label: const Text('뽑기 시작', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF2C3E50),
+                                    backgroundColor: kInk,
                                     foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                                   ),
@@ -788,7 +771,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                                   icon: const Icon(Icons.casino, size: 28),
                                   label: const Text('다음 순서 뽑기!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF00B37E),
+                                    backgroundColor: kOrange,
                                     foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 18),
                                   ),
@@ -812,7 +795,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                             width: double.infinity,
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             decoration: const BoxDecoration(
-                              color: Color(0xFF2C3E50),
+                              color: kInk,
                               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
                             ),
                             child: const Text('뽑힌 순서', textAlign: TextAlign.center,
@@ -826,7 +809,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                                 final rank = i + 1;
                                 return ListTile(
                                   leading: CircleAvatar(
-                                    backgroundColor: rank == 1 ? Colors.amber : (rank == 2 ? Colors.grey.shade400 : (rank == 3 ? Colors.brown.shade300 : const Color(0xFF2C3E50))),
+                                    backgroundColor: rank == 1 ? Colors.amber : (rank == 2 ? Colors.grey.shade400 : (rank == 3 ? Colors.brown.shade300 : kInk)),
                                     child: Text('$rank', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                                   ),
                                   title: Text(_drawOrder[i], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -855,7 +838,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
         IconButton(
           onPressed: value > min ? () => onChanged(value - 1) : null,
           icon: const Icon(Icons.remove_circle_outline),
-          color: const Color(0xFF2C3E50),
+          color: kInk,
         ),
         SizedBox(
           width: 40,
@@ -864,7 +847,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
         IconButton(
           onPressed: value < max ? () => onChanged(value + 1) : null,
           icon: const Icon(Icons.add_circle_outline),
-          color: const Color(0xFF2C3E50),
+          color: kInk,
         ),
       ],
     );
@@ -952,7 +935,7 @@ class _StopwatchTabState extends State<_StopwatchTab> {
                 ),
                 child: Text(
                   _formatSw(_stopwatch.elapsed),
-                  style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: Color(0xFF2C3E50)),
+                  style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: kInk),
                 ),
               ),
               const SizedBox(height: 40),
@@ -969,14 +952,14 @@ class _StopwatchTabState extends State<_StopwatchTab> {
                   FloatingActionButton.large(
                     heroTag: 'sw_play',
                     onPressed: _swRunning ? _swPause : _swStart,
-                    backgroundColor: _swRunning ? Colors.orange : const Color(0xFF00B37E),
+                    backgroundColor: _swRunning ? Colors.orange : kOrange,
                     child: Icon(_swRunning ? Icons.pause : Icons.play_arrow, size: 40),
                   ),
                   const SizedBox(width: 24),
                   FloatingActionButton.large(
                     heroTag: 'sw_lap',
                     onPressed: _swRunning ? _recordLap : null,
-                    backgroundColor: _swRunning ? const Color(0xFF2C3E50) : Colors.grey.shade300,
+                    backgroundColor: _swRunning ? kInk : Colors.grey.shade300,
                     child: const Icon(Icons.flag, size: 32),
                   ),
                 ],
@@ -999,7 +982,7 @@ class _StopwatchTabState extends State<_StopwatchTab> {
                 Container(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   decoration: const BoxDecoration(
-                    color: Color(0xFF2C3E50),
+                    color: kInk,
                     borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
                   ),
                   child: Center(
@@ -1015,7 +998,7 @@ class _StopwatchTabState extends State<_StopwatchTab> {
                       dense: true,
                       leading: CircleAvatar(
                         radius: 14,
-                        backgroundColor: const Color(0xFF00B37E),
+                        backgroundColor: kOrange,
                         child: Text('${_laps.length - index}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                       ),
                       title: Text(_laps[index], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
@@ -1026,6 +1009,21 @@ class _StopwatchTabState extends State<_StopwatchTab> {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// 게임도구 탭 이름 (아이콘 + 글자)
+class _ToolTabLabel extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _ToolTabLabel(this.icon, this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [Icon(icon, size: 20), const SizedBox(width: 6), Text(text)],
     );
   }
 }

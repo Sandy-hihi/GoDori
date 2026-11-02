@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'admin_store_settings_screen.dart';
+import 'admin_home_layout_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -8,6 +10,7 @@ import 'admin_event_manage_screen.dart';
 import 'admin_notice_manage_screen.dart';
 
 import 'package:boardpad/widgets/app_network_image.dart';
+import 'package:boardpad/widgets/arrow_scroll_row.dart';
 import 'package:flutter/foundation.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
 
@@ -619,6 +622,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                       );
                                   final uploadTask = await storageRef.putData(
                                     selectedImageBytes!,
+                                    SettableMetadata(contentType: 'image/jpeg'), // Storage 보안 규칙이 이미지 형식을 확인함
                                   );
                                   finalImageUrl = await uploadTask.ref
                                       .getDownloadURL();
@@ -709,6 +713,8 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
             currentScreen: 'menu',
             onNavigate: (screen) {
               final targets = <String, Widget>{
+                'store': const AdminStoreSettingsScreen(),
+                'home': const AdminHomeLayoutScreen(),
                 'game': const AdminGameManageScreen(),
                 'event': const AdminEventManageScreen(),
                 'notice': const AdminNoticeManageScreen(),
@@ -857,9 +863,8 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                       if (!allCats.contains(_selectedCategory)) {
                         _selectedCategory = '전체';
                       }
-                      return SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
+                      // 카테고리가 많아 넘치면 좌우 화살표로 넘김
+                      return ArrowScrollRow(
                           children: allCats.map((cat) {
                             final isSelected = _selectedCategory == cat;
                             return Padding(
@@ -881,7 +886,6 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                               ),
                             );
                           }).toList(),
-                        ),
                       );
                     },
                   ),

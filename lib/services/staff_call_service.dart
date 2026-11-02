@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/services/admin_session.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class StaffCallService {
@@ -25,6 +26,7 @@ class StaffCallService {
       ),
     );
     if (confirmed == true && context.mounted) {
+      await AdminSession.ensureSignedIn(); // 보안 규칙: 로그인(익명)한 패드만 호출 가능
       await FirebaseFirestore.instance.collection('staff_calls').add({
         'roomNumber': roomNumber,
         'timestamp': FieldValue.serverTimestamp(),

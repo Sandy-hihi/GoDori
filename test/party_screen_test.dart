@@ -37,6 +37,7 @@ void main() {
         home: PartyScreen(
           roomNumber: room,
           store: store,
+          showSidebar: false,
           menuCatalog: Future.value([
             {'id': 'coffee', 'name': '아메리카노', 'price': 3000},
           ]),

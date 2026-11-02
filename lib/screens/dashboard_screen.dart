@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'food_order_screen.dart'; // 음식 주문 화면 불러오기
-import 'game_list_screen.dart'; // 게임 목록 화면 불러오기
-import 'party_screen.dart';
-import 'game_tools_screen.dart'; // 게임 도구 화면 불러오기
-import 'event_screen.dart'; // 이벤트 화면 불러오기
-import 'notice_screen.dart'; // 공지 화면 불러오기
-import '../widgets/custom_app_bar.dart'; // ★ 공통 상단 바 불러오기
+import 'package:boardpad/models/home_layout.dart';
+import 'package:boardpad/services/home_layout_service.dart';
+import 'package:boardpad/widgets/home/home_theme.dart';
+import 'package:boardpad/widgets/home/home_view.dart';
 
+/// 손님용 메인 화면 — 사장님이 관리자 웹 "홈 화면 꾸미기"에서 저장한 배치대로 그림
+/// (저장된 배치가 없으면 기본 배치). 1280×800 기준으로 그린 뒤 기기 화면에 맞춰 늘리거나 줄임
 class DashboardScreen extends StatefulWidget {
   final int? roomNumber; // 로그인에서 넘겨받을 방 번호
 
@@ -17,194 +16,37 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final TextEditingController _searchController = TextEditingController();
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  void _searchGame() {
-    final query = _searchController.text.trim();
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => GameListScreen(initialSearchQuery: query, roomNumber: widget.roomNumber),
-      ),
-    );
-  }
+  late final Stream<HomeLayout> _layoutStream = HomeLayoutService.watch();
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6F8), // 전체 배경색 통일
+      backgroundColor: kBg,
       body: SafeArea(
-        child: Column(
-          children: [
-            // 1. 공통 상단 바 (CustomAppBar 위젯 사용)
-            CustomAppBar(
-              showBackButton: false,
-              showCallButton: true,
-              roomNumber: widget.roomNumber,
-              centerWidget: Container(
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: TextField(
-                  controller: _searchController,
-                  onSubmitted: (_) => _searchGame(),
-                  decoration: InputDecoration(
-                    hintText: '게임이름으로 검색하기',
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.arrow_forward, color: Color(0xFF007E5B)),
-                      onPressed: _searchGame,
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+        child: StreamBuilder<HomeLayout>(
+          stream: _layoutStream,
+          initialData: HomeLayout.defaults(),
+          builder: (context, snapshot) {
+            final layout = snapshot.data ?? HomeLayout.defaults();
+            // 화면 비율에 맞춘 크기로 그린 뒤 확대·축소 → 위아래·양옆 빈 띠 없이 꽉 참
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final size = HomeLayout.designSizeFor(constraints.biggest);
+                // FittedBox를 화면 크기에 딱 맞춰 둬야 기준보다 큰 화면에서도 늘려서 꽉 채움
+                // (그냥 두면 작은 화면에서 줄이기만 하고 큰 화면에서는 원래 크기로 그려 빈 곳이 생김)
+                return SizedBox(
+                  width: constraints.maxWidth,
+                  height: constraints.maxHeight,
+                  child: FittedBox(
+                    fit: BoxFit.fill,
+                    child: HomeView(layout: layout, roomNumber: widget.roomNumber, size: size),
                   ),
-                ),
-              ),
-            ),
-            
-            // 2. 메인 대시보드
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF007E5B),
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                        ),
-                        onPressed: () => Navigator.push(context, MaterialPageRoute(
-                          builder: (_) => PartyScreen(roomNumber: widget.roomNumber),
-                        )),
-                        icon: const Icon(Icons.groups),
-                        label: const Text('일행과 함께 · 인원별 추천 / 승패·음료 내기 / 밸런스 게임'),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      flex: 3,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _buildMenuCard(
-                              context,
-                              '어메이징한\n게임목록',
-                              Colors.redAccent,
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (context) => GameListScreen(roomNumber: widget.roomNumber)),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _buildMenuCard(
-                              context,
-                              '음식\n주문',
-                              Colors.white,
-                              textColor: Colors.black,
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (context) => FoodOrderScreen(roomNumber: widget.roomNumber)),
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      flex: 2,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _buildMenuCard(
-                              context,
-                              '이용안내',
-                              const Color(0xFF2C3E50),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (context) => const NoticeScreen()),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _buildMenuCard(
-                              context,
-                              '이벤트',
-                              const Color(0xFF2C3E50),
-                              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const EventScreen()),
                 );
               },
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: _buildMenuCard(
-                              context,
-                              '게임도구',
-                              const Color(0xFF2C3E50),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (context) => const GameToolsScreen()),
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
   }
-
-  Widget _buildMenuCard(BuildContext context, String title, Color bgColor, {Color textColor = Colors.white, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10, offset: const Offset(0, 5))
-          ],
-        ),
-        child: Center(
-          child: Text(
-            title,
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: textColor),
-          ),
-        ),
-      ),
-    );
-  }
-
 }

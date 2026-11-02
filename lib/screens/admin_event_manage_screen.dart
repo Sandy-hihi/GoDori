@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'admin_store_settings_screen.dart';
+import 'admin_home_layout_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -226,6 +228,7 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                               );
                               final task = await ref.putData(
                                 selectedImageBytes!,
+                                SettableMetadata(contentType: 'image/jpeg'), // Storage 보안 규칙이 이미지 형식을 확인함
                               );
                               content = await task.ref.getDownloadURL();
                             } else {
@@ -345,6 +348,8 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
             currentScreen: 'event',
             onNavigate: (screen) {
               final targets = <String, Widget>{
+                'store': const AdminStoreSettingsScreen(),
+                'home': const AdminHomeLayoutScreen(),
                 'menu': const AdminMenuManageScreen(),
                 'game': const AdminGameManageScreen(),
                 'notice': const AdminNoticeManageScreen(),

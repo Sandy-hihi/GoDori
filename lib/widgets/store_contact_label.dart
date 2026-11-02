@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/store_brand.dart';
 import 'package:boardpad/services/store_info_service.dart';
 
 /// 상단 바 오른쪽의 매장 이름 + 전화번호 표시
@@ -10,7 +11,7 @@ class StoreContactLabel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        const Text('플랫폼6 보드카페', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        const StoreName(style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         FutureBuilder<String>(
           future: StoreInfoService.phoneNumber(),
           builder: (context, snapshot) {

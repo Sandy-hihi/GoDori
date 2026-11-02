@@ -14,7 +14,7 @@ void main() async {
 
   runApp(const MaterialApp(
     debugShowCheckedModeBanner: false,
-    title: '보드패드 관리자 웹',
+    title: '고도리 관리자 웹',
     home: AdminWebLoginScreen(), // 로그인 후 메뉴 관리 화면으로 이동
   ));
 }

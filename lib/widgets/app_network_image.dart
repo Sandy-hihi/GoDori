@@ -16,6 +16,9 @@ class AppNetworkImage extends StatelessWidget {
   final Widget Function(BuildContext context, String url)? placeholder;
   final Widget Function(BuildContext context, String url, Object error)? errorWidget;
 
+  /// 메모리에 올릴 때 줄일 가로 픽셀 (큰 원본 사진을 카드 크기로 줄여 스크롤을 가볍게). 없으면 원본 그대로
+  final int? cacheWidth;
+
   const AppNetworkImage({
     super.key,
     required this.imageUrl,
@@ -24,6 +27,7 @@ class AppNetworkImage extends StatelessWidget {
     this.height,
     this.placeholder,
     this.errorWidget,
+    this.cacheWidth,
   });
 
   @override
@@ -35,6 +39,7 @@ class AppNetworkImage extends StatelessWidget {
         fit: fit,
         width: width,
         height: height,
+        cacheWidth: cacheWidth,
         gaplessPlayback: true,
         loadingBuilder: placeholder == null
             ? null
@@ -49,6 +54,7 @@ class AppNetworkImage extends StatelessWidget {
       height: height,
       placeholder: placeholder,
       errorWidget: errorWidget,
+      memCacheWidth: cacheWidth,
     );
   }
 }

@@ -1,0 +1,5 @@
+Pretendard 1.3.9 (https://github.com/orioncactus/pretendard)
+Copyright © 2023 Kil Hyung-jin
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is available with a FAQ at: http://scripts.sil.org/OFL
+고도리에서는 한글·영문·숫자·기호만 남긴 부분 글꼴(subset)로 넣음 (fonttools pyftsubset).

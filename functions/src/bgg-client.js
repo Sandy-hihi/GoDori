@@ -160,6 +160,12 @@ function parseThingFullXml(xml) {
     const maxPlayersRaw = maxTag ? Number(attr(maxTag.attrs, 'value')) : NaN;
     const minPlayers = Number.isFinite(minPlayersRaw) ? minPlayersRaw : null;
     const maxPlayers = Number.isFinite(maxPlayersRaw) ? maxPlayersRaw : null;
+    // 플레이 시간(분) — BGG 박스 기준. 0이나 없는 값은 null
+    const minutes = (tagName) => {
+      const t = findTag(it.block, tagName)[0];
+      const v = t ? Number(attr(t.attrs, 'value')) : NaN;
+      return Number.isFinite(v) && v > 0 ? v : null;
+    };
 
     let weight = null;
     let rank = null;
@@ -193,6 +199,9 @@ function parseThingFullXml(xml) {
       recommendedPlayers: parseRecommendedPlayers(it.block, minPlayers, maxPlayers),
       weight,
       rank,
+      minPlayTime: minutes('minplaytime'),
+      maxPlayTime: minutes('maxplaytime'),
+      playingTime: minutes('playingtime'),
     });
   }
   return out;

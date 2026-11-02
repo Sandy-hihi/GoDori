@@ -97,3 +97,19 @@ Map<String, dynamic> legacyGameFields({
     'difficulty': difficulty ?? '',
   };
 }
+
+/// BGG 플레이 시간(분) → 소요시간 글자. 최소·최대가 같으면 "30분", 다르면 "30~60분".
+/// 최소·최대가 없으면 대표 시간(playing)으로, 그것도 없으면 null.
+/// 손님 앱 소요시간 필터가 이 글자에서 '분' 앞 숫자(범위면 큰 쪽)를 읽어요.
+String? playTimeTextOf(int? min, int? max, [int? playing]) {
+  int? a = (min != null && min > 0) ? min : null;
+  int? b = (max != null && max > 0) ? max : null;
+  if (a == null && b == null) {
+    return (playing != null && playing > 0) ? '$playing분' : null;
+  }
+  final lo = a ?? b!;
+  final hi = b ?? a!;
+  final x = lo < hi ? lo : hi;
+  final y = lo < hi ? hi : lo;
+  return x == y ? '$x분' : '$x~$y분';
+}

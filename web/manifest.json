@@ -1,6 +1,6 @@
 {
-    "name": "boardpad",
-    "short_name": "boardpad",
+    "name": "고도리",
+    "short_name": "고도리",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:boardpad/screens/admin_web_login_screen.dart';
 import 'package:boardpad/services/admin_session.dart';
 
-/// currentScreen: 'menu' | 'game' | 'event' | 'notice'
+/// currentScreen: 'menu' | 'game' | 'event' | 'notice' | 'home' | 'store'
 class AdminSidebar extends StatelessWidget {
   final String currentScreen;
   final void Function(String screen) onNavigate;
@@ -20,7 +20,7 @@ class AdminSidebar extends StatelessWidget {
         children: [
           const Padding(
             padding: EdgeInsets.all(24.0),
-            child: Text('보드패드 관리자',
+            child: Text('고도리 관리자',
                 style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
           ),
           const Divider(color: Colors.white24),
@@ -28,13 +28,16 @@ class AdminSidebar extends StatelessWidget {
           _buildItem(Icons.casino, '보드게임 관리', 'game'),
           _buildItem(Icons.campaign, '이벤트 관리', 'event'),
           _buildItem(Icons.info_outline, '공지 관리', 'notice'),
+          _buildItem(Icons.dashboard_customize_outlined, '홈 화면 꾸미기', 'home'),
+          _buildItem(Icons.storefront_outlined, '매장 설정', 'store'),
           const Spacer(),
           const Divider(color: Colors.white24),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.white54),
             title: const Text('로그아웃', style: TextStyle(color: Colors.white54)),
-            onTap: () {
-              AdminSession.password = null;
+            onTap: () async {
+              await AdminSession.signOut();
+              if (!context.mounted) return;
               Navigator.pushAndRemoveUntil(
               context,
               PageRouteBuilder(
