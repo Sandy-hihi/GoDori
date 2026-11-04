@@ -98,6 +98,15 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // ── 룰 영상 재생 통계 (서버 함수 /api/video/play-url 이 기록, 관리자 웹이 읽음) ──
+    // 영상 파일 자체는 Cloudflare R2에 있고, 게임 문서의 ruleVideo 칸은 games 규칙(관리자만 쓰기)을 따름
+    match /videoStats/{gameId} {
+      allow read: if isAdmin();
+    }
+    match /videoStatsDaily/{day} {
+      allow read: if isAdmin();
+    }
+
     // ── 설정 문서 ──
     match /settings/{docId} {
       // 관리자 PIN/비밀번호 문서는 아무도 못 읽음 (서버 함수만 Admin SDK로 읽음)

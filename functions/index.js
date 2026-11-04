@@ -1,6 +1,6 @@
 'use strict';
 // Firebase Cloud Functions 진입점. Hosting이 "/api/**" 요청을 이 함수(api)로 넘겨 준다. (firebase.json)
-// 관리자 로그인(/api/auth/login)과 BGG 조회(/api/bgg/*)를 처리한다.
+// 관리자 로그인(/api/auth/login)과 BGG 조회(/api/bgg/*), 룰 설명 영상(/api/video/*, Cloudflare R2)을 처리한다.
 // 배포 전에 BGG 비밀값 3개를 등록해야 한다 — 고도리 폴더의 "BGG 비밀값 등록.ps1" 참고.
 //   BGG_APPS_SCRIPT_URL : BGG 중계용 Google Apps Script 주소 (월정액권 앱과 같은 것)
 //   BGG_RELAY_SECRET    : 그 중계의 비밀키
@@ -20,6 +20,19 @@ const BGG_APPS_SCRIPT_URL = defineSecret('BGG_APPS_SCRIPT_URL');
 // 꺼 두면 ANTHROPIC_API_KEY 비밀값도 선언하지 않음 (선언만 있어도 배포할 때 키를 물어봄)
 const AI_ENABLED = false;
 const ANTHROPIC_API_KEY = AI_ENABLED ? defineSecret('ANTHROPIC_API_KEY') : null;
+
+// ── 룰 설명 영상 저장소 (Cloudflare R2) ──
+// 처음엔 꺼 둠(false) → 영상 API가 "아직 연결되지 않았어요"(503)로 답함. 켜는 순서는
+// 고도리 폴더의 "R2 룰 영상 연결 방법.txt" 참고:
+//   1) Cloudflare에서 R2 버킷·API 토큰 만들기  2) "R2 비밀값 등록.ps1"로 키 2개 등록
+//   3) 아래 R2_ACCOUNT_ID에 계정 ID 넣고 R2_ENABLED = true  4) 배포.bat 4번(서버 함수 배포)
+// 비밀값(R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY)은 선언만 있어도 배포할 때 값이 있어야 해서 스위치로 켜고 끔.
+// 계정 ID·버킷 이름은 비밀이 아님(임시 주소에도 들어감).
+const R2_ENABLED = false;
+const R2_ACCOUNT_ID = ''; // Cloudflare 대시보드 → R2 → 오른쪽 "Account ID" (32자리 영문·숫자)
+const R2_BUCKET = 'godori-rule-videos';
+const R2_ACCESS_KEY_ID = R2_ENABLED ? defineSecret('R2_ACCESS_KEY_ID') : null;
+const R2_SECRET_ACCESS_KEY = R2_ENABLED ? defineSecret('R2_SECRET_ACCESS_KEY') : null;
 
 const REGION = 'asia-northeast3'; // 서울
 
@@ -45,6 +58,8 @@ function getHandle() {
   const { createBggClient } = require('./src/bgg-client');
   const { createHandler } = require('./src/app');
   const { createFirestoreAttempts } = require('./src/attempts');
+  const { createVideoApi } = require('./src/video');
+  const { createR2Storage } = require('./src/r2');
 
   const db = getDb();
   const url = (BGG_APPS_SCRIPT_URL.value() || '').trim();
@@ -67,8 +82,59 @@ function getHandle() {
     createAdminToken: (kind) =>
       getAdminAuth().createCustomToken(kind === 'web' ? 'admin-web' : 'admin-pad', { admin: true }),
     attempts: createFirestoreAttempts(db),
+    video: createVideoApi({
+      storage: R2_ENABLED
+        ? createR2Storage({
+            accountId: R2_ACCOUNT_ID,
+            bucket: R2_BUCKET,
+            accessKeyId: R2_ACCESS_KEY_ID.value(),
+            secretAccessKey: R2_SECRET_ACCESS_KEY.value(),
+          })
+        : null,
+      games: createGameStore(db),
+      stats: createVideoStats(db),
+    }),
   });
   return handle;
+}
+
+// 게임 문서의 룰 영상 칸 (games/{id}.ruleVideo.q1080 / q720)
+function createGameStore(db) {
+  const { FieldValue, FieldPath } = require('firebase-admin/firestore');
+  return {
+    async get(gameId) {
+      const doc = await db.collection('games').doc(gameId).get();
+      return doc.exists ? doc.data() : null;
+    },
+    async setRuleVideo(gameId, field, info) {
+      // 패드 게임 목록에 바로 반영하려면 관리자 웹의 '손님 앱 새로고침' (영상마다 자동으로 하면 패드 읽기 비용이 커짐)
+      await db.collection('games').doc(gameId).update(new FieldPath('ruleVideo', field), info == null ? FieldValue.delete() : info);
+    },
+  };
+}
+
+// 재생 통계 (서버만 씀, 관리자만 읽음 — firestore.rules)
+//   videoStats/{gameId}        { gameId, title, plays, lastPlayedAt }
+//   videoStatsDaily/{YYYY-MM-DD} { date, plays, games: { <gameId>: 횟수 } }   한국 날짜 기준
+function createVideoStats(db) {
+  const { FieldValue } = require('firebase-admin/firestore');
+  return {
+    async recordPlay(gameId, title) {
+      const date = seoulDateKey();
+      const batch = db.batch();
+      batch.set(
+        db.collection('videoStats').doc(gameId),
+        { gameId, title, plays: FieldValue.increment(1), lastPlayedAt: FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+      batch.set(
+        db.collection('videoStatsDaily').doc(date),
+        { date, plays: FieldValue.increment(1), games: { [gameId]: FieldValue.increment(1) } },
+        { merge: true }
+      );
+      await batch.commit();
+    },
+  };
 }
 
 // Express 스타일 요청을 우리 핸들러 형식으로 바꿔 부르고 응답을 돌려줌
@@ -91,7 +157,7 @@ async function serve(handler, req, res) {
 exports.api = onRequest(
   {
     region: REGION,
-    secrets: [BGG_APP_TOKEN, BGG_RELAY_SECRET, BGG_APPS_SCRIPT_URL],
+    secrets: [BGG_APP_TOKEN, BGG_RELAY_SECRET, BGG_APPS_SCRIPT_URL, ...(R2_ENABLED ? [R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY] : [])],
     maxInstances: 3, // 요청 폭주 시 비용 상한
     timeoutSeconds: 120, // BGG 중계가 느릴 때 재시도까지 기다릴 수 있게
     memory: '256MiB',

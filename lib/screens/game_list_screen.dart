@@ -223,7 +223,8 @@ class _GameListScreenState extends State<GameListScreen> {
     if (key == _sortedKey) return;
     _sortedKey = key;
 
-    final filtered = data.docs.map((d) => d.data() as Map<String, dynamic>).where((game) {
+    // _docId: 룰 영상(R2) 재생 주소를 서버에서 받을 때 씀
+    final filtered = data.docs.map((d) => <String, dynamic>{...d.data() as Map<String, dynamic>, '_docId': d.id}).where((game) {
       // isAvailable 필터는 Firestore 쿼리에서 서버 사이드로 처리됨
       final bool isRecommended = game['isRecommended'] == true;
       final bool matchesTab = selectedTab == '전체' || (selectedTab == '추천' && isRecommended);
@@ -640,7 +641,7 @@ class _GameListScreenState extends State<GameListScreen> {
     final tags = (game['tags'] ?? '').toString().trim();
     final genres = gameGenres(game);
     final hasVideo = hasRuleVideo(game);
-    final ownVideo = ownRuleVideoOf(game) != null;
+    final ownVideo = hasStoreRuleVideo(game);
 
     showDialog(
       context: context,

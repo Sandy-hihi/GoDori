@@ -9,6 +9,7 @@
 //   GET  /api/bgg/lookup?id=13     geek ID 상세 -> { geekId, name, bggName, minPlayers, maxPlayers, recommendedPlayers, weight, rank, difficulty }
 //   GET  /api/bgg/image?id=13      사진 -> { dataUrl, contentType }
 //   POST /api/bgg/details          { ids: [...] } 여러 개 상세(대용량 추가용, 한 번에 최대 30개) -> { games: [...], missing: [...] }
+//   /api/video/*                   룰 설명 영상(Cloudflare R2) — 자세한 건 src/video.js
 //
 // 관리자 로그인 흐름 (Firebase Authentication)
 //   1) 앱이 PIN(태블릿) 또는 비밀번호(관리자 웹)를 /api/auth/login 으로 보냄
@@ -16,6 +17,7 @@
 //   3) 맞으면 admin: true 표시가 붙은 Firebase 커스텀 토큰을 돌려줌 -> 앱이 signInWithCustomToken
 //   4) 이후 Firestore/Storage 보안 규칙은 request.auth.token.admin == true 로 관리자를 구별
 // 모든 /api/bgg/* 요청은 Authorization: Bearer <Firebase ID 토큰> 헤더가 필요하고, 그 토큰에 admin 표시가 있어야 한다.
+// /api/video/play-url 은 로그인만 하면 됨(손님 패드 = 익명 로그인). 나머지 /api/video/* 는 관리자만.
 
 const crypto = require('crypto');
 
@@ -115,19 +117,28 @@ function clientIp(headers) {
 // verifyIdToken:   async (idToken) => 디코딩된 토큰 (틀리면 throw)
 // createAdminToken: async (kind) => 커스텀 토큰 문자열
 // attempts:        로그인 실패 기록 (src/attempts.js)
-function createHandler({ bgg, getAdminSecrets, verifyIdToken, createAdminToken, attempts, now = () => Date.now() }) {
+// video:           룰 영상 API (src/video.js createVideoApi). 없으면 /api/video/* 는 503
+function createHandler({ bgg, getAdminSecrets, verifyIdToken, createAdminToken, attempts, video = null, now = () => Date.now() }) {
   const limit = createLimiter(now);
 
-  async function requireAdmin(req) {
+  // 로그인한 사용자(익명 손님 포함)의 토큰 확인 -> 디코딩된 토큰
+  async function requireUser(req) {
     const m = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization || ''));
-    if (!m) throw httpError(401, 'UNAUTHORIZED', '관리자 로그인이 필요해요. 다시 로그인해 주세요.');
+    if (!m) throw httpError(401, 'UNAUTHORIZED', '로그인이 필요해요. 다시 로그인해 주세요.');
     let decoded;
     try {
       decoded = await verifyIdToken(m[1].trim());
     } catch (_) {
       throw httpError(401, 'UNAUTHORIZED', '로그인이 만료됐어요. 다시 로그인해 주세요.');
     }
-    if (!decoded || decoded.admin !== true) throw httpError(403, 'FORBIDDEN', '관리자만 쓸 수 있어요.');
+    if (!decoded) throw httpError(401, 'UNAUTHORIZED', '로그인이 필요해요. 다시 로그인해 주세요.');
+    return decoded;
+  }
+
+  async function requireAdmin(req) {
+    const decoded = await requireUser(req);
+    if (decoded.admin !== true) throw httpError(403, 'FORBIDDEN', '관리자만 쓸 수 있어요.');
+    return decoded;
   }
 
   async function login(req) {
@@ -158,8 +169,31 @@ function createHandler({ bgg, getAdminSecrets, verifyIdToken, createAdminToken, 
     return { token: await createAdminToken(kind) };
   }
 
-  function rate(key, max, windowMs) {
-    if (!limit(key, max, windowMs)) throw httpError(429, 'TOO_MANY', 'BGG 요청이 너무 잦아요. 잠시 후 다시 시도해 주세요.');
+  function rate(key, max, windowMs, what = 'BGG 요청') {
+    if (!limit(key, max, windowMs)) throw httpError(429, 'TOO_MANY', `${what}이 너무 잦아요. 잠시 후 다시 시도해 주세요.`);
+  }
+
+  async function videoRoute(req, path) {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    if (path === '/api/video/play-url' && req.method === 'GET') {
+      const user = await requireUser(req);
+      rate(`play:${user.uid || 'unknown'}`, 30, MIN, '영상 요청');
+      rate('play', 600, MIN, '영상 요청');
+      if (!video) throw httpError(503, 'R2_NOT_CONNECTED', '영상 저장소가 아직 연결되지 않았어요.');
+      return video.playUrl(req.query || {});
+    }
+    const routes = {
+      '/api/video/upload-url': 'uploadUrl',
+      '/api/video/confirm': 'confirm',
+      '/api/video/delete': 'remove',
+    };
+    if (routes[path] && req.method === 'POST') {
+      await requireAdmin(req);
+      rate('video-admin', 120, MIN, '영상 요청');
+      if (!video) throw httpError(503, 'R2_NOT_CONNECTED', '영상 저장소가 아직 연결되지 않았어요.');
+      return video[routes[path]](body);
+    }
+    throw httpError(404, 'NOT_FOUND', '없는 주소예요.');
   }
 
   // req: { method, path, query: {k:v}, headers: {소문자 키}, body }
@@ -182,6 +216,8 @@ function createHandler({ bgg, getAdminSecrets, verifyIdToken, createAdminToken, 
     try {
       if (path === '/api/health' && req.method === 'GET') return reply(200, { ok: true });
       if (path === '/api/auth/login' && req.method === 'POST') return reply(200, await login(req));
+
+      if (path.startsWith('/api/video/')) return reply(200, await videoRoute(req, path));
 
       if (path.startsWith('/api/bgg/')) {
         await requireAdmin(req);

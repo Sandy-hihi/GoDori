@@ -8,6 +8,8 @@ import 'admin_store_settings_screen.dart';
 import 'admin_home_layout_screen.dart';
 
 import 'package:boardpad/services/bgg_service.dart';
+import 'package:boardpad/services/rule_video_service.dart';
+import 'package:boardpad/utils/mp4_info.dart';
 import 'package:boardpad/utils/game_meta.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
@@ -76,7 +78,8 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
 
   // 한 게임에 대한 작업이 진행 중인지 (BGG 갱신 등)
   final Set<String> _rowBusy = {};
-  final Map<String, double> _videoProgress = {}; // 매장 영상 올리는 중 (문서 id → 0~1)
+  final Map<String, double> _videoProgress = {}; // 룰 영상 올리는 중 (문서 id → 0~1)
+  final Map<String, int> _videoPlays = {}; // 룰 영상 재생 횟수 (videoStats, 서버가 기록)
 
   @override
   void initState() {
@@ -88,6 +91,22 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
         });
       }
     });
+    _loadVideoPlays();
+  }
+
+  // 룰 영상 재생 횟수 (화면 열 때 한 번만 읽음)
+  Future<void> _loadVideoPlays() async {
+    try {
+      final snap = await FirebaseFirestore.instance.collection('videoStats').get();
+      if (!mounted) return;
+      setState(() {
+        for (final d in snap.docs) {
+          _videoPlays[d.id] = asInt(d.data()['plays']) ?? 0;
+        }
+      });
+    } catch (_) {
+      // 보안 규칙(videoStats 읽기)을 배포하기 전이면 권한이 없음 → 횟수만 안 보임
+    }
   }
 
   @override
@@ -590,29 +609,39 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
     }
   }
 
-  // ── 매장 룰 영상 ──
-  Future<void> _uploadRuleVideo(GameDoc doc) async {
+  // ── 룰 영상 (Cloudflare R2) ──
+  /// quality: '1080'(기본) 또는 '720'(느린 인터넷용, 선택). 41차 규격: 1080p 30fps H.264 MP4
+  Future<void> _uploadRuleVideo(GameDoc doc, String quality) async {
     final v = await pickVideoFile();
     if (v == null) return;
-    if (v.sizeMB > ruleVideoMaxMB) {
-      _toast('영상이 너무 커요 (${v.sizeMB.toStringAsFixed(0)}MB). $ruleVideoMaxMB MB 이하로 줄여 주세요.', error: true);
-      return;
-    }
-    if (v.ext == 'mov') {
-      _toast('MOV 영상은 일부 기기에서 안 나올 수 있어요. 가능하면 MP4(H.264)로 올려 주세요.');
+    final info = Mp4Info.parse(v.bytes);
+    final check = checkRuleVideo(info, quality: quality, sizeBytes: v.bytes.length, maxBytes: ruleVideoMaxBytes);
+    if (!check.ok || check.warnings.isNotEmpty) {
+      final go = await _showVideoCheck(v.name, info, check);
+      if (go != true) return;
     }
     setState(() {
       _rowBusy.add(doc.id);
       _videoProgress[doc.id] = 0;
     });
     try {
-      final url = await uploadRuleVideo(v, onProgress: (p) {
-        if (mounted) setState(() => _videoProgress[doc.id] = p);
-      });
-      final old = (doc.data()['ruleVideoUrl'] ?? '').toString();
-      await doc.reference.update({'ruleVideoUrl': url});
-      await deleteStorageUrl(old);
-      _toast('매장 룰 영상을 올렸어요. (${v.sizeMB.toStringAsFixed(1)}MB)');
+      await RuleVideoService.upload(
+        gameId: doc.id,
+        quality: quality,
+        bytes: v.bytes,
+        meta: {
+          'width': info.width,
+          'height': info.height,
+          'fps': info.fps,
+          'durationSec': info.durationSec,
+          'videoCodec': info.videoCodec,
+        },
+        onProgress: (p) {
+          if (mounted) setState(() => _videoProgress[doc.id] = p);
+        },
+      );
+      _toast('${quality}p 룰 영상을 올렸어요. (${v.sizeMB.toStringAsFixed(1)}MB · ${info.summary}) '
+          '패드에 바로 보이게 하려면 "손님 앱 새로고침"');
     } catch (e) {
       _toast('영상을 올리지 못했어요: $e', error: true);
     } finally {
@@ -625,11 +654,88 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
     }
   }
 
-  Future<void> _removeRuleVideo(GameDoc doc) async {
+  /// 규격 검사 결과 보여 주기. 문제(errors)가 있으면 닫기만, 확인할 것(warnings)만 있으면 "그래도 올리기"
+  Future<bool?> _showVideoCheck(String name, Mp4Info info, RuleVideoCheck check) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(check.ok ? '영상 확인' : '올릴 수 없는 영상이에요',
+            style: TextStyle(fontWeight: FontWeight.bold, color: check.ok ? Colors.orange.shade800 : Colors.redAccent)),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+              if (info.summary.isNotEmpty) Text(info.summary, style: const TextStyle(color: Colors.black54, fontSize: 13)),
+              const SizedBox(height: 12),
+              for (final e in check.errors)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text('✕ $e', style: const TextStyle(color: Colors.redAccent)),
+                ),
+              for (final w in check.warnings)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text('• $w', style: TextStyle(color: Colors.orange.shade900)),
+                ),
+              const SizedBox(height: 4),
+              const Text('규격: 1920×1080 · 30fps · H.264 · AAC · MP4 (HandBrake "Fast 1080p30" + Web Optimized)',
+                  style: TextStyle(color: Colors.black45, fontSize: 12)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(check.ok ? '취소' : '닫기')),
+          if (check.ok)
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(backgroundColor: kAdminGreen, foregroundColor: Colors.white),
+              child: const Text('그래도 올리기'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// quality: '1080' / '720' / 'all'
+  Future<void> _removeRuleVideo(GameDoc doc, String quality) async {
+    final title = (doc.data()['title'] ?? '이 게임').toString();
+    final what = quality == 'all' ? '룰 영상(전부)' : '${quality}p 영상';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('룰 영상 삭제', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: Text("'$title'의 $what을 지울까요?\n저장소의 파일도 함께 지워져요."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소', style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    setState(() => _rowBusy.add(doc.id));
+    try {
+      await RuleVideoService.remove(doc.id, quality: quality);
+      _toast('$what을 지웠어요.');
+    } catch (e) {
+      _toast('영상을 지우지 못했어요: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _rowBusy.remove(doc.id));
+    }
+  }
+
+  // 예전 방식(Firebase Storage, ruleVideoUrl)으로 올린 영상 지우기 — 41차 기준 0개지만 남아 있을 때를 위해
+  Future<void> _removeLegacyVideo(GameDoc doc) async {
     final old = (doc.data()['ruleVideoUrl'] ?? '').toString();
     await doc.reference.update({'ruleVideoUrl': ''});
     await deleteStorageUrl(old);
-    _toast('매장 룰 영상을 지웠어요. (유튜브 링크가 있으면 그걸로 나와요)');
+    _toast('예전 매장 영상(Firebase)을 지웠어요.');
   }
 
   Future<void> _removeRulebook(GameDoc doc) async {
@@ -658,6 +764,15 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
       ),
     );
     if (ok != true) return;
+    // 저장소(R2)의 룰 영상 파일부터 지움. 실패하면 파일이 주인 없이 남지 않게 게임 삭제를 멈춤
+    if (RuleVideoService.hasVideo(data)) {
+      try {
+        await RuleVideoService.remove(doc.id);
+      } catch (e) {
+        _toast('룰 영상 파일을 지우지 못해서 게임 삭제를 멈췄어요: $e', error: true);
+        return;
+      }
+    }
     try {
       await deleteStorageUrl((data['imageUrl'] ?? '').toString());
       await deleteStorageUrl((data['rulebookImageUrl'] ?? '').toString());
@@ -1020,7 +1135,9 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
     final geekId = (g['geekId'] ?? '').toString();
     final difficulty = difficultyFromWeight(w) ?? (g['difficulty'] ?? '').toString();
     final hasRulebook = (g['rulebookImageUrl'] ?? '').toString().isNotEmpty;
-    final hasOwnVideo = (g['ruleVideoUrl'] ?? '').toString().isNotEmpty;
+    final hasLegacyVideo = (g['ruleVideoUrl'] ?? '').toString().isNotEmpty;
+    final r2Videos = RuleVideoService.videosOf(g);
+    final plays = _videoPlays[doc.id] ?? 0;
     final hasYoutube = (g['videoUrl'] ?? '').toString().trim().isNotEmpty;
     final videoProgress = _videoProgress[doc.id];
     final imageUrl = (g['imageUrl'] ?? '').toString();
@@ -1035,8 +1152,10 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
       if (hasRulebook) '룰북 있음',
       if (videoProgress != null)
         '영상 올리는 중 ${(videoProgress * 100).toStringAsFixed(0)}%'
-      else if (hasOwnVideo)
-        '매장 영상 있음'
+      else if (r2Videos.isNotEmpty)
+        '룰 영상 ${r2Videos.keys.map((q) => '${q}p').join('·')}${plays > 0 ? ' · 재생 $plays회' : ''}'
+      else if (hasLegacyVideo)
+        '매장 영상 있음 (예전 방식)'
       else if (hasYoutube)
         '유튜브 영상',
     ];
@@ -1138,11 +1257,20 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                     case 'rulebook-del':
                       _removeRulebook(doc);
                       break;
-                    case 'video':
-                      _uploadRuleVideo(doc);
+                    case 'video1080':
+                      _uploadRuleVideo(doc, '1080');
+                      break;
+                    case 'video720':
+                      _uploadRuleVideo(doc, '720');
+                      break;
+                    case 'video720-del':
+                      _removeRuleVideo(doc, '720');
                       break;
                     case 'video-del':
-                      _removeRuleVideo(doc);
+                      _removeRuleVideo(doc, 'all');
+                      break;
+                    case 'legacy-video-del':
+                      _removeLegacyVideo(doc);
                       break;
                     case 'new':
                       _toggleNew(doc);
@@ -1156,8 +1284,13 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                   PopupMenuItem(value: 'bgg', child: Text(geekId.isEmpty ? 'BGG에서 찾아 정보·사진 채우기' : 'BGG 정보·사진 다시 가져오기')),
                   PopupMenuItem(value: 'rulebook', child: Text(hasRulebook ? '룰북 이미지 바꾸기' : '룰북 이미지 올리기')),
                   if (hasRulebook) const PopupMenuItem(value: 'rulebook-del', child: Text('룰북 이미지 삭제')),
-                  PopupMenuItem(value: 'video', child: Text(hasOwnVideo ? '매장 룰 영상 바꾸기' : '매장 룰 영상 올리기')),
-                  if (hasOwnVideo) const PopupMenuItem(value: 'video-del', child: Text('매장 룰 영상 삭제')),
+                  PopupMenuItem(value: 'video1080', child: Text(r2Videos.containsKey('1080') ? '룰 영상 바꾸기 (1080p)' : '룰 영상 올리기 (1080p)')),
+                  PopupMenuItem(
+                      value: 'video720',
+                      child: Text(r2Videos.containsKey('720') ? '720p 영상 바꾸기 (느린 인터넷용)' : '720p 영상 추가 (느린 인터넷용, 선택)')),
+                  if (r2Videos.containsKey('720')) const PopupMenuItem(value: 'video720-del', child: Text('720p 영상 삭제')),
+                  if (r2Videos.isNotEmpty) const PopupMenuItem(value: 'video-del', child: Text('룰 영상 삭제 (전부)')),
+                  if (hasLegacyVideo) const PopupMenuItem(value: 'legacy-video-del', child: Text('예전 매장 영상(Firebase) 삭제')),
                   if (isNewEligible(g)) PopupMenuItem(value: 'new', child: Text(g['newHidden'] == true ? 'NEW 배지 다시 켜기' : 'NEW 배지 끄기')),
                   const PopupMenuDivider(),
                   const PopupMenuItem(value: 'delete', child: Text('삭제', style: TextStyle(color: Colors.redAccent))),

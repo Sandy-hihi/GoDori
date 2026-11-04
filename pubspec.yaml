@@ -49,6 +49,8 @@ dependencies:
   qr_flutter: ^4.1.0
   # 매장에서 만든 룰 설명 영상을 앱 안에서 재생 (웹·안드로이드·iOS. Windows 앱은 지원 안 함 → 유튜브로 대신)
   video_player: ^2.9.5
+  # 관리자 웹에서 룰 영상을 R2로 올릴 때 진행률 표시 (브라우저 XMLHttpRequest). 이미 다른 패키지가 쓰던 것과 같은 버전
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:
