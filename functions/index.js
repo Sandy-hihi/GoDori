@@ -28,8 +28,8 @@ const ANTHROPIC_API_KEY = AI_ENABLED ? defineSecret('ANTHROPIC_API_KEY') : null;
 //   3) 아래 R2_ACCOUNT_ID에 계정 ID 넣고 R2_ENABLED = true  4) 배포.bat 4번(서버 함수 배포)
 // 비밀값(R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY)은 선언만 있어도 배포할 때 값이 있어야 해서 스위치로 켜고 끔.
 // 계정 ID·버킷 이름은 비밀이 아님(임시 주소에도 들어감).
-const R2_ENABLED = false;
-const R2_ACCOUNT_ID = ''; // Cloudflare 대시보드 → R2 → 오른쪽 "Account ID" (32자리 영문·숫자)
+const R2_ENABLED = true;
+const R2_ACCOUNT_ID = '32fc10eaf11157e570fe820dd557c5af'; // Cloudflare 대시보드 → R2 → 오른쪽 "Account ID" (32자리 영문·숫자)
 const R2_BUCKET = 'godori-rule-videos';
 const R2_ACCESS_KEY_ID = R2_ENABLED ? defineSecret('R2_ACCESS_KEY_ID') : null;
 const R2_SECRET_ACCESS_KEY = R2_ENABLED ? defineSecret('R2_SECRET_ACCESS_KEY') : null;
