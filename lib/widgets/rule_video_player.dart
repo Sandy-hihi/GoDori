@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
@@ -16,6 +18,9 @@ import 'package:boardpad/widgets/pad_shell.dart';
 ///  2) 예전 방식 매장 영상 (ruleVideoUrl, Firebase Storage)
 ///  3) 유튜브 링크 (videoUrl) → 브라우저/유튜브 앱으로 엶
 /// 다 없으면 안내.
+///
+/// 웹(크롬에서 패드 시험)에서는 영상이 HTML <video> 요소라서 그 위의 버튼·탭이 영상에 먹힘
+/// → 조작 영역을 PointerInterceptor로 감쌈 (안드로이드 앱에서는 아무 일도 안 함)
 
 String _clean(dynamic v) => (v ?? '').toString().trim();
 
@@ -113,6 +118,18 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
   String? _error;
   bool _showControls = true;
   Timer? _hideTimer;
+  bool _fullscreen = false; // 화면 꽉 채우기 (안드로이드는 위·아래 시스템 막대도 숨김)
+
+  // 재생 속도 (배속 버튼 → 펼치는 메뉴에서 고름). 화질을 바꿔도 유지
+  static const List<double> _speeds = [0.5, 1.0, 1.5, 2.0];
+  double _speed = 1.0;
+  bool _speedMenuOpen = false;
+
+  // 두 번 톡톡: 왼쪽 절반 10초 뒤로, 오른쪽 절반 10초 앞으로 (유튜브처럼)
+  Offset? _doubleTapAt;
+  int? _seekFlashSide; // -1 왼쪽, 1 오른쪽 (잠깐 표시)
+  int _seekFlashSeconds = 0; // 연달아 두 번 톡톡 하면 쌓여서 20초, 30초…
+  Timer? _seekFlashTimer;
 
   // 버퍼링 감시
   DateTime? _stallStart;
@@ -185,6 +202,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
     try {
       await c.initialize();
       if (at > Duration.zero) await c.seekTo(at);
+      if (_speed != 1.0) await c.setPlaybackSpeed(_speed);
     } catch (_) {
       await c.dispose();
       rethrow;
@@ -307,6 +325,58 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
     _poke();
   }
 
+  void _toggleSpeedMenu() {
+    setState(() => _speedMenuOpen = !_speedMenuOpen);
+    _poke();
+  }
+
+  void _setSpeed(double next) {
+    final c = _c;
+    if (c == null) return;
+    setState(() {
+      _speed = next;
+      _speedMenuOpen = false;
+    });
+    c.setPlaybackSpeed(next);
+    _flash('재생 속도 ${_speedText(next)}');
+    _poke();
+  }
+
+  // 1.0 → "1", 1.5 → "1.5"
+  static String _num(double s) => s == s.roundToDouble() ? s.toInt().toString() : s.toString();
+  static String _speedText(double s) => s == 1.0 ? '보통(1배)' : '${_num(s)}배';
+
+  void _onDoubleTap(double width) {
+    final at = _doubleTapAt;
+    if (at == null || width <= 0) return;
+    final side = at.dx < width / 2 ? -1 : 1;
+    _skip(10 * side, showControls: false);
+    // 같은 쪽을 계속 두 번 톡톡 하면 초가 쌓여 보임
+    _seekFlashSeconds = (_seekFlashSide == side ? _seekFlashSeconds : 0) + 10;
+    _seekFlashTimer?.cancel();
+    setState(() => _seekFlashSide = side);
+    _seekFlashTimer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => _seekFlashSide = null);
+    });
+  }
+
+  void _toggleFullscreen() {
+    final on = !_fullscreen;
+    setState(() => _fullscreen = on);
+    _setSystemBars(hidden: on);
+    _poke();
+  }
+
+  static void _setSystemBars({required bool hidden}) {
+    try {
+      if (hidden) {
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      } else {
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
+      }
+    } catch (_) {}
+  }
+
   void _flash(String msg) {
     if (!mounted) return;
     _noticeTimer?.cancel();
@@ -319,7 +389,8 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
   void _scheduleHide() {
     _hideTimer?.cancel();
     _hideTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && (_c?.value.isPlaying ?? false)) setState(() => _showControls = false);
+      // 배속 메뉴를 펼쳐 둔 동안은 숨기지 않음
+      if (mounted && !_speedMenuOpen && (_c?.value.isPlaying ?? false)) setState(() => _showControls = false);
     });
   }
 
@@ -345,7 +416,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
     }
   }
 
-  void _skip(int seconds) {
+  void _skip(int seconds, {bool showControls = true}) {
     final c = _c;
     if (c == null) return;
     final d = c.value.duration;
@@ -354,7 +425,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
     if (p > d) p = d;
     _graceUntil = DateTime.now().add(const Duration(seconds: 3));
     c.seekTo(p);
-    _poke();
+    if (showControls) _poke();
   }
 
   static String _fmt(Duration d) {
@@ -368,6 +439,8 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
     _hideTimer?.cancel();
     _noticeTimer?.cancel();
     _watchdog?.cancel();
+    _seekFlashTimer?.cancel();
+    if (_fullscreen) _setSystemBars(hidden: false);
     _c?.removeListener(_onTick);
     _c?.dispose();
     super.dispose();
@@ -375,43 +448,54 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // 전체화면이면 제목 줄도 조작 버튼과 같이 숨김 (화면을 누르면 다시 나옴)
+    final titleVisible = !_fullscreen || _showControls || !_ready || _error != null;
     return Dialog(
       backgroundColor: Colors.black,
-      insetPadding: const EdgeInsets.all(24),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: _fullscreen ? EdgeInsets.zero : const EdgeInsets.all(24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(_fullscreen ? 0 : 20)),
       clipBehavior: Clip.antiAlias,
       child: Stack(
         children: [
           Positioned.fill(child: _body()),
-          // 위: 제목 + 닫기 (항상 보임)
+          // 위: 제목 + 닫기
           Positioned(
             left: 0,
             right: 0,
             top: 0,
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(20, 10, 8, 24),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xAA000000), Color(0x00000000)],
+            child: AnimatedOpacity(
+              opacity: titleVisible ? 1 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: IgnorePointer(
+                ignoring: !titleVisible,
+                child: PointerInterceptor(
+                  child: Container(
+                      padding: const EdgeInsets.fromLTRB(20, 10, 8, 24),
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Color(0xAA000000), Color(0x00000000)],
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.smart_display_rounded, color: kOrange),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text('${widget.title} 룰 설명',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close_rounded, color: Colors.white, size: 30),
+                          ),
+                        ],
+                      ),
+                  ),
                 ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.smart_display_rounded, color: kOrange),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text('${widget.title} 룰 설명',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded, color: Colors.white, size: 30),
-                  ),
-                ],
               ),
             ),
           ),
@@ -469,18 +553,43 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
     }
 
     final v = c.value;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _poke,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Center(
-            child: AspectRatio(
-              aspectRatio: v.aspectRatio > 0 ? v.aspectRatio : 16 / 9,
-              child: VideoPlayer(c),
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Center(
+          child: AspectRatio(
+            aspectRatio: v.aspectRatio > 0 ? v.aspectRatio : 16 / 9,
+            child: VideoPlayer(c),
+          ),
+        ),
+        // 조작 영역 전체 (화면 누르기·버튼·진행 막대). 웹에서 영상이 탭을 가로채지 않게 PointerInterceptor
+        // 한 번 누르기 = 버튼 보이기, 두 번 톡톡 = 10초 이동(왼쪽 절반 뒤로 / 오른쪽 절반 앞으로)
+        Positioned.fill(
+          child: PointerInterceptor(
+            child: LayoutBuilder(
+              builder: (context, box) => GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  // 메뉴 바깥을 누르면 메뉴만 닫힘
+                  if (_speedMenuOpen) setState(() => _speedMenuOpen = false);
+                  _poke();
+                },
+                onDoubleTapDown: (d) => _doubleTapAt = d.localPosition,
+                onDoubleTap: () => _onDoubleTap(box.maxWidth),
+                child: _controls(c, v),
+              ),
             ),
           ),
+        ),
+        if (_seekFlashSide != null) _seekFlash(),
+      ],
+    );
+  }
+
+  Widget _controls(VideoPlayerController c, VideoPlayerValue v) {
+    return Stack(
+        fit: StackFit.expand,
+        children: [
           if (v.isBuffering || _switching) const Center(child: CircularProgressIndicator(color: Colors.white)),
           // 가운데: 10초 뒤로 · 재생/멈춤 · 10초 앞으로
           AnimatedOpacity(
@@ -543,13 +652,144 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
                         const SizedBox(width: 12),
                         _qualityButton(),
                       ],
+                      const SizedBox(width: 12),
+                      _speedButton(),
+                      const SizedBox(width: 8),
+                      _iconPill(
+                        _fullscreen ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
+                        _fullscreen ? '전체화면 끄기' : '전체화면',
+                        _toggleFullscreen,
+                      ),
                     ],
                   ),
                 ),
               ),
             ),
           ),
+          // 배속 메뉴 (배속 버튼 바로 위, 오른쪽에 붙여서)
+          if (_speedMenuOpen && _showControls)
+            Positioned(right: 64, bottom: 66, child: _speedMenu()),
         ],
+    );
+  }
+
+  Widget _speedMenu() {
+    return Material(
+      color: const Color(0xEE202020),
+      borderRadius: BorderRadius.circular(14),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicWidth(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 12, 16, 6),
+              child: Text('재생 속도', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)),
+            ),
+            for (final sp in _speeds)
+              InkWell(
+                onTap: () => _setSpeed(sp),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 20, 10),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 28,
+                        child: sp == _speed ? const Icon(Icons.check_rounded, color: kOrange, size: 22) : null,
+                      ),
+                      Text(sp == 1.0 ? '1x (보통)' : '${_num(sp)}x',
+                          style: TextStyle(
+                            color: sp == _speed ? kOrange : Colors.white,
+                            fontSize: 17,
+                            fontWeight: sp == _speed ? FontWeight.w800 : FontWeight.w600,
+                          )),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 6),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 두 번 톡톡 했을 때 그쪽 절반에 잠깐 보이는 표시 ("« 10초" / "10초 »")
+  Widget _seekFlash() {
+    final left = _seekFlashSide == -1;
+    return IgnorePointer(
+      child: Align(
+        alignment: left ? Alignment.centerLeft : Alignment.centerRight,
+        child: FractionallySizedBox(
+          widthFactor: 0.5,
+          heightFactor: 1,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: left ? Alignment.centerLeft : Alignment.centerRight,
+                end: left ? Alignment.centerRight : Alignment.centerLeft,
+                colors: const [Color(0x55FFFFFF), Color(0x00FFFFFF)],
+              ),
+            ),
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(left ? Icons.fast_rewind_rounded : Icons.fast_forward_rounded, color: Colors.white, size: 44),
+                const SizedBox(height: 4),
+                Text('$_seekFlashSeconds초',
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 배속 버튼: 누르면 바로 위에 속도 메뉴가 펼쳐짐
+  // (Flutter 기본 팝업 메뉴는 새 화면으로 떠서 웹에서 영상 위에 뜨면 눌리지 않음 → 같은 화면 안에 직접 그림)
+  Widget _speedButton() {
+    final label = '${_num(_speed)}x';
+    return Tooltip(
+      message: '재생 속도',
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: _toggleSpeedMenu,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.speed_rounded, color: Colors.white, size: 22),
+                const SizedBox(width: 4),
+                Text(label, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _iconPill(IconData icon, String tooltip, VoidCallback onTap) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Icon(icon, color: Colors.white, size: 28),
+          ),
+        ),
       ),
     );
   }

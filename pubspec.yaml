@@ -51,6 +51,8 @@ dependencies:
   video_player: ^2.9.5
   # 관리자 웹에서 룰 영상을 R2로 올릴 때 진행률 표시 (브라우저 XMLHttpRequest). 이미 다른 패키지가 쓰던 것과 같은 버전
   web: ^1.1.1
+  # 웹(크롬)에서 영상 위 버튼·탭이 <video> 요소에 먹히지 않게 (안드로이드 앱에는 영향 없음)
+  pointer_interceptor: ^0.10.1
 
 dev_dependencies:
   flutter_test:
