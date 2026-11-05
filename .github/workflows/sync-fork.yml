@@ -19,11 +19,11 @@ jobs:
 
       - name: Push All Branches to Personal Fork Repo
         run: |
-          git config --global user.email "your-email@example.com"
-          git config --global user.name "YourGitHubName"
+          git config --global user.email "hgyngl@gmail.com"
+          git config --global user.name "hgyngl"
           
           # 💡 '내_개인_계정_명'과 '내_포크_레포_이름'을 정확하게 수정하세요.
-          git remote add fork https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN }}@://github.com
+          git remote add fork https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN }}@github.com/hgyngl/GoDori.git
           
           # 현재 푸시가 일어난 특정 브랜치(또는 태그) 이름만 추출합니다.
           REF_NAME=${GITHUB_REF#refs/heads/}
