@@ -10,6 +10,7 @@ on:
 
 jobs:
   sync:
+    if: github.repository == 'Sandy-hihi/GoDori'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Organization Repo
