@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:boardpad/services/store_scope.dart';
 
-/// 매장의 방 개수 (Firestore settings/rooms 문서의 count)
+/// 매장의 방 개수 (Firestore stores/{매장}/settings/rooms 문서의 count) — 패드 로그인 때 서버도 이 값으로 방 번호를 검사
 /// 문서가 없으면 예전과 같이 11개. Firestore 규칙도 같은 문서를 읽어서 주문·직원 호출의 방 번호를 검사함
 class RoomSettingsService {
   static const int defaultCount = 11;
@@ -8,7 +9,7 @@ class RoomSettingsService {
   static const int maxCount = 30; // firestore.rules 의 상한과 같아야 함
 
   static DocumentReference<Map<String, dynamic>> get _doc =>
-      FirebaseFirestore.instance.collection('settings').doc('rooms');
+      StoreScope.col('settings').doc('rooms');
 
   static int _parse(Map<String, dynamic>? data) {
     final v = data?['count'];
@@ -17,7 +18,7 @@ class RoomSettingsService {
     return n;
   }
 
-  /// 손님 패드 방 선택 화면: 관리자가 바꾸면 바로 반영
+  /// 관리자가 바꾸면 바로 반영
   static Stream<int> watchCount() =>
       _doc.snapshots().map((s) => _parse(s.data())).handleError((_) {});
 

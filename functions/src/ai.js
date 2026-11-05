@@ -24,7 +24,7 @@ const MOOD_KEYWORDS = {
 
 const DEFAULT_MODEL = 'claude-haiku-5-5';
 const MAX_CANDIDATES = 25;
-const ALLOWED_ORIGIN_RE = /^(https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?|https:\/\/platform6-boardpad\.(web\.app|firebaseapp\.com))$/;
+const ALLOWED_ORIGIN_RE = /^(https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?|https:\/\/(platform6-boardpad|godori-pad|godori-ops)\.(web\.app|firebaseapp\.com))$/;
 
 // ── 입력 검사 ──
 function parseAsk(body) {

@@ -7,6 +7,8 @@ import 'package:boardpad/utils/game_meta.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
 import 'package:boardpad/widgets/rule_video_player.dart';
+import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/services/usage_meter.dart';
 
 class GameListScreen extends StatefulWidget {
   final String initialSearchQuery;
@@ -68,7 +70,7 @@ class _GameListScreenState extends State<GameListScreen> {
   StreamSubscription? _refreshSubscription;
   bool _isInitialRefreshLoad = true;
   late final Stream<DocumentSnapshot> _genreStream =
-      FirebaseFirestore.instance.collection('settings').doc('genres').snapshots();
+      StoreScope.col('settings').doc('genres').snapshots();
 
   final List<String> playerOptions = ['2인전용', '2인이상', '3인이상', '4인이상', '5인이상', '6인이상'];
   final List<String> timeOptions = ['15분 이하', '15분 ~ 30분', '30분 ~ 1시간', '1시간 이상'];
@@ -89,8 +91,7 @@ class _GameListScreenState extends State<GameListScreen> {
 
   // 관리자가 settings/appRefresh 문서의 gamesUpdatedAt을 바꾸면 자동 재로딩
   void _listenForRemoteRefresh() {
-    _refreshSubscription = FirebaseFirestore.instance
-        .collection('settings')
+    _refreshSubscription = StoreScope.col('settings')
         .doc('appRefresh')
         .snapshots()
         .listen((doc) {
@@ -108,7 +109,7 @@ class _GameListScreenState extends State<GameListScreen> {
 
   // 게임 목록 1회성 읽기 (실시간 구독 없음 → Firestore 읽기 횟수 최소화)
   Future<QuerySnapshot> _fetchGames() {
-    return FirebaseFirestore.instance.collection('games').where('isAvailable', isEqualTo: true).get();
+    return StoreScope.col('games').where('isAvailable', isEqualTo: true).get().metered();
   }
 
   @override

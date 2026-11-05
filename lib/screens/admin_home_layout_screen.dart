@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'admin_store_settings_screen.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -17,6 +18,8 @@ import 'admin_event_manage_screen.dart';
 import 'admin_game_manage_screen.dart';
 import 'admin_menu_manage_screen.dart';
 import 'admin_notice_manage_screen.dart';
+import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/services/usage_meter.dart';
 
 /// 관리자 웹: 손님 패드 홈 화면 꾸미기 (1단계 — 목록으로 편집, 왼쪽은 실제 화면 미리보기)
 class AdminHomeLayoutScreen extends StatefulWidget {
@@ -36,6 +39,15 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
   int _tab = 0; // 0: 격자 위젯, 1: 왼쪽 영역
   bool _saving = false;
 
+  /// 실행 취소용: 바꾸기 전 배치들 (최근 것이 끝). 불러올 때 비움
+  final List<HomeLayout> _history = [];
+  static const int _historyLimit = 50;
+
+  /// 보관함 띠 (미리보기 밖이라 끌어 놓을 때 위치를 직접 확인)
+  final GlobalKey _parkingKey = GlobalKey();
+  bool _parkingHover = false;
+  bool _movingWidget = false; // 미리보기에서 위젯을 끄는 중 → 보관함을 크게 펼침
+
   @override
   void initState() {
     super.initState();
@@ -48,12 +60,35 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
     setState(() {
       _layout = layout;
       _savedJson = jsonEncode(layout.toMap());
+      _history.clear();
     });
   }
 
   bool get _dirty => _layout != null && jsonEncode(_layout!.toMap()) != _savedJson;
 
-  void _update(HomeLayout next) => setState(() => _layout = next);
+  /// 배치를 바꾸는 곳은 모두 여기를 지나감 (실행 취소 기록)
+  void _update(HomeLayout next) {
+    final current = _layout;
+    setState(() {
+      if (current != null && jsonEncode(current.toMap()) != jsonEncode(next.toMap())) {
+        _history.add(current);
+        if (_history.length > _historyLimit) _history.removeAt(0);
+      }
+      _layout = next;
+    });
+  }
+
+  void _undo() {
+    if (_history.isEmpty) return;
+    final prev = _history.removeLast();
+    setState(() {
+      _layout = prev;
+      if (_selectedId != null && !prev.widgets.any((w) => w.id == _selectedId)) _selectedId = null;
+    });
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text('한 단계 되돌렸어요.'), duration: Duration(milliseconds: 1200)));
+  }
 
   /// 바꾼 결과가 규칙에 맞을 때만 적용. 안 맞으면 그대로 두고 이유를 알려 줌
   bool _tryUpdate(HomeLayout next) {
@@ -117,10 +152,8 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
       ),
     );
     if (ok == true) {
-      setState(() {
-        _layout = HomeLayout.defaults();
-        _selectedId = null;
-      });
+      _update(HomeLayout.defaults());
+      setState(() => _selectedId = null);
     }
   }
 
@@ -202,10 +235,8 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
       for (final it in picked.layout.sidebarItems)
         if (it.type == 'logo' && currentLogo != null) currentLogo else it,
     ];
-    setState(() {
-      _layout = picked.layout.copyWith(sidebarItems: items);
-      _selectedId = null;
-    });
+    _update(picked.layout.copyWith(sidebarItems: items));
+    setState(() => _selectedId = null);
     _snack('"${picked.name}" 배치를 불러왔어요. 확인 후 "저장하고 매장에 적용"을 눌러 주세요.');
   }
 
@@ -235,7 +266,10 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
     final layout = _layout!;
     final spec = await showDialog<WidgetSpec>(
       context: context,
-      builder: (ctx) => _WidgetPickerDialog(placedTypes: layout.widgets.map((e) => e.type).toSet()),
+      builder: (ctx) => _WidgetPickerDialog(
+        placedTypes: layout.widgets.map((e) => e.type).toSet(),
+        parkedTypes: layout.parked.map((e) => e.type).toSet(),
+      ),
     );
     if (spec == null) return;
     for (final size in spec.sizes) {
@@ -255,7 +289,72 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
         return;
       }
     }
-    _snack('빈자리가 없어요. 다른 위젯을 빼거나 작게 줄인 뒤 다시 넣어 주세요.');
+    _snack('빈자리가 없어요. 다른 위젯을 보관함으로 끌어 놓거나 작게 줄인 뒤 다시 넣어 주세요.');
+  }
+
+  /// 다른 위젯 위에 놓아서 자리 바꾸기
+  void _swapWidgets(List<GridItem> widgets, String message) {
+    _update(_layout!.copyWith(widgets: widgets));
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+        action: SnackBarAction(label: '실행 취소', onPressed: _undo),
+      ));
+  }
+
+  bool _isOverParking(Offset global) {
+    final box = _parkingKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return false;
+    // 띠 테두리에 딱 맞추지 않아도 되게 위·옆으로 넉넉히 (아래는 화면 끝까지)
+    final r = box.localToGlobal(Offset.zero) & box.size;
+    return Rect.fromLTRB(r.left - 32, r.top - 24, r.right + 32, double.infinity).contains(global);
+  }
+
+  /// 격자에서 보관함으로 (설정은 그대로). 직원 호출처럼 꼭 있어야 하는 위젯도 잠깐은 뺄 수 있고, 저장할 때 검사함
+  void _park(GridItem item) {
+    final layout = _layout!;
+    _update(layout.copyWith(
+      widgets: layout.widgets.where((w) => w.id != item.id).toList(),
+      parked: [...layout.parked, item],
+    ));
+    if (_selectedId == item.id) setState(() => _selectedId = null);
+    _snack('${specOf(item.type)?.name ?? '위젯'}을(를) 보관함에 넣었어요. 빈 칸이 생겼어요.');
+  }
+
+  /// 보관함에서 격자로 (끌어 놓은 자리)
+  void _unpark(GridItem placed) {
+    final layout = _layout!;
+    final problem = layout.problemFor(placed);
+    if (problem != null) {
+      _warn(problem);
+      return;
+    }
+    _update(layout.copyWith(
+      widgets: [...layout.widgets, placed],
+      parked: layout.parked.where((p) => p.id != placed.id).toList(),
+    ));
+    setState(() => _selectedId = placed.id);
+  }
+
+  /// 보관함에서 '넣기' 버튼: 들어갈 수 있는 첫 빈자리에
+  void _unparkAuto(GridItem item) {
+    final layout = _layout!;
+    final spec = specOf(item.type);
+    for (final size in [WidgetSize(item.w, item.h), ...?spec?.sizes]) {
+      final spot = layout.findSpot(size.w, size.h);
+      if (spot != null) {
+        _unpark(item.copyWith(x: spot.x, y: spot.y, w: size.w, h: size.h));
+        return;
+      }
+    }
+    _warn('빈자리가 없어요. 다른 위젯을 보관함으로 옮긴 뒤 다시 넣어 주세요.');
+  }
+
+  void _deleteParked(GridItem item) {
+    final layout = _layout!;
+    _update(layout.copyWith(parked: layout.parked.where((p) => p.id != item.id).toList()));
   }
 
   /// 위치·크기 바꾸기 (겹치거나 허용 안 되는 크기면 경고만)
@@ -335,6 +434,16 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyZ, control: true): _undo,
+        const SingleActivator(LogicalKeyboardKey.keyZ, meta: true): _undo,
+      },
+      child: Focus(autofocus: true, child: _buildScaffold(context)),
+    );
+  }
+
+  Widget _buildScaffold(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6F8),
       body: Row(
@@ -388,6 +497,23 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
             padding: EdgeInsets.only(right: 12),
             child: Text('저장하지 않은 변경 사항이 있어요', style: TextStyle(color: _accent, fontWeight: FontWeight.w600)),
           ),
+        Tooltip(
+          message: '방금 한 변경 되돌리기 (Ctrl+Z)',
+          // 아이콘 없이 글자만 가운데 (아이콘 자리가 비어 보여서 글자가 한쪽으로 쏠려 보였음)
+          child: OutlinedButton(
+            onPressed: _history.isEmpty ? null : _undo,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, 46),
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              alignment: Alignment.center,
+              foregroundColor: _adminNavy,
+              disabledForegroundColor: Colors.black38,
+              side: BorderSide(color: _history.isEmpty ? const Color(0xFFDDDDDD) : const Color(0xFF8A94A3)),
+            ),
+            child: const Text('실행 취소', textAlign: TextAlign.center),
+          ),
+        ),
+        const SizedBox(width: 8),
         OutlinedButton.icon(
           onPressed: _pickPreset,
           icon: const Icon(Icons.dashboard_customize_outlined, size: 18),
@@ -472,7 +598,13 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                                 selectedId: _selectedId,
                                 onSelect: (id) => setState(() => _selectedId = id),
                                 onCommit: _replaceItem,
+                                onSwap: _swapWidgets,
                                 onReject: _warn,
+                                isOverParking: _isOverParking,
+                                onParkingHover: (over) => setState(() => _parkingHover = over),
+                                onPark: _park,
+                                onUnpark: _unpark,
+                                onMoveDragChanged: (moving) => setState(() => _movingWidget = moving),
                               ),
                             ),
                         ],
@@ -484,14 +616,181 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
             ),
           ),
         ),
+        if (_tab == 0) ...[
+          const SizedBox(height: 12),
+          _buildParkingTray(),
+        ],
         const SizedBox(height: 12),
         Text(
           _tab == 0
-              ? '위젯을 끌어서 옮기고, 선택한 위젯의 오른쪽 아래 손잡이로 크기를 바꿔요. 미리보기는 7번 룸 기준이에요.'
+              ? '위젯을 끌어서 옮기고, 다른 위젯 위에 놓으면 자리가 바뀌어요. 선택한 위젯의 오른쪽 아래 손잡이로 크기를 바꿔요. 미리보기는 7번 룸 기준이에요.'
               : '왼쪽 영역은 오른쪽 목록에서 순서를 바꾸고, 로고 설정에서 사진과 매장 이름을 바꿔요.',
           style: TextStyle(color: Colors.black.withValues(alpha: 0.5), fontSize: 13),
         ),
       ],
+    );
+  }
+
+  /// 보관함 띠: 위젯을 끌어 놓으면 잠깐 빼 두고, 칩을 미리보기로 끌거나 '넣기'로 다시 넣음.
+  /// 미리보기에서 위젯을 끄는 동안에는 크게 펼쳐서 놓을 곳을 분명하게 보여 줌
+  Widget _buildParkingTray() {
+    final parked = _layout!.parked;
+    final hover = _parkingHover;
+    final moving = _movingWidget;
+    final active = moving || hover;
+    return AnimatedContainer(
+      key: _parkingKey,
+      duration: const Duration(milliseconds: 150),
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
+      decoration: BoxDecoration(
+        color: hover
+            ? const Color(0xFFFFE3CC)
+            : moving
+                ? const Color(0xFFFFF4EA)
+                : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        // 테두리 두께는 그대로 (두께가 바뀌면 미리보기 크기가 같이 흔들림)
+        border: Border.all(color: active ? _accent : const Color(0xFFDCD6CE), width: 2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 제목 줄: 아이콘 · 보관함 N개 ······ 짧은 설명
+          Row(
+            children: [
+              Icon(Icons.archive_outlined, size: 20, color: active ? _accent : _adminNavy),
+              const SizedBox(width: 8),
+              Text(
+                parked.isEmpty ? '보관함' : '보관함 · ${parked.length}개',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: active ? _accent : null),
+              ),
+              const Spacer(),
+              const Text('손님 화면에는 안 보이고, 설정은 그대로 남아요',
+                  style: TextStyle(fontSize: 12, color: Colors.black45)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // 높이가 바뀌면 미리보기가 줄었다 늘었다 해서, 끄는 중 표시는 내용 위에 겹쳐서 보여 줌
+          Stack(
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 60),
+                child: parked.isEmpty
+                    ? Container(
+                        height: 60,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF7F7F8),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text(
+                          '미리보기의 위젯을 여기로 끌어 놓으면 빈 칸을 만들 수 있어요',
+                          style: TextStyle(fontSize: 13, color: Colors.black45),
+                        ),
+                      )
+                    : Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [for (final item in parked) _parkedChip(item)],
+                        ),
+                      ),
+              ),
+              if (active)
+                Positioned.fill(child: _parkingDropZone(hover)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _parkingDropZone(bool hover) {
+    return IgnorePointer(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: hover ? const Color(0xFFFFD9BC) : const Color(0xFFFFF4EA),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _accent.withValues(alpha: hover ? 0.9 : 0.4), width: 1.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(hover ? Icons.check_circle : Icons.move_to_inbox, color: _accent),
+            const SizedBox(width: 8),
+            Text(
+              hover ? '놓으면 보관함에 들어가요' : '여기로 끌어 놓으면 잠깐 빼 둘 수 있어요',
+              style: const TextStyle(color: _accent, fontWeight: FontWeight.w700, fontSize: 15),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _parkedChip(GridItem item) {
+    final spec = specOf(item.type);
+    final name = spec?.name ?? item.type;
+    final chip = Container(
+      padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F4EF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2DAD0)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.drag_indicator, size: 16, color: Colors.black38),
+          const SizedBox(width: 2),
+          Icon(spec?.icon ?? Icons.widgets_outlined, size: 18, color: _adminNavy),
+          const SizedBox(width: 6),
+          Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(width: 4),
+          Text(WidgetSize(item.w, item.h).label, style: const TextStyle(fontSize: 12, color: Colors.black45)),
+          const SizedBox(width: 4),
+          TextButton(
+            onPressed: () => _unparkAuto(item),
+            style: TextButton.styleFrom(minimumSize: const Size(0, 32), padding: const EdgeInsets.symmetric(horizontal: 8)),
+            child: const Text('넣기'),
+          ),
+          IconButton(
+            tooltip: '완전히 삭제',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close, size: 18, color: Color(0xFFB33A2A)),
+            onPressed: () => _deleteParked(item),
+          ),
+        ],
+      ),
+    );
+    return Draggable<String>(
+      data: item.id,
+      // 손가락 위치 = 놓는 위치 (미리보기에서 칸 계산에 씀)
+      dragAnchorStrategy: pointerDragAnchorStrategy,
+      feedback: Transform.translate(
+        offset: const Offset(-20, -20),
+        child: Material(
+          elevation: 6,
+          borderRadius: BorderRadius.circular(10),
+          color: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(spec?.icon ?? Icons.widgets_outlined, size: 18, color: _accent),
+                const SizedBox(width: 6),
+                Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        ),
+      ),
+      childWhenDragging: Opacity(opacity: 0.4, child: chip),
+      child: MouseRegion(cursor: SystemMouseCursors.grab, child: chip),
     );
   }
 
@@ -583,6 +882,20 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                       icon: const Icon(Icons.tune, size: 20),
                       onPressed: () => _editGridOptions(item),
                     ),
+                  Tooltip(
+                    message: '잠깐 빼 두기 (설정 유지)',
+                    child: TextButton.icon(
+                      onPressed: () => _park(item),
+                      icon: const Icon(Icons.archive_outlined, size: 18),
+                      label: const Text('보관'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: _adminNavy,
+                        minimumSize: const Size(0, 36),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ),
                   IconButton(
                     tooltip: '빼기',
                     icon: const Icon(Icons.delete_outline, size: 20, color: Color(0xFFB33A2A)),
@@ -754,7 +1067,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                         ],
                       ),
                       subtitle: spec.locked
-                          ? const Text('5초 눌러 패드 종료 기능이 있어 뺄 수 없어요', style: TextStyle(fontSize: 11))
+                          ? const Text('빠르게 10번 눌러 로그아웃 기능이 있어 뺄 수 없어요', style: TextStyle(fontSize: 11))
                           : item.type == 'staffCall'
                               ? const Text('빼려면 격자에 직원 호출 위젯이 있어야 해요', style: TextStyle(fontSize: 11))
                               : null,
@@ -789,7 +1102,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
         ] else
           const Expanded(
             child: Center(
-              child: Text('왼쪽 영역이 꺼져 있어요.\n패드 종료는 화면 왼쪽 위 구석을 5초 누르면 돼요.',
+              child: Text('왼쪽 영역이 꺼져 있어요.\n로그아웃은 화면 왼쪽 위 구석을 빠르게 10번 누른 뒤 패드 비밀번호(또는 PIN)를 넣으면 돼요.',
                   textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
             ),
           ),
@@ -1075,7 +1388,8 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
 /// 위젯 추가 창 (분류별 목록)
 class _WidgetPickerDialog extends StatelessWidget {
   final Set<String> placedTypes;
-  const _WidgetPickerDialog({required this.placedTypes});
+  final Set<String> parkedTypes;
+  const _WidgetPickerDialog({required this.placedTypes, this.parkedTypes = const {}});
 
   @override
   Widget build(BuildContext context) {
@@ -1098,7 +1412,9 @@ class _WidgetPickerDialog extends StatelessWidget {
                   subtitle: Text('${spec.description} · ${spec.sizes.map((s) => s.label).join(', ')}'),
                   trailing: placedTypes.contains(spec.type)
                       ? const Text('배치됨', style: TextStyle(color: Colors.black45, fontSize: 12))
-                      : const Icon(Icons.add_circle_outline),
+                      : parkedTypes.contains(spec.type)
+                          ? const Text('보관함에 있음', style: TextStyle(color: Colors.black45, fontSize: 12))
+                          : const Icon(Icons.add_circle_outline),
                   onTap: () => Navigator.pop(context, spec),
                 ),
             ],
@@ -1122,7 +1438,7 @@ class _MenuSelector extends StatefulWidget {
 
 class _MenuSelectorState extends State<_MenuSelector> {
   late final Future<QuerySnapshot<Map<String, dynamic>>> _menus =
-      FirebaseFirestore.instance.collection('menus').get();
+      StoreScope.col('menus').get().metered();
 
   @override
   Widget build(BuildContext context) {
@@ -1168,7 +1484,7 @@ class _GameExcludeList extends StatefulWidget {
 
 class _GameExcludeListState extends State<_GameExcludeList> {
   late final Future<QuerySnapshot<Map<String, dynamic>>> _games =
-      FirebaseFirestore.instance.collection('games').where('isAvailable', isEqualTo: true).get();
+      StoreScope.col('games').where('isAvailable', isEqualTo: true).get().metered();
 
   @override
   Widget build(BuildContext context) {
@@ -1233,7 +1549,7 @@ class _ImageUploadBoxState extends State<_ImageUploadBox> {
     setState(() => _uploading = true);
     try {
       final bytes = await picked.readAsBytes();
-      final ref = FirebaseStorage.instance.ref().child('${widget.folder}/${DateTime.now().millisecondsSinceEpoch}.jpg');
+      final ref = StoreScope.storage.child('${widget.folder}/${DateTime.now().millisecondsSinceEpoch}.jpg');
       final task = await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
       widget.onImage(await task.ref.getDownloadURL());
     } catch (e) {

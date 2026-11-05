@@ -13,6 +13,8 @@ import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/arrow_scroll_row.dart';
 import 'package:flutter/foundation.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
+import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/services/usage_meter.dart';
 
 class AdminMenuManageScreen extends StatefulWidget {
   const AdminMenuManageScreen({super.key});
@@ -60,14 +62,12 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
               if (newName.isNotEmpty && newName != oldName) {
                 // 1. settings/categories 목록 업데이트
                 categories[index] = newName;
-                await FirebaseFirestore.instance
-                    .collection('settings')
+                await StoreScope.col('settings')
                     .doc('categories')
                     .set({'list': categories});
 
                 // 2. 해당 카테고리를 가진 메뉴들도 일괄 업데이트
-                final menus = await FirebaseFirestore.instance
-                    .collection('menus')
+                final menus = await StoreScope.col('menus')
                     .where('category', isEqualTo: oldName)
                     .get();
                 final batch = FirebaseFirestore.instance.batch();
@@ -133,8 +133,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
               onPressed: () async {
                 // 💡 '삭제하기'를 누르면 Firestore에서 진짜로 삭제 후 팝업 닫기
                 await _deleteStorageImage(imageUrl);
-                await FirebaseFirestore.instance
-                    .collection('menus')
+                await StoreScope.col('menus')
                     .doc(docId)
                     .delete();
                 if (context.mounted) Navigator.pop(context);
@@ -362,8 +361,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
       builder: (BuildContext context) {
         String? dialogSelectedCategory;
         return FutureBuilder<DocumentSnapshot>(
-          future: FirebaseFirestore.instance
-              .collection('settings')
+          future: StoreScope.col('settings')
               .doc('categories')
               .get(),
           builder: (context, snapshot) {
@@ -615,9 +613,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                               String finalImageUrl = currentImageUrl;
                               try {
                                 if (selectedImageBytes != null) {
-                                  final storageRef = FirebaseStorage.instance
-                                      .ref()
-                                      .child(
+                                  final storageRef = StoreScope.storage.child(
                                         'menu_images/${DateTime.now().millisecondsSinceEpoch}.jpg',
                                       );
                                   final uploadTask = await storageRef.putData(
@@ -637,16 +633,14 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                 };
 
                                 if (isEditMode) {
-                                  await FirebaseFirestore.instance
-                                      .collection('menus')
+                                  await StoreScope.col('menus')
                                       .doc(docId)
                                       .update(menuData);
                                 } else {
                                   menuData['isSoldOut'] = false;
                                   menuData['timestamp'] =
                                       FieldValue.serverTimestamp();
-                                  await FirebaseFirestore.instance
-                                      .collection('menus')
+                                  await StoreScope.col('menus')
                                       .add(menuData);
                                 }
                                 if (context.mounted) {
@@ -847,8 +841,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                   ),
                   const SizedBox(height: 16),
                   StreamBuilder<DocumentSnapshot>(
-                    stream: FirebaseFirestore.instance
-                        .collection('settings')
+                    stream: StoreScope.col('settings')
                         .doc('categories')
                         .snapshots(),
                     builder: (context, catSnap) {
@@ -872,6 +865,8 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                               child: ChoiceChip(
                                 label: Text(cat),
                                 selected: isSelected,
+                                // 체크 표시가 생기면서 칩 폭이 바뀌어 글자가 잘리지 않게 (선택은 초록 배경으로 구분)
+                                showCheckmark: false,
                                 selectedColor: const Color(0xFF00B37E),
                                 labelStyle: TextStyle(
                                   color: isSelected
@@ -897,10 +892,10 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance
-                            .collection('menus')
+                        stream: StoreScope.col('menus')
                             .orderBy('timestamp')
-                            .snapshots(),
+                            .snapshots()
+                            .metered(),
                         builder: (context, snapshot) {
                           if (snapshot.connectionState ==
                               ConnectionState.waiting) {
@@ -1112,8 +1107,7 @@ class _CategoryManageDialogState extends State<_CategoryManageDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             StreamBuilder<DocumentSnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('settings')
+              stream: StoreScope.col('settings')
                   .doc('categories')
                   .snapshots(),
               builder: (context, snapshot) {
@@ -1148,8 +1142,7 @@ class _CategoryManageDialogState extends State<_CategoryManageDialog> {
                             final text = _newCategoryController.text.trim();
                             if (text.isNotEmpty && !categories.contains(text)) {
                               categories.add(text);
-                              await FirebaseFirestore.instance
-                                  .collection('settings')
+                              await StoreScope.col('settings')
                                   .doc('categories')
                                   .set({'list': categories});
                               _newCategoryController.clear();
@@ -1204,8 +1197,7 @@ class _CategoryManageDialogState extends State<_CategoryManageDialog> {
                                         ),
                                         onPressed: () async {
                                           categories.removeAt(index);
-                                          await FirebaseFirestore.instance
-                                              .collection('settings')
+                                          await StoreScope.col('settings')
                                               .doc('categories')
                                               .set({'list': categories});
                                         },

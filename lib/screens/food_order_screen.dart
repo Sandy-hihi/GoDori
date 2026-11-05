@@ -5,6 +5,8 @@ import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
 import 'package:boardpad/services/admin_session.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
+import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/services/usage_meter.dart';
 
 class FoodOrderScreen extends StatefulWidget {
   final int? roomNumber;
@@ -19,9 +21,9 @@ class FoodOrderScreen extends StatefulWidget {
 class _FoodOrderScreenState extends State<FoodOrderScreen> {
   final TextEditingController _noteController = TextEditingController();
   late final Stream<DocumentSnapshot> _categoryStream =
-      FirebaseFirestore.instance.collection('settings').doc('categories').snapshots();
+      StoreScope.col('settings').doc('categories').snapshots();
   // 전체 메뉴를 한 번에 구독 → 카테고리별로 화면에서 나눔 (구독 1개)
-  late final Stream<QuerySnapshot> _menuStream = FirebaseFirestore.instance.collection('menus').snapshots();
+  late final Stream<QuerySnapshot> _menuStream = StoreScope.col('menus').snapshots().metered();
 
   bool _isSubmitting = false;
   String? _selectedCategory;
@@ -64,7 +66,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
   // 메인 화면 '오늘의 추천 메뉴'에서 들어오면 그 메뉴의 옵션 창을 바로 띄움
   Future<void> _openInitialMenu() async {
     try {
-      final doc = await FirebaseFirestore.instance.collection('menus').doc(widget.initialMenuId).get();
+      final doc = await StoreScope.col('menus').doc(widget.initialMenuId).get();
       if (!mounted) return;
       final menu = doc.data();
       if (menu == null || menu['isSoldOut'] == true || menu['isSoldOut'] == 'true') {
@@ -141,8 +143,8 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
       final now = DateTime.now();
       final timeString = '${now.hour}시 ${now.minute.toString().padLeft(2, '0')}분';
 
-      await AdminSession.ensureSignedIn(); // 보안 규칙: 로그인(익명)한 패드만 주문 가능
-      await FirebaseFirestore.instance.collection('orders').add({
+      await AdminSession.ensureSignedIn(); // 보안 규칙: 로그인한 그 방 패드만, 자기 방 번호로 주문 가능
+      await StoreScope.col('orders').add({
         'room': '#${widget.roomNumber ?? 1}',
         'time': timeString,
         'price': _getTotalPrice().toString(),

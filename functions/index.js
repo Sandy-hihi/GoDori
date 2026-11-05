@@ -1,6 +1,6 @@
 'use strict';
 // Firebase Cloud Functions 진입점. Hosting이 "/api/**" 요청을 이 함수(api)로 넘겨 준다. (firebase.json)
-// 관리자 로그인(/api/auth/login)과 BGG 조회(/api/bgg/*), 룰 설명 영상(/api/video/*, Cloudflare R2)을 처리한다.
+// 매장 로그인(/api/auth/*, 47차)과 BGG 조회(/api/bgg/*), 룰 설명 영상(/api/video/*, Cloudflare R2)을 처리한다.
 // 배포 전에 BGG 비밀값 3개를 등록해야 한다 — 고도리 폴더의 "BGG 비밀값 등록.ps1" 참고.
 //   BGG_APPS_SCRIPT_URL : BGG 중계용 Google Apps Script 주소 (월정액권 앱과 같은 것)
 //   BGG_RELAY_SECRET    : 그 중계의 비밀키
@@ -60,6 +60,8 @@ function getHandle() {
   const { createFirestoreAttempts } = require('./src/attempts');
   const { createVideoApi } = require('./src/video');
   const { createR2Storage } = require('./src/r2');
+  const { createFirestoreStores } = require('./src/stores');
+  const { createFirestoreOps, createMonitoring } = require('./src/ops');
 
   const db = getDb();
   const url = (BGG_APPS_SCRIPT_URL.value() || '').trim();
@@ -70,17 +72,35 @@ function getHandle() {
       token: (BGG_APP_TOKEN.value() || '').trim(),
       relay: url && secret ? { resolve: async () => ({ url, secret, transport: 'appsscript' }) } : undefined,
     }),
-    // 관리자 PIN/비밀번호는 서버에서만 읽음 (보안 규칙이 앱의 읽기를 막음)
-    getAdminSecrets: async () => {
+    // 매장 계정 (stores/{매장}/private/account — 서버만 읽음, 보안 규칙이 앱의 읽기를 막음)
+    stores: createFirestoreStores(db),
+    // 운영자 페이지 (48차): _ops/account, 프로젝트 전체 사용량(Cloud Monitoring)
+    ops: createFirestoreOps(db),
+    monitoring: createMonitoring({
+      projectId: process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'platform6-boardpad',
+      getAccessToken: async () => {
+        const { applicationDefault } = require('firebase-admin/app');
+        return (await applicationDefault().getAccessToken()).access_token;
+      },
+    }),
+    // 정지·거절한 매장: 패드(pad.<매장>.1~30)·관리자 로그인의 갱신 토큰 취소 (없는 사용자는 건너뜀)
+    revokeStoreTokens: async (storeId) => {
+      const auth = getAdminAuth();
+      const uids = [`admin-web.${storeId}`, `admin-pad.${storeId}`];
+      for (let i = 1; i <= 30; i++) uids.push(`pad.${storeId}.${i}`);
+      await Promise.all(uids.map((uid) => auth.revokeRefreshTokens(uid).catch(() => {})));
+    },
+    // 예전(매장 1곳) 관리자 비밀번호 — '매장 데이터 옮기기'를 할 때만 확인용으로 읽음
+    getLegacySecrets: async () => {
       const doc = await db.collection('settings').doc('adminPin').get();
       const d = doc.data() || {};
       return { pin: String(d.pin || ''), webPassword: String(d.webPassword || '') };
     },
     verifyIdToken: (idToken) => getAdminAuth().verifyIdToken(idToken),
-    // 태블릿/관리자 웹 각각 고정 사용자 ID로 로그인. admin: true 가 보안 규칙의 isAdmin() 근거
-    // (토큰 발급에는 함수 서비스 계정에 "서비스 계정 토큰 생성자" 권한이 필요 — 설정 안내 참고)
-    createAdminToken: (kind) =>
-      getAdminAuth().createCustomToken(kind === 'web' ? 'admin-web' : 'admin-pad', { admin: true }),
+    // 고정 사용자 ID로 로그인: 패드 pad.<매장>.<방>, 관리자 admin-pad.<매장> / admin-web.<매장>
+    // 토큰에 붙는 표시(store, pad, room, admin)가 보안 규칙의 근거. 토큰이 갱신돼도 그대로 남음
+    // (토큰 발급에는 함수 서비스 계정에 "서비스 계정 토큰 생성자" 권한이 필요 — 32차에 설정함)
+    createToken: (uid, claims) => getAdminAuth().createCustomToken(uid, claims),
     attempts: createFirestoreAttempts(db),
     video: createVideoApi({
       storage: R2_ENABLED
@@ -98,41 +118,64 @@ function getHandle() {
   return handle;
 }
 
-// 게임 문서의 룰 영상 칸 (games/{id}.ruleVideo.q1080 / q720)
+// 게임 문서의 룰 영상 칸 (stores/{매장}/games/{id}.ruleVideo.q1080 / q720)
 function createGameStore(db) {
   const { FieldValue, FieldPath } = require('firebase-admin/firestore');
+  const game = (storeId, gameId) => db.collection('stores').doc(storeId).collection('games').doc(gameId);
   return {
-    async get(gameId) {
-      const doc = await db.collection('games').doc(gameId).get();
+    async get(storeId, gameId) {
+      const doc = await game(storeId, gameId).get();
       return doc.exists ? doc.data() : null;
     },
-    async setRuleVideo(gameId, field, info) {
+    async setRuleVideo(storeId, gameId, field, info) {
       // 패드 게임 목록에 바로 반영하려면 관리자 웹의 '손님 앱 새로고침' (영상마다 자동으로 하면 패드 읽기 비용이 커짐)
-      await db.collection('games').doc(gameId).update(new FieldPath('ruleVideo', field), info == null ? FieldValue.delete() : info);
+      await game(storeId, gameId).update(new FieldPath('ruleVideo', field), info == null ? FieldValue.delete() : info);
     },
   };
 }
 
 // 재생 통계 (서버만 씀, 관리자만 읽음 — firestore.rules)
-//   videoStats/{gameId}        { gameId, title, plays, lastPlayedAt }
-//   videoStatsDaily/{YYYY-MM-DD} { date, plays, games: { <gameId>: 횟수 } }   한국 날짜 기준
+//   stores/{매장}/usageDaily/{날짜}  videoPlays·videoBytesEst (48차, 운영자 이용 통계) · private/usage r2Bytes·r2Files
+//   stores/{매장}/videoStats/{gameId}          { gameId, title, plays, lastPlayedAt }
+//   stores/{매장}/videoStatsDaily/{YYYY-MM-DD} { date, plays, games: { <gameId>: 횟수 } }   한국 날짜 기준
 function createVideoStats(db) {
   const { FieldValue } = require('firebase-admin/firestore');
   return {
-    async recordPlay(gameId, title) {
+    async recordPlay(storeId, gameId, title, bytesEst = 0) {
       const date = seoulDateKey();
+      const store = db.collection('stores').doc(storeId);
       const batch = db.batch();
       batch.set(
-        db.collection('videoStats').doc(gameId),
+        store.collection('usageDaily').doc(date),
+        { date, videoPlays: FieldValue.increment(1), videoBytesEst: FieldValue.increment(Math.round(bytesEst) || 0) },
+        { merge: true }
+      );
+      batch.set(
+        store.collection('videoStats').doc(gameId),
         { gameId, title, plays: FieldValue.increment(1), lastPlayedAt: FieldValue.serverTimestamp() },
         { merge: true }
       );
       batch.set(
-        db.collection('videoStatsDaily').doc(date),
+        store.collection('videoStatsDaily').doc(date),
         { date, plays: FieldValue.increment(1), games: { [gameId]: FieldValue.increment(1) } },
         { merge: true }
       );
       await batch.commit();
+    },
+    // 올리기: 하루 기록(올린 수·용량) + 매장 R2 저장 용량 (바꾼 거면 예전 파일 크기만큼 뺌)
+    async recordUpload(storeId, bytes, oldBytes) {
+      const date = seoulDateKey();
+      const store = db.collection('stores').doc(storeId);
+      const batch = db.batch();
+      batch.set(store.collection('usageDaily').doc(date),
+        { date, videoUploads: FieldValue.increment(1), videoUploadBytes: FieldValue.increment(bytes) }, { merge: true });
+      batch.set(store.collection('private').doc('usage'),
+        { r2Bytes: FieldValue.increment(bytes - (oldBytes || 0)), r2Files: FieldValue.increment(oldBytes == null ? 1 : 0) }, { merge: true });
+      await batch.commit();
+    },
+    async recordRemove(storeId, bytes) {
+      await db.collection('stores').doc(storeId).collection('private').doc('usage')
+        .set({ r2Bytes: FieldValue.increment(-bytes), r2Files: FieldValue.increment(-1) }, { merge: true });
     },
   };
 }

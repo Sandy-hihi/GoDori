@@ -18,6 +18,8 @@ import 'package:boardpad/widgets/game_admin/game_form.dart';
 import 'admin_event_manage_screen.dart';
 import 'admin_menu_manage_screen.dart';
 import 'admin_notice_manage_screen.dart';
+import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/services/usage_meter.dart';
 
 typedef GameDoc = QueryDocumentSnapshot<Map<String, dynamic>>;
 
@@ -45,7 +47,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
   static const int _bulkChunk = 20;
   static const int _itemsPerPage = 10;
 
-  final CollectionReference<Map<String, dynamic>> _gamesRef = FirebaseFirestore.instance.collection('games');
+  final CollectionReference<Map<String, dynamic>> _gamesRef = StoreScope.col('games');
 
   // 목록 필터
   String _searchQuery = '';
@@ -84,7 +86,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
   @override
   void initState() {
     super.initState();
-    _genreSubscription = FirebaseFirestore.instance.collection('settings').doc('genres').snapshots().listen((snap) {
+    _genreSubscription = StoreScope.col('settings').doc('genres').snapshots().listen((snap) {
       if (mounted) {
         setState(() {
           _genreList = snap.exists ? List<String>.from((snap.data() as Map? ?? {})['items'] ?? []) : [];
@@ -97,7 +99,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
   // 룰 영상 재생 횟수 (화면 열 때 한 번만 읽음)
   Future<void> _loadVideoPlays() async {
     try {
-      final snap = await FirebaseFirestore.instance.collection('videoStats').get();
+      final snap = await StoreScope.col('videoStats').get();
       if (!mounted) return;
       setState(() {
         for (final d in snap.docs) {
@@ -129,20 +131,20 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
   // ───────────────────────── 장르 관리 ─────────────────────────
   Future<void> _addGenre(String name) async {
     if (name.trim().isEmpty) return;
-    await FirebaseFirestore.instance.collection('settings').doc('genres').set(
+    await StoreScope.col('settings').doc('genres').set(
       {'items': FieldValue.arrayUnion([name.trim()])},
       SetOptions(merge: true),
     );
   }
 
   Future<void> _deleteGenre(String name) async {
-    await FirebaseFirestore.instance.collection('settings').doc('genres').update({'items': FieldValue.arrayRemove([name])});
+    await StoreScope.col('settings').doc('genres').update({'items': FieldValue.arrayRemove([name])});
   }
 
   Future<void> _editGenre(String oldName, String newName) async {
     final nn = newName.trim();
     if (nn.isEmpty || nn == oldName) return;
-    final genresRef = FirebaseFirestore.instance.collection('settings').doc('genres');
+    final genresRef = StoreScope.col('settings').doc('genres');
     await FirebaseFirestore.instance.runTransaction((transaction) async {
       final doc = await transaction.get(genresRef);
       final items = List<String>.from((doc.data() as Map? ?? {})['items'] ?? []);
@@ -969,8 +971,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
 
     // 손님 앱 게임 목록 새로고침
     if (updated > 0) {
-      await FirebaseFirestore.instance
-          .collection('settings')
+      await StoreScope.col('settings')
           .doc('appRefresh')
           .set({'gamesUpdatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
     }
@@ -1460,8 +1461,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                       const SizedBox(width: 8),
                       ElevatedButton.icon(
                         onPressed: () async {
-                          await FirebaseFirestore.instance
-                              .collection('settings')
+                          await StoreScope.col('settings')
                               .doc('appRefresh')
                               .set({'gamesUpdatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
                           _toast('손님 앱 게임 목록이 새로고침됩니다.');
@@ -1479,7 +1479,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                   const SizedBox(height: 16),
                   Expanded(
                     child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: _gamesRef.orderBy('timestamp', descending: true).snapshots(),
+                      stream: _gamesRef.orderBy('timestamp', descending: true).snapshots().metered(),
                       builder: (context, snapshot) {
                         if (snapshot.hasError) {
                           return Center(child: Text('게임 목록을 불러오지 못했어요: ${snapshot.error}', style: const TextStyle(color: Colors.redAccent)));

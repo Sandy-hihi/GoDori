@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/services/usage_meter.dart';
 
 class AdminOrderScreen extends StatefulWidget {
   const AdminOrderScreen({super.key});
@@ -28,10 +30,10 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
   }
 
   void _listenForStaffCalls() {
-    _callSubscription = FirebaseFirestore.instance
-        .collection('staff_calls')
+    _callSubscription = StoreScope.col('staff_calls')
         .where('isAcknowledged', isEqualTo: false)
         .snapshots()
+        .metered()
         .listen((snapshot) {
       if (_isInitialLoad) {
         _isInitialLoad = false;
@@ -46,10 +48,10 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
   }
 
   void _listenForOrders() {
-    _orderSubscription = FirebaseFirestore.instance
-        .collection('orders')
+    _orderSubscription = StoreScope.col('orders')
         .where('status', isEqualTo: 'pending')
         .snapshots()
+        .metered()
         .listen((snapshot) {
       if (_isOrderInitialLoad) {
         _isOrderInitialLoad = false;
@@ -81,20 +83,19 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
       nextStatus = 'completed';
     }
 
-    await FirebaseFirestore.instance.collection('orders').doc(docId).update({
+    await StoreScope.col('orders').doc(docId).update({
       'status': nextStatus,
     });
   }
 
   // 2. 주문 삭제 함수
   Future<void> _deleteOrder(String docId) async {
-    await FirebaseFirestore.instance.collection('orders').doc(docId).delete();
+    await StoreScope.col('orders').doc(docId).delete();
   }
 
   // 직원 호출 확인 처리
   Future<void> _acknowledgeCall(String docId) async {
-    await FirebaseFirestore.instance
-        .collection('staff_calls')
+    await StoreScope.col('staff_calls')
         .doc(docId)
         .update({'isAcknowledged': true});
   }
@@ -119,10 +120,10 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
         children: [
           // ── 직원 호출 섹션 ──
           StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('staff_calls')
+            stream: StoreScope.col('staff_calls')
                 .where('isAcknowledged', isEqualTo: false)
-                .snapshots(),
+                .snapshots()
+                .metered(),
             builder: (context, snapshot) {
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                 return const SizedBox.shrink();
@@ -220,10 +221,10 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
           // ── 주문 목록 섹션 ──
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('orders')
+              stream: StoreScope.col('orders')
                   .orderBy('timestamp', descending: true)
-                  .snapshots(),
+                  .snapshots()
+                  .metered(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
+import 'package:boardpad/services/store_scope.dart';
 
 /// 이용안내 (settings/notices) — 관리자 웹 '공지 관리'에서 등록
 class NoticeScreen extends StatelessWidget {
@@ -45,7 +46,7 @@ class PadPostList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('settings').doc(docId).snapshots(),
+      stream: StoreScope.col('settings').doc(docId).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator(color: kOrange));

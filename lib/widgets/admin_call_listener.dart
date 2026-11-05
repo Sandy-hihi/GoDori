@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/services/usage_meter.dart';
 
 class AdminCallListener extends StatefulWidget {
   final Widget child;
@@ -22,10 +24,10 @@ class _AdminCallListenerState extends State<AdminCallListener> {
   @override
   void initState() {
     super.initState();
-    _subscription = FirebaseFirestore.instance
-        .collection('staff_calls')
+    _subscription = StoreScope.col('staff_calls')
         .where('isAcknowledged', isEqualTo: false)
         .snapshots()
+        .metered()
         .listen((snapshot) {
       if (_isInitialLoad) {
         _isInitialLoad = false;
@@ -91,8 +93,7 @@ class _AdminCallListenerState extends State<AdminCallListener> {
                         ),
                         ElevatedButton(
                           onPressed: () async {
-                            await FirebaseFirestore.instance
-                                .collection('staff_calls')
+                            await StoreScope.col('staff_calls')
                                 .doc(call['docId'] as String)
                                 .update({'isAcknowledged': true});
                             setDialogState(() {

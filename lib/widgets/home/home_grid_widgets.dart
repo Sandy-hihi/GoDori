@@ -17,6 +17,7 @@ import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/home_common.dart';
 import 'ai_recommend_dialog.dart';
 import 'home_theme.dart';
+import 'package:boardpad/services/store_scope.dart';
 
 /// 격자 위젯 하나 그리기
 Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
@@ -719,7 +720,7 @@ class _MenuPickWidget extends StatelessWidget {
       );
     }
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('menus').doc(menuId).snapshots(),
+      stream: StoreScope.col('menus').doc(menuId).snapshots(),
       builder: (context, snapshot) {
         final m = snapshot.data?.data();
         final name = (m?['name'] ?? '').toString();

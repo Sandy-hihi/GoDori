@@ -1,8 +1,8 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import 'package:boardpad/services/bgg_service.dart';
 import 'game_form.dart';
+import 'package:boardpad/services/store_scope.dart';
 
 /// 등록된 게임 정보 수정 팝업. 저장하면 true를 돌려줌.
 class GameEditDialog extends StatefulWidget {
@@ -82,7 +82,7 @@ class _GameEditDialogState extends State<GameEditDialog> {
     });
     try {
       final (imageFields, toDelete) = await _form.uploadImages();
-      await FirebaseFirestore.instance.collection('games').doc(widget.docId).update({...fields, ...imageFields});
+      await StoreScope.col('games').doc(widget.docId).update({...fields, ...imageFields});
       for (final url in toDelete) {
         await deleteStorageUrl(url);
       }

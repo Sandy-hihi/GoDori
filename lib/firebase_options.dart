@@ -55,7 +55,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyD__kXozYBf7r8aCiuCgM1nOBTfNPBuJfg',
-    appId: '1:552527795151:android:400ae05a5b1edfb7f878ba',
+    appId: '1:552527795151:android:a71a277dcb29ba43f878ba',
     messagingSenderId: '552527795151',
     projectId: 'platform6-boardpad',
     storageBucket: 'platform6-boardpad.firebasestorage.app',

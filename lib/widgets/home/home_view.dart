@@ -149,7 +149,7 @@ class HomeSidebar extends StatelessWidget {
         final logoUrl = (o['imageUrl'] ?? '').toString().trim();
         final storeName = (o['name'] ?? '').toString().trim();
         // 로고·매장 이름은 매장이 설정한 경우에만 보임(기본값 없음).
-        // 둘 다 비어도 5초 누르기(나가기) 자리는 남도록 최소 높이 유지.
+        // 둘 다 비어도 10번 누르기(나가기) 자리는 남도록 최소 높이 유지.
         return HoldToExit(
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 60),

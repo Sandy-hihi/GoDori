@@ -93,7 +93,11 @@ class RuleVideoService {
 
   /// 재생 주소 받기. countPlay: 재생 횟수에 셀지 (화질 바꿀 때·주소 다시 받을 때는 false)
   static Future<RuleVideoUrls> playUrls(String gameId, {bool countPlay = true}) async {
-    await AdminSession.ensureSignedIn(); // 손님 패드는 익명 로그인
+    try {
+      await AdminSession.ensureSignedIn(); // 매장 로그인한 패드·관리자만 (서버가 토큰의 매장으로 게임을 찾음)
+    } on AdminLoginException catch (e) {
+      throw RuleVideoException(e.message, 'RELOGIN');
+    }
     final body = await _call('GET', '/api/video/play-url', query: {'gameId': gameId, if (!countPlay) 'count': '0'});
     final urls = <String, String>{};
     for (final q in qualities) {

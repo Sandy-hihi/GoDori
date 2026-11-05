@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boardpad/services/store_info_service.dart';
 import 'package:boardpad/utils/game_meta.dart';
+import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/services/admin_session.dart';
+import 'package:boardpad/screens/login_screen.dart';
 
 /// 메인 화면 시안들이 같이 쓰는 작은 위젯·함수 모음
 
@@ -54,8 +57,10 @@ String formatDateKo(DateTime t) {
   return '${t.month}월 ${t.day}일 (${days[t.weekday - 1]})';
 }
 
-/// 5초 동안 누르고 있으면 첫 화면(역할 선택)으로 돌아가는 영역
-/// — 기존 상단 바의 매장 이름 영역과 같은 동작
+/// 빠르게 10번 누르면 '패드 로그아웃' 창 (55·56차)
+/// 예전(47차)엔 5초 누르기로 바로 로그아웃 → 손님이 무심코 로고를 오래 누르고 있다가 로그아웃되는 일이 잦아서
+/// 56차부터 빠르게 10번(누르는 사이 0.7초 안) + 패드 비밀번호(직원용) 또는 관리자 PIN을 넣어야 로그아웃됨.
+/// 30초 동안 입력이 없으면 창이 저절로 닫힘.
 class HoldToExit extends StatefulWidget {
   final Widget child;
   const HoldToExit({super.key, required this.child});
@@ -65,32 +70,155 @@ class HoldToExit extends StatefulWidget {
 }
 
 class _HoldToExitState extends State<HoldToExit> {
-  Timer? _timer;
+  static const _tapsNeeded = 10;
+  static const _maxGap = Duration(milliseconds: 700);
 
-  void _start() {
-    _timer?.cancel();
-    _timer = Timer(const Duration(seconds: 5), () {
-      if (!mounted) return;
-      Navigator.popUntil(context, (route) => route.isFirst);
-    });
+  int _taps = 0;
+  DateTime? _lastTap;
+  bool _dialogOpen = false;
+
+  void _onTap() {
+    if (_dialogOpen) return;
+    final now = DateTime.now();
+    final last = _lastTap;
+    _taps = (last != null && now.difference(last) <= _maxGap) ? _taps + 1 : 1;
+    _lastTap = now;
+    if (_taps >= _tapsNeeded) {
+      _taps = 0;
+      _lastTap = null;
+      _askExit();
+    }
   }
 
-  void _cancel() => _timer?.cancel();
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+  Future<void> _askExit() async {
+    if (!mounted || _dialogOpen) return;
+    _dialogOpen = true;
+    final navigator = Navigator.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (_) => const _ExitDialog(),
+    );
+    _dialogOpen = false;
+    if (ok != true || !mounted) return;
+    await AdminSession.signOut();
+    navigator.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (_) => false,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    // Listener: 누르는 순간 바로 셈(GestureDetector의 탭 판정·더블탭 대기 없이)
+    return Listener(
       behavior: HitTestBehavior.opaque,
-      onTapDown: (_) => _start(),
-      onTapUp: (_) => _cancel(),
-      onTapCancel: _cancel,
+      onPointerDown: (_) => _onTap(),
       child: widget.child,
+    );
+  }
+}
+
+/// 패드 로그아웃 확인 창 — 맞으면 true로 닫힘
+class _ExitDialog extends StatefulWidget {
+  const _ExitDialog();
+
+  @override
+  State<_ExitDialog> createState() => _ExitDialogState();
+}
+
+class _ExitDialogState extends State<_ExitDialog> {
+  final _controller = TextEditingController();
+  Timer? _idle;
+  bool _checking = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _resetIdle();
+  }
+
+  // 30초 동안 아무 입력이 없으면 닫힘 (손님이 잘못 눌러 띄운 경우)
+  void _resetIdle() {
+    _idle?.cancel();
+    _idle = Timer(const Duration(seconds: 30), () {
+      if (mounted && !_checking) Navigator.of(context).pop(false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _idle?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final pw = _controller.text.trim();
+    if (pw.isEmpty || _checking) return;
+    setState(() {
+      _checking = true;
+      _error = null;
+    });
+    try {
+      await AdminSession.verifyExit(pw);
+      if (mounted) Navigator.of(context).pop(true);
+    } on AdminLoginException catch (e) {
+      if (!mounted) return;
+      _controller.clear();
+      setState(() {
+        _checking = false;
+        _error = e.message;
+      });
+      _resetIdle();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('패드 로그아웃', style: TextStyle(fontWeight: FontWeight.bold)),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('직원용이에요. 패드 비밀번호 또는 관리자 PIN을 입력하세요.\n손님이시라면 \'닫기\'를 눌러 주세요.',
+                style: TextStyle(color: Colors.black54, height: 1.4)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              obscureText: true,
+              enabled: !_checking,
+              onChanged: (_) => _resetIdle(),
+              onSubmitted: (_) => _submit(),
+              decoration: InputDecoration(
+                labelText: '비밀번호 또는 PIN',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                errorText: _error,
+                errorMaxLines: 2,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _checking ? null : () => Navigator.of(context).pop(false),
+          child: const Text('닫기'),
+        ),
+        FilledButton(
+          onPressed: _checking ? null : _submit,
+          style: FilledButton.styleFrom(backgroundColor: const Color(0xFF1E2B3C)),
+          child: _checking
+              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Text('로그아웃'),
+        ),
+      ],
     );
   }
 }
@@ -131,7 +259,7 @@ class LatestItemTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('settings').doc(docId).snapshots(),
+      stream: StoreScope.col('settings').doc(docId).snapshots(),
       builder: (context, snapshot) {
         String title = '';
         final data = snapshot.data?.data();
@@ -158,7 +286,7 @@ const List<String> homePlayerOptions = ['2인전용', '2인이상', '3인이상'
 /// settings/genres 문서의 장르 목록
 Future<List<String>> loadGenres() async {
   try {
-    final doc = await FirebaseFirestore.instance.collection('settings').doc('genres').get();
+    final doc = await StoreScope.col('settings').doc('genres').get();
     final items = (doc.data() ?? {})['items'];
     if (items is List) return items.map((e) => e.toString()).toList();
   } catch (_) {}

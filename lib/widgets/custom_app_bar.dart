@@ -34,8 +34,8 @@ class _CustomAppBarState extends State<CustomAppBar> {
   void _startLogoutTimer() {
     _logoutTimer = Timer(const Duration(seconds: 5), () {
       if (!mounted) return;
-      // 역할 선택 화면(RoleSelectionScreen)은 항상 첫 번째 라우트이므로
-      // popUntil(isFirst)로 한 번에 이동
+      // (지금은 안 쓰는 예전 상단 바) 첫 번째 라우트 = 홈 화면으로 이동.
+      // 로그아웃은 홈 화면의 HoldToExit(home_common.dart)이 함
       Navigator.popUntil(context, (route) => route.isFirst);
     });
   }
@@ -77,7 +77,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
             onTapCancel: () => _cancelLogoutTimer(),
             child: Container(
               color: Colors.transparent,
-              // 매장 이름·전화번호가 비어도 5초 누르기(나가기) 자리는 남김
+              // 매장 이름·전화번호가 비어도 10번 누르기(나가기) 자리는 남김
               constraints: const BoxConstraints(minWidth: 120, minHeight: 40),
               child: const StoreContactLabel(),
             ),

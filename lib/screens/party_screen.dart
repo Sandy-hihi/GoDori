@@ -1,6 +1,5 @@
 import 'dart:math';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -10,6 +9,8 @@ import 'game_list_screen.dart';
 import 'food_order_screen.dart';
 import '../widgets/home/home_theme.dart';
 import '../widgets/pad_shell.dart';
+import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/services/usage_meter.dart';
 
 class PartyScreen extends StatefulWidget {
   final int? roomNumber;
@@ -76,10 +77,10 @@ class _PartyScreenState extends State<PartyScreen> {
 
   Future<List<Map<String, dynamic>>> _fetchCatalog() async {
     if (widget.catalog != null) return widget.catalog!;
-    final snapshot = await FirebaseFirestore.instance
-        .collection('games')
+    final snapshot = await StoreScope.col('games')
         .where('isAvailable', isEqualTo: true)
-        .get();
+        .get()
+        .metered();
     return snapshot.docs.map((doc) => doc.data()).toList();
   }
 
@@ -436,8 +437,7 @@ class _PartyScreenState extends State<PartyScreen> {
   void _loadMenus() {
     _menus ??=
         widget.menuCatalog ??
-        FirebaseFirestore.instance
-            .collection('menus')
+        StoreScope.col('menus')
             .get()
             .then(
               (snapshot) => snapshot.docs

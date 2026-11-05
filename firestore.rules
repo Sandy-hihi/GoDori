@@ -1,128 +1,148 @@
 rules_version = '2';
 
 // ─────────────────────────────────────────────────────────────
-// 고도리(GoDori) Firestore 보안 규칙 (2단계: Firebase Authentication 적용)
+// 고도리(GoDori) Firestore 보안 규칙 (3단계: 매장별 데이터, 47차)
 //
-// 누가 무엇을 할 수 있나
-//   - 손님 패드: 앱이 켜질 때 익명 로그인 → 게임·메뉴·설정 읽기, 주문·직원 호출 "생성"만 가능
-//   - 관리자: 서버 함수(/api/auth/login)가 PIN/비밀번호를 확인한 뒤 발급한 토큰으로 로그인
-//            → 토큰에 admin: true 표시가 있어서 isAdmin() 통과
-//            (태블릿 '관리자 대시보드' = admin-pad, 관리자 웹 = admin-web)
-//   - 로그인하지 않은 요청: 공개 정보(게임·메뉴·설정) 읽기만 가능
+// 데이터는 매장마다 따로: stores/{매장ID}/games, menus, orders, staff_calls, settings, videoStats, videoStatsDaily
 //
-// settings/adminPin 은 서버만 읽음 (앱·브라우저에서 읽기 불가). 수정은 Firebase 콘솔에서.
-// settings/storeInfo 는 콘솔 전용 (콘솔은 보안 규칙을 거치지 않음)
-// _authLimits 등 위에 없는 컬렉션은 전부 차단 (서버의 로그인 실패 기록 등)
+// 누가 무엇을 할 수 있나 (로그인은 전부 서버 함수 /api/auth/* 가 확인한 뒤 발급한 토큰)
+//   - 손님 패드: 매장 아이디 + 패드 비밀번호 + 방 번호 → 토큰 { pad: true, store, room }
+//               → 그 매장의 게임·메뉴·설정 읽기, "자기 방 번호로" 주문·직원 호출 생성만 가능
+//   - 관리자: 패드에서 방 번호 0 + PIN, 또는 관리자 웹 비밀번호 → 토큰 { admin: true, store }
+//               → 그 매장 데이터만 관리 (다른 매장 것은 못 고침)
+//   - 로그인하지 않은 요청: 매장 공개 정보(게임·메뉴·설정) 읽기만
+//
+// stores/{매장}/private/* (비밀번호·가입 정보·저장 용량), usageDaily(하루 이용량), _ops(운영자 계정)는 서버만.
+// 위에 없는 컬렉션은 전부 차단
+// (예전 맨 위 games·menus·orders·settings 등은 47차에 stores/platform6 으로 복사한 뒤 막음 — 콘솔에서만 보임)
 //
 // 배포: "BoardPad 배포.bat" → 5번 (또는 firebase deploy --only firestore:rules)
+// ★ 순서: 서버 함수 배포(4번) → "매장 데이터 옮기기.ps1" → 이 규칙(5번) → 관리자 웹(1번)·패드 앱
 // ─────────────────────────────────────────────────────────────
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function isAdmin() {
-      return request.auth != null && request.auth.token.admin == true;
-    }
-
-    // 방 번호 검사: 관리자 웹 '매장 설정'에서 정한 settings/rooms 의 count 이하 (문서가 없으면 11개)
-    function roomOk(n) {
-      let roomsPath = /databases/$(database)/documents/settings/rooms;
-      return n is int && n >= 1
-          && ((!exists(roomsPath) && n <= 11)
-              || (exists(roomsPath) && n <= get(roomsPath).data.count));
-    }
-
-
-    // ── 주문 ──
-    match /orders/{orderId} {
-      // 주문 목록은 관리자 주문현황에서만 봄
-      allow read: if isAdmin();
-
-      // 손님 태블릿의 주문 생성 (food_order_screen.dart) — 로그인(익명)한 패드만
-      allow create: if signedIn()
-                    && request.resource.data.keys().hasOnly(
-                         ['room', 'time', 'price', 'items', 'notes', 'roomColor', 'status', 'timestamp'])
-                    && request.resource.data.room is string
-                    && request.resource.data.room.matches('#[1-9][0-9]?')                 // #1 ~ #99 형식
-                    && roomOk(int(request.resource.data.room.replace('#', '')))   // 매장 설정의 방 개수 이하
-                    && request.resource.data.items is list
-                    && request.resource.data.items.size() > 0
-                    && request.resource.data.items.size() <= 100
-                    && request.resource.data.price is string
-                    && request.resource.data.price.size() <= 10
-                    && request.resource.data.notes is string
-                    && request.resource.data.notes.size() <= 300
-                    && request.resource.data.status == 'pending'
-                    && request.resource.data.timestamp == request.time;
-
-      // 관리자 주문현황: 상태(status)만 변경 가능
-      allow update: if isAdmin()
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-                    && request.resource.data.status in ['pending', 'preparing', 'completed'];
-
-      // 관리자 주문현황: '완료'된 주문만 삭제 가능
-      allow delete: if isAdmin() && resource.data.status == 'completed';
-    }
-
-    // ── 직원 호출 ──
-    match /staff_calls/{callId} {
-      allow read: if isAdmin();
-
-      // 손님 태블릿의 호출 생성 (staff_call_service.dart) — 로그인(익명)한 패드만
-      allow create: if signedIn()
-                    && request.resource.data.keys().hasOnly(['roomNumber', 'timestamp', 'isAcknowledged'])
-                    && request.resource.data.roomNumber is int
-                    && (request.resource.data.roomNumber == 0 || roomOk(request.resource.data.roomNumber))
-                    && request.resource.data.isAcknowledged == false
-                    && request.resource.data.timestamp == request.time;
-
-      // 관리자의 '확인' 처리만 허용
-      allow update: if isAdmin()
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isAcknowledged'])
-                    && request.resource.data.isAcknowledged == true;
-
-      allow delete: if false;
-    }
-
-    // ── 보드게임 / 메뉴 ── 누구나 보기, 관리자만 수정
-    match /games/{gameId} {
+    match /stores/{storeId} {
+      // 매장 이름 등 기본 정보: 누구나 읽기, 만들고 고치는 건 서버(콘솔)만
       allow read: if true;
-      allow write: if isAdmin();
-    }
-    match /menus/{menuId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow write: if false;
+
+      function member() {
+        return request.auth != null && request.auth.token.store == storeId;
+      }
+      // 운영 중인 매장만 (48차: 승인 대기·정지·거절이면 이미 로그인한 패드·관리자도 바로 막힘)
+      // 매장 문서를 한 번 더 읽음(요청당 읽기 1회) — 관리자·패드 권한이 필요한 요청에서만
+      function active() {
+        return get(/databases/$(database)/documents/stores/$(storeId)).data.get('status', 'active') == 'active';
+      }
+      function isAdmin() {
+        return member() && request.auth.token.admin == true && active();
+      }
+      function isPad() {
+        return member() && request.auth.token.pad == true && request.auth.token.room is number && active();
+      }
+      // 토큰의 방 번호 (정수로 맞춤 — 주문의 '#3'과 비교하려고)
+      function padRoom() {
+        return int(request.auth.token.room);
+      }
+      // 방 번호 검사: 관리자 웹 '매장 설정'에서 정한 settings/rooms 의 count 이하 (문서가 없으면 11개)
+      function roomOk(n) {
+        let roomsPath = /databases/$(database)/documents/stores/$(storeId)/settings/rooms;
+        return n is int && n >= 1
+            && ((!exists(roomsPath) && n <= 11)
+                || (exists(roomsPath) && n <= get(roomsPath).data.count));
+      }
+
+      // ── 비밀번호 (서버만) ──
+      match /private/{docId} {
+        allow read, write: if false;
+      }
+
+      // ── 주문 ──
+      match /orders/{orderId} {
+        // 주문 목록은 관리자 주문현황에서만 봄
+        allow read: if isAdmin();
+
+        // 손님 패드의 주문 생성 (food_order_screen.dart) — 로그인한 그 방 패드만, 자기 방 번호로
+        allow create: if isPad()
+                      && request.resource.data.keys().hasOnly(
+                           ['room', 'time', 'price', 'items', 'notes', 'roomColor', 'status', 'timestamp'])
+                      && request.resource.data.room == '#' + string(padRoom())
+                      && roomOk(padRoom())
+                      && request.resource.data.items is list
+                      && request.resource.data.items.size() > 0
+                      && request.resource.data.items.size() <= 100
+                      && request.resource.data.price is string
+                      && request.resource.data.price.size() <= 10
+                      && request.resource.data.notes is string
+                      && request.resource.data.notes.size() <= 300
+                      && request.resource.data.status == 'pending'
+                      && request.resource.data.timestamp == request.time;
+
+        // 관리자 주문현황: 상태(status)만 변경 가능
+        allow update: if isAdmin()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+                      && request.resource.data.status in ['pending', 'preparing', 'completed'];
+
+        // 관리자 주문현황: '완료'된 주문만 삭제 가능
+        allow delete: if isAdmin() && resource.data.status == 'completed';
+      }
+
+      // ── 직원 호출 ──
+      match /staff_calls/{callId} {
+        allow read: if isAdmin();
+
+        // 손님 패드의 호출 생성 (staff_call_service.dart) — 자기 방 번호로만
+        allow create: if isPad()
+                      && request.resource.data.keys().hasOnly(['roomNumber', 'timestamp', 'isAcknowledged'])
+                      && request.resource.data.roomNumber == padRoom()
+                      && roomOk(padRoom())
+                      && request.resource.data.isAcknowledged == false
+                      && request.resource.data.timestamp == request.time;
+
+        // 관리자의 '확인' 처리만 허용
+        allow update: if isAdmin()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isAcknowledged'])
+                      && request.resource.data.isAcknowledged == true;
+
+        allow delete: if false;
+      }
+
+      // ── 보드게임 / 메뉴 ── 누구나 보기, 그 매장 관리자만 수정
+      match /games/{gameId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+      match /menus/{menuId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+
+      // ── 룰 영상 재생 통계 (서버 함수 /api/video/play-url 이 기록, 관리자 웹이 읽음) ──
+      match /videoStats/{gameId} {
+        allow read: if isAdmin();
+      }
+      match /videoStatsDaily/{day} {
+        allow read: if isAdmin();
+      }
+
+      // ── 설정 문서 ──
+      match /settings/{docId} {
+        allow read: if true;
+        // 관리자 페이지가 수정하는 문서만, 그 매장 관리자만 쓰기 허용. storeInfo는 콘솔 전용.
+        allow write: if isAdmin()
+                     && docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout'];
+        // 방 개수 (관리자 웹 '매장 설정'): 1 ~ 30 사이 숫자만
+        allow write: if isAdmin()
+                     && docId == 'rooms'
+                     && request.resource.data.keys().hasOnly(['count', 'updatedAt'])
+                     && request.resource.data.count is int
+                     && request.resource.data.count >= 1
+                     && request.resource.data.count <= 30;
+      }
     }
 
-    // ── 룰 영상 재생 통계 (서버 함수 /api/video/play-url 이 기록, 관리자 웹이 읽음) ──
-    // 영상 파일 자체는 Cloudflare R2에 있고, 게임 문서의 ruleVideo 칸은 games 규칙(관리자만 쓰기)을 따름
-    match /videoStats/{gameId} {
-      allow read: if isAdmin();
-    }
-    match /videoStatsDaily/{day} {
-      allow read: if isAdmin();
-    }
-
-    // ── 설정 문서 ──
-    match /settings/{docId} {
-      // 관리자 PIN/비밀번호 문서는 아무도 못 읽음 (서버 함수만 Admin SDK로 읽음)
-      allow read: if docId != 'adminPin';
-      // 관리자 페이지가 수정하는 문서만, 관리자만 쓰기 허용. adminPin / storeInfo는 콘솔 전용.
-      allow write: if isAdmin()
-                   && docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout'];
-      // 방 개수 (관리자 웹 '매장 설정'): 1 ~ 30 사이 숫자만
-      allow write: if isAdmin()
-                   && docId == 'rooms'
-                   && request.resource.data.keys().hasOnly(['count', 'updatedAt'])
-                   && request.resource.data.count is int
-                   && request.resource.data.count >= 1
-                   && request.resource.data.count <= 30;
-    }
-
-    // 위에 없는 컬렉션은 기본적으로 모두 차단됩니다.
+    // 위에 없는 컬렉션(예전 맨 위 컬렉션, _authLimits 등)은 기본적으로 모두 차단됩니다.
   }
 }

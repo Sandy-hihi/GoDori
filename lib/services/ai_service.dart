@@ -4,6 +4,8 @@ import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
+import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/services/usage_meter.dart';
 
 /// AI 게임 추천
 /// - 오늘의 추천: 서버 함수(dailyPicks)가 매일 settings/aiPicks 문서에 써 둔 것을 읽기만 함
@@ -100,7 +102,7 @@ class AiResult {
 }
 
 class AiService {
-  static const String deployedOrigin = 'https://platform6-boardpad.web.app';
+  static const String deployedOrigin = 'https://godori-pad.web.app'; // 49차: 예전 platform6-boardpad.web.app
 
   static String _origin() {
     final base = Uri.base;
@@ -117,7 +119,7 @@ class AiService {
 
   /// 오늘 날짜의 AI 추천 (없거나 날짜가 지났으면 null)
   static Stream<List<AiPick>?> todayPicks() {
-    return FirebaseFirestore.instance.collection('settings').doc('aiPicks').snapshots().map((snap) {
+    return StoreScope.col('settings').doc('aiPicks').snapshots().map((snap) {
       final d = snap.data();
       if (d == null || d['date'] != todayKey() || d['picks'] is! List) return null;
       final picks = <AiPick>[];
@@ -131,11 +133,11 @@ class AiService {
   /// AI 추천이 없을 때: 직원 추천 게임 중에서 날짜마다 다르게
   static Future<List<AiPick>> staffPicks(int count, {List<String> exclude = const []}) async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('games')
+      final snap = await StoreScope.col('games')
           .where('isAvailable', isEqualTo: true)
           .where('isRecommended', isEqualTo: true)
-          .get();
+          .get()
+          .metered();
       final docs = snap.docs.where((d) => !exclude.contains(d.id)).toList();
       docs.shuffle(Random(todayKey().hashCode));
       return docs.take(count).map((d) => AiPick.fromGame(d.id, d.data(), '직원이 추천하는 게임이에요')).toList();
@@ -175,7 +177,7 @@ class AiService {
   static Future<List<AiPick>> localRecommend(AiAsk ask, {int count = 3, List<String> exclude = const []}) async {
     QuerySnapshot<Map<String, dynamic>> snap;
     try {
-      snap = await FirebaseFirestore.instance.collection('games').where('isAvailable', isEqualTo: true).get();
+      snap = await StoreScope.col('games').where('isAvailable', isEqualTo: true).get().metered();
     } catch (_) {
       return [];
     }

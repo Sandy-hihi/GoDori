@@ -96,7 +96,7 @@ class BggDetailsResult {
 
 class BggService {
   /// 배포된 관리자 웹 주소. 내 컴퓨터에서 실행(localhost)할 때는 여기 서버를 부릅니다.
-  static const String deployedOrigin = 'https://platform6-boardpad.web.app';
+  static const String deployedOrigin = 'https://godori-pad.web.app'; // 49차: 예전 platform6-boardpad.web.app
   static const Duration _timeout = Duration(seconds: 110);
 
   static String _origin() {

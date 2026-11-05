@@ -6,10 +6,15 @@ const { createHandler } = require('../src/app');
 const { createVideoApi, MAX_BYTES } = require('../src/video');
 const { presignUrl, createR2Storage } = require('../src/r2');
 const { createMemoryAttempts } = require('../src/attempts');
+const { createMemoryStores } = require('../src/stores');
 
+// 'admin-token' = platform6 관리자, 'guest-token' = platform6 3번 방 패드(손님),
+// 'other-admin' = 다른 매장 관리자, 'anon-token' = 예전 익명 로그인(매장 없음)
 const fakeVerify = async (t) => {
-  if (t === 'admin-token') return { uid: 'admin-web', admin: true };
-  if (t === 'guest-token') return { uid: 'anon123' };
+  if (t === 'admin-token') return { uid: 'admin-web.platform6', admin: true, store: 'platform6' };
+  if (t === 'guest-token') return { uid: 'pad.platform6.3', pad: true, store: 'platform6', room: 3 };
+  if (t === 'other-admin') return { uid: 'admin-web.other-store', admin: true, store: 'other-store' };
+  if (t === 'anon-token') return { uid: 'anon123' };
   throw new Error('bad token');
 };
 
@@ -29,10 +34,12 @@ function fakeStorage() {
 
 function fakeGames() {
   const docs = new Map([['g1', { title: '카탄' }], ['g2', { title: '스플렌더' }]]);
+  // 게임은 platform6 매장에만 있음
   return {
     docs,
-    async get(id) { return docs.has(id) ? JSON.parse(JSON.stringify(docs.get(id))) : null; },
-    async setRuleVideo(id, field, info) {
+    async get(store, id) { return store === 'platform6' && docs.has(id) ? JSON.parse(JSON.stringify(docs.get(id))) : null; },
+    async setRuleVideo(store, id, field, info) {
+      assert.equal(store, 'platform6');
       const d = docs.get(id);
       d.ruleVideo = d.ruleVideo || {};
       if (info == null) delete d.ruleVideo[field];
@@ -46,12 +53,12 @@ function setup({ connected = true } = {}) {
   const games = fakeGames();
   const plays = [];
   let t = 1793700000000;
-  const video = createVideoApi({ storage, games, stats: { recordPlay: async (id, title) => plays.push([id, title]) }, now: () => t++ });
+  const video = createVideoApi({ storage, games, stats: { recordPlay: async (store, id, title) => plays.push([store, id, title]) }, now: () => t++ });
   const h = createHandler({
     bgg: {},
-    getAdminSecrets: async () => ({ pin: '123456' }),
+    stores: createMemoryStores({ platform6: { name: '플랫폼6' }, 'other-store': { name: '다른 매장' } }),
     verifyIdToken: fakeVerify,
-    createAdminToken: async () => 'x',
+    createToken: async () => 'x',
     attempts: createMemoryAttempts(),
     video,
   });
@@ -77,6 +84,21 @@ test('영상 API: 로그인 없으면 401, 손님은 업로드 403', async () =>
   assert.equal((await h(req('POST', '/api/video/upload-url', { token: 'guest-token', body: { gameId: 'g1', quality: '1080', size: 10 } }))).status, 403);
   assert.equal((await h(req('POST', '/api/video/delete', { token: 'guest-token', body: { gameId: 'g1' } }))).status, 403);
   assert.equal((await h(req('GET', '/api/video/play-url', { token: null, query: { gameId: 'g1' } }))).status, 401);
+  // 예전 익명 로그인은 다시 로그인하라고
+  const anon = await h(req('GET', '/api/video/play-url', { token: 'anon-token', query: { gameId: 'g1' } }));
+  assert.equal(anon.status, 403);
+  assert.equal(anon.body.error, 'RELOGIN');
+});
+
+test('영상 API: 다른 매장 관리자는 이 매장 게임을 못 건드림', async () => {
+  const ctx = setup();
+  await upload(ctx, 'g1', '1080');
+  const other = (path, body) => ctx.h(req('POST', path, { token: 'other-admin', body }));
+  assert.equal((await other('/api/video/upload-url', { gameId: 'g1', quality: '1080', size: 10 })).status, 404);
+  const r = await other('/api/video/delete', { gameId: 'g1' });
+  assert.equal(r.status, 200); // 그 매장엔 게임이 없어서 아무것도 안 지움
+  assert.ok(ctx.games.docs.get('g1').ruleVideo.q1080);
+  assert.equal((await ctx.h(req('GET', '/api/video/play-url', { token: 'other-admin', query: { gameId: 'g1' } }))).status, 404);
 });
 
 test('영상 API: R2 연결 전이면 503 (권한 확인은 먼저)', async () => {
@@ -99,7 +121,7 @@ test('업로드 주소: 입력 검사', async () => {
   assert.equal((await up({ gameId: 'nope', quality: '1080', size: 10 })).status, 404);
   const ok = await up({ gameId: 'g1', quality: '1080', size: 10 });
   assert.equal(ok.status, 200);
-  assert.match(ok.body.key, /^rule-videos\/g1\/\d+_1080\.mp4$/);
+  assert.match(ok.body.key, /^rule-videos\/platform6\/g1\/\d+_1080\.mp4$/);
   assert.equal(ok.body.contentType, 'video/mp4');
 });
 
@@ -126,6 +148,8 @@ test('확인: 안 올라간 파일 404, 다른 게임·화질 키는 400', async
   assert.equal((await ctx.h(req('POST', '/api/video/confirm', { body: { gameId: 'g2', quality: '1080', key } }))).status, 400);
   assert.equal((await ctx.h(req('POST', '/api/video/confirm', { body: { gameId: 'g1', quality: '720', key } }))).status, 400);
   assert.equal((await ctx.h(req('POST', '/api/video/confirm', { body: { gameId: 'g1', quality: '1080', key: 'rule-videos/g1/../x' } }))).status, 400);
+  // 매장 없는 예전 모양 키도 새로 기록하는 건 안 됨
+  assert.equal((await ctx.h(req('POST', '/api/video/confirm', { body: { gameId: 'g1', quality: '1080', key: 'rule-videos/g1/1793700000000_1080.mp4' } }))).status, 400);
 });
 
 test('재생 주소: 손님 패드도 받음, 1080·720 둘 다, 재생 횟수 기록', async () => {
@@ -134,10 +158,10 @@ test('재생 주소: 손님 패드도 받음, 1080·720 둘 다, 재생 횟수 �
   await upload(ctx, 'g1', '720', 10, { width: 1280, height: 720 });
   const r = await ctx.h(req('GET', '/api/video/play-url', { token: 'guest-token', query: { gameId: 'g1' } }));
   assert.equal(r.status, 200);
-  assert.match(r.body.q1080.url, /GET\/rule-videos\/g1\/.*_1080\.mp4/);
+  assert.match(r.body.q1080.url, /GET\/rule-videos\/platform6\/g1\/.*_1080\.mp4/);
   assert.match(r.body.q720.url, /_720\.mp4/);
   assert.equal(r.body.q720.height, 720);
-  assert.deepEqual(ctx.plays, [['g1', '카탄']]);
+  assert.deepEqual(ctx.plays, [['platform6', 'g1', '카탄']]);
   // count=0(화질 바꿀 때 다시 받기)은 안 셈
   await ctx.h(req('GET', '/api/video/play-url', { token: 'guest-token', query: { gameId: 'g1', count: '0' } }));
   assert.equal(ctx.plays.length, 1);
@@ -145,12 +169,12 @@ test('재생 주소: 손님 패드도 받음, 1080·720 둘 다, 재생 횟수 �
   assert.equal((await ctx.h(req('GET', '/api/video/play-url', { token: 'guest-token', query: { gameId: 'g2' } }))).status, 404);
 });
 
-test('재생 기록이 실패해도 재생 주소는 줌', async () => {
+test('재생 기록이 실패해도 재생 주소는 줌 (예전 키 모양도 재생됨)', async () => {
   const storage = fakeStorage();
   const games = fakeGames();
   games.docs.get('g1').ruleVideo = { q1080: { key: 'rule-videos/g1/1_1080.mp4' } };
   const video = createVideoApi({ storage, games, stats: { recordPlay: async () => { throw new Error('db down'); } } });
-  const r = await video.playUrl({ gameId: 'g1' });
+  const r = await video.playUrl({ gameId: 'g1' }, 'platform6');
   assert.ok(r.q1080.url);
 });
 

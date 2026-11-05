@@ -324,11 +324,15 @@ class HomeLayout {
   final List<SidebarItem> sidebarItems;
   final List<GridItem> widgets;
 
+  /// 보관함: 관리자가 잠깐 빼 둔 위젯 (설정은 그대로 남음). 손님 화면에는 안 그려지고 검사에서도 빠짐
+  final List<GridItem> parked;
+
   const HomeLayout({
     required this.sidebarVisible,
     required this.sidebarColor,
     required this.sidebarItems,
     required this.widgets,
+    this.parked = const [],
   });
 
   int get cols => sidebarVisible ? 6 : 7;
@@ -341,12 +345,14 @@ class HomeLayout {
     Color? sidebarColor,
     List<SidebarItem>? sidebarItems,
     List<GridItem>? widgets,
+    List<GridItem>? parked,
   }) =>
       HomeLayout(
         sidebarVisible: sidebarVisible ?? this.sidebarVisible,
         sidebarColor: sidebarColor ?? this.sidebarColor,
         sidebarItems: sidebarItems ?? this.sidebarItems,
         widgets: widgets ?? this.widgets,
+        parked: parked ?? this.parked,
       );
 
   Map<String, dynamic> toMap() => {
@@ -358,6 +364,7 @@ class HomeLayout {
         },
         'grid': {'cols': cols, 'rows': rows},
         'widgets': widgets.map((e) => e.toMap()).toList(),
+        if (parked.isNotEmpty) 'parked': parked.map((e) => e.toMap()).toList(),
       };
 
   /// Firestore 문서에서 읽기. 알 수 없는 위젯은 버리고, 문제가 있으면 null (→ 기본 배치 사용)
@@ -384,11 +391,22 @@ class HomeLayout {
       if (savedRows == 4) {
         widgets = [for (final w in widgets) w.copyWith(y: w.y * 2, h: w.h * 2)];
       }
+      // 보관함 (모르는 위젯·격자와 id가 겹치는 것은 버림)
+      final parked = <GridItem>[];
+      if (data['parked'] is List) {
+        for (final raw in data['parked'] as List) {
+          final item = GridItem.fromMap(raw);
+          if (item == null) continue;
+          if (widgets.any((w) => w.id == item.id) || parked.any((p) => p.id == item.id)) continue;
+          parked.add(item);
+        }
+      }
       final layout = HomeLayout(
         sidebarVisible: sidebar['visible'] != false,
         sidebarColor: colorFromHex(sidebar['color']?.toString(), sidebarColors.first),
         sidebarItems: items,
         widgets: widgets,
+        parked: parked,
       );
       // 저장된 배치가 규칙에 안 맞으면(손으로 고친 문서 등) 쓰지 않음
       return layout.validate().isEmpty ? layout : null;
@@ -428,7 +446,7 @@ class HomeLayout {
     }
     if (sidebarVisible) {
       if (!sidebarItems.any((e) => e.type == 'logo')) {
-        errors.add('왼쪽 영역에 로고가 있어야 해요. (5초 눌러 패드 종료 기능)');
+        errors.add('왼쪽 영역에 로고가 있어야 해요. (빠르게 10번 눌러 로그아웃 기능)');
       }
       final used = sidebarItems.fold<double>(0, (sum, e) => sum + e.estimatedHeight) + (sidebarItems.length - 1) * 14;
       if (used > sidebarMaxContent) {
@@ -472,6 +490,84 @@ class HomeLayout {
       }
     }
     return null;
+  }
+
+  /// 위젯을 다른 위젯 위로 끌어 놓았을 때 자리 바꾸기 결과. 바꿀 수 없으면 null
+  ///
+  /// 1) 놓은 자리에 걸린 위젯들을 옮긴 위젯이 움직인 만큼 반대로 옮겨서(= 원래 자리로) 보내 봄.
+  ///    크기가 같은 위젯끼리 1:1, 또는 2×2 하나 ↔ 2×1 두 개처럼 묶음으로도 바뀜.
+  /// 2) 안 되면, 가장 많이 겹친 위젯이 같은 크기일 때 그 위젯 자리로 딱 맞춰서 맞바꿔 봄
+  ///    (반 칸 어긋나게 놓아도 바꿔지도록).
+  /// 결과의 moved는 실제로 놓일 자리, displaced는 밀려나는 위젯들의 새 자리.
+  ({List<GridItem> widgets, GridItem moved, List<GridItem> displaced})? swapFor(GridItem moved) {
+    GridItem? original;
+    for (final w in widgets) {
+      if (w.id == moved.id) original = w;
+    }
+    if (original == null || original.w != moved.w || original.h != moved.h) return null;
+    final first = _trySwap(original, moved);
+    if (first != null) return first;
+
+    GridItem? best;
+    var bestArea = 0;
+    for (final o in widgets) {
+      if (o.id == moved.id || !o.overlaps(moved)) continue;
+      final area = _overlapArea(o, moved);
+      if (area > bestArea) {
+        best = o;
+        bestArea = area;
+      }
+    }
+    if (best == null || best.w != moved.w || best.h != moved.h) return null;
+    return _trySwap(original, moved.copyWith(x: best.x, y: best.y));
+  }
+
+  ({List<GridItem> widgets, GridItem moved, List<GridItem> displaced})? _trySwap(GridItem original, GridItem moved) {
+    if (moved.x == original.x && moved.y == original.y) return null;
+    final hit = [for (final o in widgets) if (o.id != moved.id && o.overlaps(moved)) o];
+    if (hit.isEmpty) return null;
+    final dx = original.x - moved.x;
+    final dy = original.y - moved.y;
+    final shifted = {for (final o in hit) o.id: o.copyWith(x: o.x + dx, y: o.y + dy)};
+    final next = [
+      for (final w in widgets)
+        if (w.id == moved.id) moved else shifted[w.id] ?? w,
+    ];
+    for (final w in next) {
+      if (w.x < 0 || w.y < 0 || w.x + w.w > cols || w.y + w.h > rows) return null;
+    }
+    for (var i = 0; i < next.length; i++) {
+      for (var j = i + 1; j < next.length; j++) {
+        if (next[i].overlaps(next[j])) return null;
+      }
+    }
+    return (widgets: next, moved: moved, displaced: shifted.values.toList());
+  }
+
+  static int _overlapArea(GridItem a, GridItem b) {
+    final w = (a.x + a.w < b.x + b.w ? a.x + a.w : b.x + b.w) - (a.x > b.x ? a.x : b.x);
+    final h = (a.y + a.h < b.y + b.h ? a.y + a.h : b.y + b.h) - (a.y > b.y ? a.y : b.y);
+    return w > 0 && h > 0 ? w * h : 0;
+  }
+
+  /// 보관함 위젯을 격자 (cx, cy) 칸 근처에 넣을 자리. 지금 크기부터, 안 되면 허용된 다른 크기로 시도.
+  /// 들어갈 수 있으면 (item, null), 없으면 (지금 크기 후보, 이유)
+  (GridItem, String?) placeParked(GridItem item, int cx, int cy) {
+    final spec = specOf(item.type);
+    final sizes = <WidgetSize>[WidgetSize(item.w, item.h), ...?spec?.sizes];
+    GridItem? firstTry;
+    String? firstProblem;
+    for (final s in sizes) {
+      if (s.w > cols || s.h > rows) continue;
+      final x = (cx - (s.w - 1) ~/ 2).clamp(0, cols - s.w).toInt();
+      final y = (cy - (s.h - 1) ~/ 2).clamp(0, rows - s.h).toInt();
+      final candidate = item.copyWith(x: x, y: y, w: s.w, h: s.h);
+      final problem = problemFor(candidate);
+      if (problem == null) return (candidate, null);
+      firstTry ??= candidate;
+      firstProblem ??= problem;
+    }
+    return (firstTry ?? item, firstProblem ?? '여기에는 놓을 수 없어요.');
   }
 
   /// 위젯이 들어갈 빈자리 찾기 (위→아래, 왼→오른). 없으면 null
@@ -613,7 +709,7 @@ const List<HomeLayoutPreset> homeLayoutPresets = [
   ),
   HomeLayoutPreset(
     '왼쪽 영역 없이 넓게',
-    '화면 전체를 7칸 격자로. 직원 호출·방 번호는 오른쪽 위에 (왼쪽 위 구석을 5초 누르면 패드 종료)',
+    '화면 전체를 7칸 격자로. 직원 호출·방 번호는 오른쪽 위에 (왼쪽 위 구석을 빠르게 10번 누르면 로그아웃)',
     HomeLayout(
       sidebarVisible: false,
       sidebarColor: _kBrown,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:boardpad/services/admin_session.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:boardpad/services/store_scope.dart';
 
 class StaffCallService {
   static Future<void> callStaff(BuildContext context, int roomNumber) async {
@@ -26,12 +27,19 @@ class StaffCallService {
       ),
     );
     if (confirmed == true && context.mounted) {
-      await AdminSession.ensureSignedIn(); // 보안 규칙: 로그인(익명)한 패드만 호출 가능
-      await FirebaseFirestore.instance.collection('staff_calls').add({
-        'roomNumber': roomNumber,
-        'timestamp': FieldValue.serverTimestamp(),
-        'isAcknowledged': false,
-      });
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      try {
+        await AdminSession.ensureSignedIn(); // 보안 규칙: 로그인한 그 방 패드만, 자기 방 번호로 호출 가능
+        await StoreScope.col('staff_calls').add({
+          'roomNumber': roomNumber,
+          'timestamp': FieldValue.serverTimestamp(),
+          'isAcknowledged': false,
+        });
+      } catch (e) {
+        messenger?.showSnackBar(SnackBar(
+          content: Text(e is AdminLoginException ? e.message : '직원 호출을 보내지 못했어요. 인터넷 연결을 확인해 주세요.'),
+        ));
+      }
     }
   }
 }

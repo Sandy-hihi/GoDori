@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'package:boardpad/services/bgg_service.dart';
 import 'package:boardpad/utils/game_meta.dart';
+import 'package:boardpad/services/store_scope.dart';
 
 const Color kAdminGreen = Color(0xFF00B37E);
 const Color kAdminNavy = Color(0xFF1E2B3C);
@@ -21,7 +22,7 @@ class GameFormError implements Exception {
 // ── 사진 업로드/삭제 공통 ──
 Future<String> uploadGameImage(Uint8List bytes, String folder, {String ext = 'jpg'}) async {
   final contentType = ext == 'png' ? 'image/png' : (ext == 'webp' ? 'image/webp' : 'image/jpeg');
-  final ref = FirebaseStorage.instance.ref().child('$folder/${DateTime.now().millisecondsSinceEpoch}.$ext');
+  final ref = StoreScope.storage.child('$folder/${DateTime.now().millisecondsSinceEpoch}.$ext');
   final task = await ref.putData(bytes, SettableMetadata(contentType: contentType));
   return task.ref.getDownloadURL();
 }

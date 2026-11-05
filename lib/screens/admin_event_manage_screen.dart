@@ -13,6 +13,7 @@ import 'admin_notice_manage_screen.dart';
 
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
+import 'package:boardpad/services/store_scope.dart';
 
 class AdminEventManageScreen extends StatefulWidget {
   const AdminEventManageScreen({super.key});
@@ -223,7 +224,7 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                             content = contentController.text.trim();
                           } else {
                             if (selectedImageBytes != null) {
-                              final ref = FirebaseStorage.instance.ref().child(
+                              final ref = StoreScope.storage.child(
                                 'event_images/${DateTime.now().millisecondsSinceEpoch}.jpg',
                               );
                               final task = await ref.putData(
@@ -241,8 +242,7 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                             'title': title,
                             'content': content,
                           };
-                          final docRef = FirebaseFirestore.instance
-                              .collection('settings')
+                          final docRef = StoreScope.col('settings')
                               .doc('events');
                           final docSnap = await docRef.get();
                           List<dynamic> items = docSnap.exists
@@ -332,7 +332,7 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
     );
     if (confirm == true) {
       final newItems = List.from(items)..removeAt(index);
-      await FirebaseFirestore.instance.collection('settings').doc('events').set(
+      await StoreScope.col('settings').doc('events').set(
         {'items': newItems},
       );
     }
@@ -415,8 +415,7 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: StreamBuilder<DocumentSnapshot>(
-                        stream: FirebaseFirestore.instance
-                            .collection('settings')
+                        stream: StoreScope.col('settings')
                             .doc('events')
                             .snapshots(),
                         builder: (context, snapshot) {

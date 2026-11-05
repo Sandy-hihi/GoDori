@@ -4,7 +4,7 @@
       "android": {
         "default": {
           "projectId": "platform6-boardpad",
-          "appId": "1:552527795151:android:400ae05a5b1edfb7f878ba",
+          "appId": "1:552527795151:android:a71a277dcb29ba43f878ba",
           "fileOutput": "android/app/google-services.json"
         }
       },
@@ -12,7 +12,7 @@
         "lib/firebase_options.dart": {
           "projectId": "platform6-boardpad",
           "configurations": {
-            "android": "1:552527795151:android:400ae05a5b1edfb7f878ba",
+            "android": "1:552527795151:android:a71a277dcb29ba43f878ba",
             "ios": "1:552527795151:ios:e07c9aeb22136f9ff878ba",
             "web": "1:552527795151:web:b2517b5509b89c74f878ba",
             "windows": "1:552527795151:web:c767020faa3850f2f878ba"
@@ -21,27 +21,68 @@
       }
     }
   },
-  "hosting": {
-    "public": "build/web",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
-    "rewrites": [
-      {
-        "source": "/api/**",
-        "function": {
-          "functionId": "api",
-          "region": "asia-northeast3"
+  "hosting": [
+    {
+      "target": "admin",
+      "public": "build/web",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "function": {
+            "functionId": "api",
+            "region": "asia-northeast3"
+          }
+        },
+        {
+          "source": "**",
+          "destination": "/index.html"
         }
-      },
-      {
-        "source": "**",
-        "destination": "/index.html"
-      }
-    ]
-  },
+      ]
+    },
+    {
+      "target": "ops",
+      "public": "build/ops",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "function": {
+            "functionId": "api",
+            "region": "asia-northeast3"
+          }
+        },
+        {
+          "source": "**",
+          "destination": "/index.html"
+        }
+      ]
+    },
+    {
+      "target": "legacy",
+      "public": "hosting_legacy",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "redirects": [
+        {
+          "source": "**",
+          "destination": "https://godori-pad.web.app",
+          "type": 301
+        }
+      ]
+    }
+  ],
   "functions": [
     {
       "source": "functions",

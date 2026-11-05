@@ -1,5 +1,20 @@
 {
   "projects": {
     "default": "platform6-boardpad"
+  },
+  "targets": {
+    "platform6-boardpad": {
+      "hosting": {
+        "admin": [
+          "godori-pad"
+        ],
+        "ops": [
+          "godori-ops"
+        ],
+        "legacy": [
+          "platform6-boardpad"
+        ]
+      }
+    }
   }
 }

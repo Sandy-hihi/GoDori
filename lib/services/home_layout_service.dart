@@ -1,10 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boardpad/models/home_layout.dart';
+import 'package:boardpad/services/store_scope.dart';
 
 /// 홈 화면 배치 읽기·저장 (Firestore settings/homeLayout)
 class HomeLayoutService {
   static DocumentReference<Map<String, dynamic>> get _doc =>
-      FirebaseFirestore.instance.collection('settings').doc('homeLayout');
+      StoreScope.col('settings').doc('homeLayout');
 
   /// 손님 패드: 사장님이 저장하면 바로 바뀜. 문서가 없거나 잘못됐으면 기본 배치
   static Stream<HomeLayout> watch() => _doc

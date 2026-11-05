@@ -1,25 +1,34 @@
 rules_version = '2';
 
-// 고도리(GoDori) Storage 보안 규칙
-//   - 게임 사진, 메뉴 사진, 이벤트·공지 이미지, 홈 배너·로고, 룰 설명 영상: 누구나 보기
-//   - 올리기·바꾸기·지우기: 관리자 토큰(admin: true)으로 로그인한 경우만
-//     (관리자 로그인 방식은 firestore.rules 맨 위 설명 참고)
+// 고도리(GoDori) Storage 보안 규칙 (47차: 매장별 폴더)
+//   - 새로 올리는 파일은 stores/{매장ID}/… 아래 (게임 사진, 메뉴 사진, 이벤트·공지 이미지, 홈 배너·로고)
+//   - 보기: 누구나 / 올리기·바꾸기·지우기: 그 매장 관리자 토큰(admin: true, store)만
+//   - 47차 전에 올린 파일(맨 위 폴더들)은 platform6 매장 것 → 보기는 누구나, 지우기만 platform6 관리자
+//   (로그인 방식은 firestore.rules 맨 위 설명 참고)
 // 배포: "BoardPad 배포.bat" → 5번 (또는 firebase deploy --only storage)
 
 service firebase.storage {
   match /b/{bucket}/o {
-    function isAdmin() {
-      return request.auth != null && request.auth.token.admin == true;
+    // 그 매장 관리자 + 운영 중인 매장 (48차: 정지·승인 대기 매장은 못 올림)
+    function adminOf(storeId) {
+      return request.auth != null && request.auth.token.admin == true && request.auth.token.store == storeId
+          && firestore.get(/databases/(default)/documents/stores/$(storeId)).data.get('status', 'active') == 'active';
     }
 
-    match /{allPaths=**} {
+    match /stores/{storeId}/{allPaths=**} {
       allow read: if true;
-      // 지우기는 크기 검사 없이 관리자만
-      allow delete: if isAdmin();
-      // 올리기: 관리자 + 이미지 20MB / 영상 500MB 이하
-      allow create, update: if isAdmin()
+      // 지우기는 크기 검사 없이 그 매장 관리자만
+      allow delete: if adminOf(storeId);
+      // 올리기: 그 매장 관리자 + 이미지 20MB / 영상 500MB 이하
+      allow create, update: if adminOf(storeId)
                             && ((request.resource.contentType.matches('image/.*') && request.resource.size < 20 * 1024 * 1024)
                                 || (request.resource.contentType.matches('video/.*') && request.resource.size < 500 * 1024 * 1024));
+    }
+
+    // 47차 전에 올린 파일 (예전 매장 1곳 시절) — 새로 올리기는 막음
+    match /{folder}/{allPaths=**} {
+      allow read: if folder != 'stores';
+      allow delete: if folder != 'stores' && adminOf('platform6');
     }
   }
 }
