@@ -15,7 +15,9 @@ jobs:
       - name: Checkout Organization Repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 모든 커밋 히스토리와 브랜치 정보를 가져옵니다.
+          fetch-depth: 0
+          persist-credentials: false 
+          # 모든 커밋 히스토리와 브랜치 정보를 가져옵니다.
 
       - name: Push All Branches to Personal Fork Repo
         run: |
