@@ -58,7 +58,8 @@ String formatDateKo(DateTime t) {
   return '${t.month}월 ${t.day}일 (${days[t.weekday - 1]})';
 }
 
-/// 보이는 버튼과 로고 연타가 같은 인증·로그아웃 절차를 사용합니다.
+/// 패드 로그아웃 확인·로그아웃 절차 (로고 빠르게 10번 → showPadLogout). 테스트에서 바꿔 끼울 수 있게 따로 둠.
+/// 78차: 팀원이 넣은 보이는 '로그아웃 · 방 변경' 버튼은 손님에게 보여서 지움 — 로고 10번만 남김.
 class PadLogoutActions {
   const PadLogoutActions();
 
@@ -84,55 +85,6 @@ Future<void> showPadLogout(
   navigator.pushAndRemoveUntil(
     MaterialPageRoute(builder: (_) => const LoginScreen()),
     (_) => false,
-  );
-}
-
-/// 손님용 패드의 방 번호를 다시 입력하기 위한 직원용 버튼.
-class PadLogoutButton extends StatefulWidget {
-  final int? roomNumber;
-  final Color? foregroundColor;
-  final bool enabled;
-  final PadLogoutActions actions;
-
-  const PadLogoutButton({
-    super.key,
-    this.roomNumber,
-    this.foregroundColor,
-    this.enabled = true,
-    this.actions = const PadLogoutActions(),
-  });
-
-  @override
-  State<PadLogoutButton> createState() => _PadLogoutButtonState();
-}
-
-class _PadLogoutButtonState extends State<PadLogoutButton> {
-  bool _opening = false;
-
-  Future<void> _open() async {
-    if (_opening) return;
-    setState(() => _opening = true);
-    try {
-      await showPadLogout(
-        context,
-        roomNumber: widget.roomNumber,
-        actions: widget.actions,
-      );
-    } finally {
-      if (mounted) setState(() => _opening = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => TextButton.icon(
-    onPressed: widget.enabled && !_opening ? _open : null,
-    style: TextButton.styleFrom(
-      foregroundColor: widget.foregroundColor,
-      minimumSize: const Size(0, 48),
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-    ),
-    icon: const Icon(Icons.logout, size: 18),
-    label: const Text('로그아웃 · 방 변경', style: TextStyle(fontSize: 12)),
   );
 }
 

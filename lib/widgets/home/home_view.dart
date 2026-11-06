@@ -16,7 +16,6 @@ class HomeView extends StatelessWidget {
   final int? roomNumber;
   final String? highlightId; // 관리자 미리보기에서 선택한 위젯 강조
   final bool highlightSidebar;
-  final bool enableLogout; // 관리자 미리보기에서는 로그인 상태를 바꾸지 않음
 
   /// 그리는 크기. 관리자 미리보기는 기준 크기(1280×800) 그대로,
   /// 손님 화면은 기기 비율에 맞춘 크기(HomeLayout.designSizeFor)를 넘겨 꽉 차게 그림
@@ -28,7 +27,6 @@ class HomeView extends StatelessWidget {
     this.roomNumber,
     this.highlightId,
     this.highlightSidebar = false,
-    this.enableLogout = false,
     this.size = const Size(HomeLayout.designWidth, HomeLayout.designHeight),
   });
 
@@ -55,7 +53,6 @@ class HomeView extends StatelessWidget {
                   HomeSidebar(
                     layout: layout,
                     roomNumber: roomNumber,
-                    enableLogout: enableLogout,
                   ),
                 Expanded(
                   child: Padding(padding: _gridPadding, child: _buildGrid()),
@@ -141,7 +138,6 @@ class HomeView extends StatelessWidget {
 class HomeSidebar extends StatelessWidget {
   final HomeLayout layout;
   final int? roomNumber;
-  final bool enableLogout;
 
   /// 지금 화면 ('home' = 메인 화면, 내부 화면은 games·food·tools·event·notice 등). 메뉴에서 주황으로 표시
   final String current;
@@ -151,7 +147,6 @@ class HomeSidebar extends StatelessWidget {
     required this.layout,
     this.roomNumber,
     this.current = 'home',
-    this.enableLogout = false,
   });
 
   @override
@@ -191,12 +186,6 @@ class HomeSidebar extends StatelessWidget {
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 8),
-          PadLogoutButton(
-            roomNumber: roomNumber,
-            foregroundColor: fg,
-            enabled: enableLogout,
           ),
         ],
       ),

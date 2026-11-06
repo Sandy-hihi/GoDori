@@ -174,7 +174,6 @@ class _PadSidebarState extends State<PadSidebar> {
                 layout: layout,
                 roomNumber: widget.roomNumber,
                 current: widget.current,
-                enableLogout: true,
               ),
             ),
           ),
