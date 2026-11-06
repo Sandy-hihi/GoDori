@@ -3,6 +3,7 @@ import 'package:boardpad/models/home_layout.dart';
 import 'package:boardpad/services/home_layout_service.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
 import 'package:boardpad/widgets/home/home_view.dart';
+import 'package:boardpad/widgets/home_common.dart';
 
 /// 손님용 메인 화면 — 사장님이 관리자 웹 "홈 화면 꾸미기"에서 저장한 배치대로 그림
 /// (저장된 배치가 없으면 기본 배치). 1280×800 기준으로 그린 뒤 기기 화면에 맞춰 늘리거나 줄임
@@ -29,7 +30,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           builder: (context, snapshot) {
             final layout = snapshot.data ?? HomeLayout.defaults();
             // 화면 비율에 맞춘 크기로 그린 뒤 확대·축소 → 위아래·양옆 빈 띠 없이 꽉 참
-            return LayoutBuilder(
+            final home = LayoutBuilder(
               builder: (context, constraints) {
                 final size = HomeLayout.designSizeFor(constraints.biggest);
                 // FittedBox를 화면 크기에 딱 맞춰 둬야 기준보다 큰 화면에서도 늘려서 꽉 채움
@@ -39,10 +40,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   height: constraints.maxHeight,
                   child: FittedBox(
                     fit: BoxFit.fill,
-                    child: HomeView(layout: layout, roomNumber: widget.roomNumber, size: size),
+                    child: HomeView(
+                      layout: layout,
+                      roomNumber: widget.roomNumber,
+                      size: size,
+                      enableLogout: true,
+                    ),
                   ),
                 );
               },
+            );
+            if (layout.sidebarVisible) return home;
+            return Column(
+              children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: PadLogoutButton(roomNumber: widget.roomNumber),
+                  ),
+                ),
+                Expanded(child: home),
+              ],
             );
           },
         ),

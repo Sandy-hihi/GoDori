@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+
 import 'firebase_options.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/login_screen.dart';
@@ -9,9 +10,7 @@ import 'widgets/pad_shell.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const GodoriApp());
 }
 
@@ -42,7 +41,8 @@ class GodoriApp extends StatelessWidget {
         ),
       ),
       // 카운터 수령 매장: 주문한 음식이 준비되면 어느 화면에서든 알림 (58차)
-      builder: (context, child) => OrderReadyOverlay(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) =>
+          OrderReadyOverlay(child: child ?? const SizedBox.shrink()),
       home: const StartupScreen(),
     );
   }
@@ -59,20 +59,21 @@ class _NoAnimationTransitions extends PageTransitionsBuilder {
     Animation<double> animation,
     Animation<double> secondaryAnimation,
     Widget child,
-  ) =>
-      child;
+  ) => child;
 }
 
 /// 앱이 켜질 때: 저장된 로그인이 있고 '자동 로그인'이 켜져 있으면 바로 그 방 홈(또는 관리자 대시보드),
 /// 아니면 로그인 화면 (47차)
 class StartupScreen extends StatefulWidget {
-  const StartupScreen({super.key});
+  final Future<PadSession?> Function() restoreSession;
+  const StartupScreen({super.key, this.restoreSession = AdminSession.restore});
 
   @override
   State<StartupScreen> createState() => _StartupScreenState();
 }
 
 class _StartupScreenState extends State<StartupScreen> {
+  String? _restoreError;
   @override
   void initState() {
     super.initState();
@@ -80,7 +81,14 @@ class _StartupScreenState extends State<StartupScreen> {
   }
 
   Future<void> _decide() async {
-    final session = await AdminSession.restore();
+    setState(() => _restoreError = null);
+    PadSession? session;
+    try {
+      session = await widget.restoreSession();
+    } on AdminLoginException catch (e) {
+      if (mounted) setState(() => _restoreError = e.message);
+      return;
+    }
     final prefs = await AdminSession.loadPrefs();
     if (!mounted) return;
     Widget next;
@@ -97,7 +105,9 @@ class _StartupScreenState extends State<StartupScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        settings: next is DashboardScreen ? const RouteSettings(name: PadShell.homeRouteName) : null,
+        settings: next is DashboardScreen
+            ? const RouteSettings(name: PadShell.homeRouteName)
+            : null,
         builder: (_) => next,
       ),
     );
@@ -105,9 +115,31 @@ class _StartupScreenState extends State<StartupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      backgroundColor: Color(0xFF1E2B3C),
-      body: Center(child: CircularProgressIndicator(color: Colors.white)),
+    final error = _restoreError;
+    return Scaffold(
+      backgroundColor: const Color(0xFF1E2B3C),
+      body: Center(
+        child: error == null
+            ? const CircularProgressIndicator(color: Colors.white)
+            : Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      error,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 18),
+                    ),
+                    const SizedBox(height: 24),
+                    FilledButton(
+                      onPressed: _decide,
+                      child: const Text('다시 시도'),
+                    ),
+                  ],
+                ),
+              ),
+      ),
     );
   }
 }

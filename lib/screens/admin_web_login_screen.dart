@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:boardpad/widgets/store_brand.dart';
+
 import 'admin_menu_manage_screen.dart';
+
 import 'package:boardpad/services/admin_session.dart';
+
 import 'admin_signup_screen.dart';
 
 /// 관리자 웹 로그인 화면 (47차: 매장 아이디 + 비밀번호)
@@ -37,7 +40,9 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
     super.initState();
     _skipIfLoggedIn();
     AdminSession.loadPrefs(prefix: 'web.').then((p) {
-      if (!mounted || _idController.text.isNotEmpty || p.storeId.isEmpty) return;
+      if (!mounted || _idController.text.isNotEmpty || p.storeId.isEmpty) {
+        return;
+      }
       _idController.text = p.storeId;
       _passwordFocus.requestFocus();
     });
@@ -45,14 +50,18 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
 
   // 이미 관리자로 로그인돼 있으면 바로 관리 화면으로
   Future<void> _skipIfLoggedIn() async {
-    if (await AdminSession.isAdmin() && mounted) _goToAdmin();
+    try {
+      if (await AdminSession.isAdmin() && mounted) _goToAdmin();
+    } on AdminLoginException catch (e) {
+      if (mounted) setState(() => _errorText = e.message);
+    }
   }
 
   void _goToAdmin() {
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const AdminMenuManageScreen(),
+        pageBuilder: (_, _, _) => const AdminMenuManageScreen(),
         transitionDuration: Duration.zero,
       ),
     );
@@ -103,9 +112,15 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               const StoreLogo(size: 72, padding: EdgeInsets.only(bottom: 16)),
-              const Text('고도리 관리자', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              const Text(
+                '고도리 관리자',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 4),
-              const Text('매장 아이디와 관리자 비밀번호를 입력하세요', style: TextStyle(color: Colors.grey)),
+              const Text(
+                '매장 아이디와 관리자 비밀번호를 입력하세요',
+                style: TextStyle(color: Colors.grey),
+              ),
               const SizedBox(height: 24),
               TextField(
                 controller: _idController,
@@ -117,7 +132,9 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
                 decoration: InputDecoration(
                   labelText: '매장 아이디',
                   prefixIcon: const Icon(Icons.storefront_outlined),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
               const SizedBox(height: 14),
@@ -130,7 +147,9 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
                 decoration: InputDecoration(
                   labelText: '비밀번호',
                   prefixIcon: const Icon(Icons.lock),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                   errorText: _errorText,
                   errorMaxLines: 3, // 서버·Firebase 오류 문구가 잘리지 않게
                 ),
@@ -144,28 +163,58 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1E2B3C),
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                   child: _isChecking
-                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('로그인', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          '로그인',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                 ),
               ),
               const SizedBox(height: 12),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text('처음이신가요?', style: TextStyle(color: Colors.black54)),
+                  const Text(
+                    '처음이신가요?',
+                    style: TextStyle(color: Colors.black54),
+                  ),
                   TextButton(
                     onPressed: _isChecking
                         ? null
                         : () async {
-                            await Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminSignupScreen()));
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const AdminSignupScreen(),
+                              ),
+                            );
                             // 가입 신청한 아이디를 로그인 칸에 채움
-                            final p = await AdminSession.loadPrefs(prefix: 'web.');
-                            if (mounted && p.storeId.isNotEmpty) _idController.text = p.storeId;
+                            final p = await AdminSession.loadPrefs(
+                              prefix: 'web.',
+                            );
+                            if (mounted && p.storeId.isNotEmpty) {
+                              _idController.text = p.storeId;
+                            }
                           },
-                    child: const Text('회원가입', style: TextStyle(fontWeight: FontWeight.bold)),
+                    child: const Text(
+                      '회원가입',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ],
               ),

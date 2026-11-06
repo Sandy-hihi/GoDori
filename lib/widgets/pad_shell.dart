@@ -56,50 +56,72 @@ class PadShell extends StatelessWidget {
         // 사이드바가 홈과 같은 배율을 쓰도록 화면 전체 크기를 재서 넘겨줌
         child: LayoutBuilder(
           builder: (context, constraints) => Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (showSidebar) PadSidebar(current: current, roomNumber: roomNumber, screen: constraints.biggest),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(32, 26, 32, 0),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(title,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (showSidebar)
+                PadSidebar(
+                  current: current,
+                  roomNumber: roomNumber,
+                  screen: constraints.biggest,
+                ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(32, 26, 32, 0),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: kInk)),
-                              if (subtitle != null) ...[
-                                const SizedBox(height: 2),
-                                Text(subtitle!,
+                                  style: const TextStyle(
+                                    fontSize: 30,
+                                    fontWeight: FontWeight.w800,
+                                    color: kInk,
+                                  ),
+                                ),
+                                if (subtitle != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    subtitle!,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 15, color: kMuted)),
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      color: kMuted,
+                                    ),
+                                  ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
-                        ),
-                        if (headerTrailing != null) ...[const SizedBox(width: 16), headerTrailing!],
-                      ],
+                          if (headerTrailing != null) ...[
+                            const SizedBox(width: 16),
+                            headerTrailing!,
+                          ],
+                        ],
+                      ),
                     ),
-                  ),
-                  if (headerBottom != null)
-                    Padding(padding: const EdgeInsets.fromLTRB(32, 18, 32, 0), child: headerBottom!),
-                  const SizedBox(height: 18),
-                  Expanded(child: body),
-                ],
+                    if (headerBottom != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(32, 18, 32, 0),
+                        child: headerBottom!,
+                      ),
+                    const SizedBox(height: 18),
+                    Expanded(child: body),
+                  ],
+                ),
               ),
-            ),
-            ?rightPanel,
-          ],
-        ),
+              ?rightPanel,
+            ],
+          ),
         ),
       ),
     );
@@ -112,7 +134,12 @@ class PadSidebar extends StatefulWidget {
   final String current;
   final int? roomNumber;
   final Size screen; // 화면 전체 크기 (홈과 같은 배율 계산용)
-  const PadSidebar({super.key, required this.current, this.roomNumber, required this.screen});
+  const PadSidebar({
+    super.key,
+    required this.current,
+    this.roomNumber,
+    required this.screen,
+  });
 
   @override
   State<PadSidebar> createState() => _PadSidebarState();
@@ -130,35 +157,48 @@ class _PadSidebarState extends State<PadSidebar> {
     final design = HomeLayout.designSizeFor(screen);
     final scale = screen.height / design.height;
     return StreamBuilder<HomeLayout>(
-          stream: _layout,
-          initialData: _last,
-          builder: (context, snap) {
-            if (snap.data != null) _last = snap.data!;
-            final layout = _last.forPadScreens();
-            return SizedBox(
-              width: HomeLayout.sidebarWidth * scale,
-              height: screen.height,
-              child: FittedBox(
-                fit: BoxFit.fill,
-                child: SizedBox(
-                  width: HomeLayout.sidebarWidth,
-                  height: design.height,
-                  child: HomeSidebar(layout: layout, roomNumber: widget.roomNumber, current: widget.current),
-                ),
+      stream: _layout,
+      initialData: _last,
+      builder: (context, snap) {
+        if (snap.data != null) _last = snap.data!;
+        final layout = _last.forPadScreens();
+        return SizedBox(
+          width: HomeLayout.sidebarWidth * scale,
+          height: screen.height,
+          child: FittedBox(
+            fit: BoxFit.fill,
+            child: SizedBox(
+              width: HomeLayout.sidebarWidth,
+              height: design.height,
+              child: HomeSidebar(
+                layout: layout,
+                roomNumber: widget.roomNumber,
+                current: widget.current,
+                enableLogout: true,
               ),
-            );
-          },
+            ),
+          ),
         );
+      },
+    );
   }
 }
 
 /// 사이드바 메뉴로 이동 (홈 화면·내부 화면 공통)
 /// - current: 지금 화면 키 ('home' = 메인 화면)
 /// - target: 'home' | linkTargets 키(games, food, recommended, event, notice, tools)
-void padNavigate(BuildContext context, String target, String current, int? roomNumber) {
+void padNavigate(
+  BuildContext context,
+  String target,
+  String current,
+  int? roomNumber,
+) {
   if (target == current) return;
   if (target == 'home') {
-    Navigator.popUntil(context, (r) => r.settings.name == PadShell.homeRouteName || r.isFirst);
+    Navigator.popUntil(
+      context,
+      (r) => r.settings.name == PadShell.homeRouteName || r.isFirst,
+    );
     return;
   }
   if (current == 'home') {
@@ -225,12 +265,14 @@ class PadPill extends StatelessWidget {
                 Icon(icon, size: 18, color: selected ? Colors.white : kBody),
                 const SizedBox(width: 6),
               ],
-              Text(label,
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                    color: selected ? Colors.white : kBody,
-                  )),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: fontSize,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  color: selected ? Colors.white : kBody,
+                ),
+              ),
             ],
           ),
         ),
@@ -260,11 +302,20 @@ class PadTabBar extends StatelessWidget {
           tabAlignment: TabAlignment.start,
           dividerColor: Colors.transparent,
           indicatorSize: TabBarIndicatorSize.tab,
-          indicator: BoxDecoration(color: kInk, borderRadius: BorderRadius.circular(24)),
+          indicator: BoxDecoration(
+            color: kInk,
+            borderRadius: BorderRadius.circular(24),
+          ),
           labelColor: Colors.white,
           unselectedLabelColor: kBody,
-          labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-          unselectedLabelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          labelStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+          ),
+          unselectedLabelStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
           labelPadding: const EdgeInsets.symmetric(horizontal: 22),
           splashBorderRadius: BorderRadius.circular(24),
           tabs: tabs,
@@ -289,11 +340,18 @@ class PadEmpty extends StatelessWidget {
           Container(
             width: 84,
             height: 84,
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(26)),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(26),
+            ),
             child: Icon(icon, size: 40, color: kMuted),
           ),
           const SizedBox(height: 14),
-          Text(text, textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, color: kMuted)),
+          Text(
+            text,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 17, color: kMuted),
+          ),
         ],
       ),
     );
@@ -304,12 +362,17 @@ class PadEmpty extends StatelessWidget {
 void padSnack(BuildContext context, String message, {bool error = false}) {
   final m = ScaffoldMessenger.of(context);
   m.removeCurrentSnackBar();
-  m.showSnackBar(SnackBar(
-    content: Text(message, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-    backgroundColor: error ? const Color(0xFFC0392B) : kInk,
-    behavior: SnackBarBehavior.floating,
-    width: 460,
-    duration: const Duration(seconds: 2),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-  ));
+  m.showSnackBar(
+    SnackBar(
+      content: Text(
+        message,
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      ),
+      backgroundColor: error ? const Color(0xFFC0392B) : kInk,
+      behavior: SnackBarBehavior.floating,
+      width: 460,
+      duration: const Duration(seconds: 2),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    ),
+  );
 }
