@@ -1011,11 +1011,17 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                   children: [
                                     Switch(
                                       value: !(menu['isSoldOut'] ?? false),
-                                      onChanged: (val) => FirebaseFirestore
-                                          .instance
-                                          .collection('menus')
+                                      // 매장별 경로(stores/{매장}/menus)에 저장 — 예전 맨 위 menus는 규칙상 막혀 있음(70차)
+                                      onChanged: (val) => StoreScope.col('menus')
                                           .doc(doc.id)
-                                          .update({'isSoldOut': !val}),
+                                          .update({'isSoldOut': !val})
+                                          .catchError((Object e) {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text('품절 상태를 바꾸지 못했어요: $e')),
+                                          );
+                                        }
+                                      }),
                                       activeThumbColor: const Color(0xFF00B37E),
                                     ),
                                     Text(

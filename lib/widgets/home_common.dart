@@ -60,7 +60,7 @@ String formatDateKo(DateTime t) {
 /// 빠르게 10번 누르면 '패드 로그아웃' 창 (55·56차)
 /// 예전(47차)엔 5초 누르기로 바로 로그아웃 → 손님이 무심코 로고를 오래 누르고 있다가 로그아웃되는 일이 잦아서
 /// 56차부터 빠르게 10번(누르는 사이 0.7초 안) + 패드 비밀번호(직원용) 또는 관리자 PIN을 넣어야 로그아웃됨.
-/// 30초 동안 입력이 없으면 창이 저절로 닫힘.
+/// 30초 동안 입력이 없으면 창이 저절로 닫힘. 창 바깥 누르기는 창이 뜨고 2초 뒤부터만 닫힘(연타가 넘쳐도 창이 유지되게, 62차).
 class HoldToExit extends StatefulWidget {
   final Widget child;
   const HoldToExit({super.key, required this.child});
@@ -94,6 +94,8 @@ class _HoldToExitState extends State<HoldToExit> {
     if (!mounted || _dialogOpen) return;
     _dialogOpen = true;
     final navigator = Navigator.of(context);
+    // 62차: 연타하다 11·12번째 터치가 창 바깥(어두운 배경)에 닿으면 창이 바로 닫혀서 다시 10번을 눌러야 했음
+    // → 창이 뜬 뒤 2초 동안은 바깥을 눌러도 안 닫힘(_ExitDialog의 PopScope), 2초 뒤부터는 바깥을 누르면 닫힘
     final ok = await showDialog<bool>(
       context: context,
       barrierDismissible: true,
@@ -130,13 +132,21 @@ class _ExitDialog extends StatefulWidget {
 class _ExitDialogState extends State<_ExitDialog> {
   final _controller = TextEditingController();
   Timer? _idle;
+  Timer? _armTimer;
   bool _checking = false;
+  bool _outsideCloses = false; // 62차: 창이 뜨고 2초 뒤부터 바깥을 누르면 닫힘
   String? _error;
+
+  /// 창이 뜬 뒤 이 시간 동안은 바깥 터치(연타가 넘친 것)를 무시
+  static const outsideGrace = Duration(seconds: 2);
 
   @override
   void initState() {
     super.initState();
     _resetIdle();
+    _armTimer = Timer(outsideGrace, () {
+      if (mounted) setState(() => _outsideCloses = true);
+    });
   }
 
   // 30초 동안 아무 입력이 없으면 닫힘 (손님이 잘못 눌러 띄운 경우)
@@ -150,6 +160,7 @@ class _ExitDialogState extends State<_ExitDialog> {
   @override
   void dispose() {
     _idle?.cancel();
+    _armTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -177,6 +188,14 @@ class _ExitDialogState extends State<_ExitDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // 바깥 터치·뒤로 가기는 maybePop → canPop이 false면 무시. '닫기'·'로그아웃' 버튼(Navigator.pop)은 언제나 됨
+    return PopScope(
+      canPop: _outsideCloses && !_checking,
+      child: _dialog(context),
+    );
+  }
+
+  Widget _dialog(BuildContext context) {
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: const Text('패드 로그아웃', style: TextStyle(fontWeight: FontWeight.bold)),

@@ -304,6 +304,46 @@ test('패드 로그아웃 확인: 패드 비밀번호나 PIN이면 OK, 틀리면
   for (let i = 0; i < 5; i++) await exit('nope', 'pad-token', '6.6.6.7');
   assert.equal((await exit('pad-pass', 'pad-token', '6.6.6.7')).status, 429);
 });
+test('매장 기능 (59차): 대시보드 끄면 방 0 로그인 막힘, 토스 POS는 운영자만', async () => {
+  const h = make();
+  const feat = (body, token = 'admin-token') => h(req('POST', '/api/store/features', { body, token }));
+  const opsFeat = (body, token = 'ops-token') => h(req('POST', '/api/ops/store-features', { body, token }));
+  // 기본값: 대시보드 켜짐, 토스 POS 꺼짐
+  const list0 = await h(req('GET', '/api/ops/stores', { token: 'ops-token' }));
+  assert.deepEqual(list0.body.stores[0].features, { adminDashboard: true, tossPos: false });
+  assert.equal((await padLogin(h, { password: 'pad-pass', room: 0 })).body.needPin, true);
+
+  // 사장님: 대시보드 끄기
+  const off = await feat({ adminDashboard: false });
+  assert.equal(off.status, 200);
+  assert.deepEqual(off.body.features, { adminDashboard: false, tossPos: false });
+  const blocked = await padLogin(h, { password: 'pad-pass', room: 0, pin: '123456' }, '2.2.2.2');
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.body.error, 'DASHBOARD_OFF');
+  // 비밀번호가 틀리면 대시보드 여부를 알려 주지 않음
+  assert.equal((await padLogin(h, { password: 'nope', room: 0 }, '2.2.2.3')).status, 401);
+  // 손님 방 로그인은 그대로
+  assert.equal((await padLogin(h, { password: 'pad-pass', room: 3 }, '2.2.2.2')).status, 200);
+
+  // 사장님은 토스 POS를 못 바꿈, 패드·잘못된 값도 안 됨
+  assert.equal((await feat({ tossPos: true })).body.error, 'OPS_ONLY');
+  assert.equal((await feat({ adminDashboard: true, tossPos: true })).status, 403);
+  assert.equal((await feat({ adminDashboard: 'yes' })).status, 400);
+  assert.equal((await feat({ unknown: true })).status, 400);
+  assert.equal((await feat({})).status, 400);
+  assert.equal((await feat({ adminDashboard: true }, 'pad-token')).status, 403);
+  assert.equal((await feat({ adminDashboard: true }, null)).status, 401);
+
+  // 운영자: 토스 POS 켜기 + 대시보드 다시 켜기
+  assert.equal((await opsFeat({ storeId: 'platform6', tossPos: true }, 'admin-token')).status, 403);
+  const on = await opsFeat({ storeId: 'platform6', tossPos: true, adminDashboard: true });
+  assert.equal(on.status, 200);
+  assert.deepEqual(on.body.features, { adminDashboard: true, tossPos: true });
+  assert.equal((await opsFeat({ storeId: 'no-such-store', tossPos: true })).status, 404);
+  assert.equal((await padLogin(h, { password: 'pad-pass', room: 0 }, '2.2.2.4')).body.needPin, true);
+  const list1 = await h(req('GET', '/api/ops/stores', { token: 'ops-token' }));
+  assert.deepEqual(list1.body.stores[0].features, { adminDashboard: true, tossPos: true });
+});
 test('비밀번호 해시 확인', () => {
   const hash = hashSecret('abcd');
   assert.equal(checkSecret('abcd', { hash }), true);

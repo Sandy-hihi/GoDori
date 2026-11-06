@@ -2,8 +2,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:boardpad/models/order_flow.dart';
+import 'package:boardpad/services/order_flow_service.dart';
 import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/services/usage_meter.dart';
+import 'package:boardpad/widgets/toss_send_badge.dart';
 
 class AdminOrderScreen extends StatefulWidget {
   const AdminOrderScreen({super.key});
@@ -11,9 +14,6 @@ class AdminOrderScreen extends StatefulWidget {
   @override
   State<AdminOrderScreen> createState() => _AdminOrderScreenState();
 }
-
-// 상태 관리를 위한 열거형
-enum OrderStatus { pending, preparing, completed }
 
 class _AdminOrderScreenState extends State<AdminOrderScreen> {
   final _audioPlayer = AudioPlayer();
@@ -75,16 +75,15 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
   }
 
   // 1. 상태 변경 함수 (Firestore 실시간 업데이트)
-  Future<void> _toggleOrderStatus(String docId, String currentStatus) async {
-    String nextStatus = 'pending';
-    if (currentStatus == 'pending') {
-      nextStatus = 'preparing';
-    } else if (currentStatus == 'preparing') {
-      nextStatus = 'completed';
-    }
-
+  // 다음 상태는 주문의 수령 방식(flow)에 따라 다름 — models/order_flow.dart (58차)
+  //   서빙: 접수 → 준비중 → 완료 / 카운터 수령: 접수 → 준비중 → 준비 완료(패드 알림) → 완료
+  Future<void> _toggleOrderStatus(String docId, String currentStatus, OrderFlow flow) async {
+    final next = flow.nextStatus(currentStatus);
+    if (next == null) return;
     await StoreScope.col('orders').doc(docId).update({
-      'status': nextStatus,
+      'status': next,
+      // 카운터 결제 후 수령: 전달 완료 = 결제도 끝 (나중에 매출 통계에서 씀)
+      if (next == 'completed' && flow.payAtPickup) 'paid': true,
     });
   }
 
@@ -100,13 +99,6 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
         .update({'isAcknowledged': true});
   }
 
-  // 문자열을 Enum으로 변환하는 헬퍼 함수
-  OrderStatus _parseStatus(String statusStr) {
-    if (statusStr == 'preparing') return OrderStatus.preparing;
-    if (statusStr == 'completed') return OrderStatus.completed;
-    return OrderStatus.pending;
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -115,6 +107,30 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
         backgroundColor: const Color(0xFF1E2B3C),
         title: const Text('주문현황', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          // 지금 매장의 음식 수령 방식 (관리자 웹 '매장 설정'에서 바꿈). 이미 들어온 주문은 주문할 때의 방식대로
+          StreamBuilder<OrderFlow>(
+            stream: OrderFlowService.watch(),
+            builder: (context, snap) {
+              final flow = snap.data;
+              if (flow == null) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text('수령 방식: ${flow.title}',
+                        style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -243,9 +259,10 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
                     final data = doc.data() as Map<String, dynamic>;
                     final docId = doc.id;
 
-                    final statusStr = data['status'] ?? 'pending';
-                    final status = _parseStatus(statusStr);
-                    final isCompleted = status == OrderStatus.completed;
+                    final String statusStr = (data['status'] ?? 'pending').toString();
+                    final flow = OrderFlow.parse(data['flow']); // 없으면(예전 주문) 서빙
+                    final isCompleted = statusStr == 'completed';
+                    final isReady = statusStr == 'ready';
 
                     final items = data['items'] as List<dynamic>? ?? [];
 
@@ -254,6 +271,8 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(8.0),
+                        // 준비 완료(손님이 받으러 오는 중)는 초록 테두리
+                        border: isReady ? Border.all(color: const Color(0xFF27AE60), width: 2.5) : null,
                         boxShadow: [
                           BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 5, offset: const Offset(0, 2))
                         ],
@@ -272,8 +291,13 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Text(data['room'] ?? '#?', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
-                                const SizedBox(height: 8),
+                                const SizedBox(height: 4),
                                 Text(data['time'] ?? '', style: const TextStyle(color: Colors.white70)),
+                                const SizedBox(height: 6),
+                                Text(flow.statusText(statusStr),
+                                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                                if (flow.isPickup)
+                                  Text(flow.badge, style: const TextStyle(color: Colors.white70, fontSize: 11)),
                               ],
                             ),
                           ),
@@ -286,7 +310,18 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
                                 children: [
                                   SizedBox(
                                     width: 120,
-                                    child: Text("${data['price']} 원", style: TextStyle(fontSize: 22, color: isCompleted ? Colors.grey : Colors.black87, fontWeight: FontWeight.bold)),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text("${data['price']} 원", style: TextStyle(fontSize: 22, color: isCompleted ? Colors.grey : Colors.black87, fontWeight: FontWeight.bold)),
+                                        const SizedBox(height: 6),
+                                        // 토스 POS로 보냈는지 (64차, 연동 안 쓰는 매장은 안 보임)
+                                        TossSendBadge(
+                                          orderId: docId,
+                                          tossPos: data['tossPos'] is Map ? Map<String, dynamic>.from(data['tossPos'] as Map) : null,
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                   Expanded(
                                     child: Column(
@@ -314,7 +349,7 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
                           Padding(
                             padding: const EdgeInsets.all(16.0),
                             child: Center(
-                              child: _buildStatusButton(status, docId, statusStr, data['room'] ?? ''),
+                              child: _buildStatusButton(docId, statusStr, flow),
                             ),
                           ),
                         ],
@@ -330,40 +365,36 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
     );
   }
 
-  // 3. 상태 버튼 위젯
-  Widget _buildStatusButton(OrderStatus status, String docId, String currentStatus, String roomName) {
-    if (status == OrderStatus.completed) {
+  // 3. 상태 버튼 위젯 (글자·다음 상태는 수령 방식에 따라 — models/order_flow.dart)
+  Widget _buildStatusButton(String docId, String currentStatus, OrderFlow flow) {
+    if (currentStatus == 'completed') {
       return ElevatedButton(
         onPressed: () => _deleteOrder(docId),
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.redAccent,
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+          fixedSize: const Size(132, 72),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
         ),
         child: const Text('삭제', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
       );
     }
 
-    if (status == OrderStatus.pending) {
-      return ElevatedButton(
-        onPressed: () => _toggleOrderStatus(docId, currentStatus),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFE67E22),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-        ),
-        child: const Text('준비', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-      );
-    }
-
+    final Color color = switch (currentStatus) {
+      'pending' => const Color(0xFFE67E22),
+      'ready' => const Color(0xFF27AE60),
+      _ => const Color(0xFFD35400),
+    };
     return ElevatedButton(
-      onPressed: () => _toggleOrderStatus(docId, currentStatus),
+      onPressed: () => _toggleOrderStatus(docId, currentStatus, flow),
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFFD35400),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        backgroundColor: color,
+        fixedSize: const Size(132, 72),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
       ),
-      child: const Text('준비중..', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+      child: Text(flow.buttonLabel(currentStatus),
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white, height: 1.25)),
     );
   }
 }

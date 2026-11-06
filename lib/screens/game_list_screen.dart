@@ -9,6 +9,7 @@ import 'package:boardpad/widgets/pad_shell.dart';
 import 'package:boardpad/widgets/rule_video_player.dart';
 import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/services/usage_meter.dart';
+import 'package:boardpad/services/insight_service.dart';
 
 class GameListScreen extends StatefulWidget {
   final String initialSearchQuery;
@@ -635,6 +636,7 @@ class _GameListScreenState extends State<GameListScreen> {
 
   // 게임 상세 팝업
   void _showDetail(Map<String, dynamic> game) {
+    InsightService.gameViewed(game['_docId']?.toString()); // 매장 통계(65차) — 많이 찾는 게임
     final title = (game['title'] ?? '').toString();
     final imageUrl = game['imageUrl']?.toString();
     final difficulty = (game['difficulty'] ?? '').toString();

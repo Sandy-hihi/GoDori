@@ -7,7 +7,8 @@ rules_version = '2';
 //
 // 누가 무엇을 할 수 있나 (로그인은 전부 서버 함수 /api/auth/* 가 확인한 뒤 발급한 토큰)
 //   - 손님 패드: 매장 아이디 + 패드 비밀번호 + 방 번호 → 토큰 { pad: true, store, room }
-//               → 그 매장의 게임·메뉴·설정 읽기, "자기 방 번호로" 주문·직원 호출 생성만 가능
+//               → 그 매장의 게임·메뉴·설정 읽기, "자기 방 번호로" 주문·직원 호출 생성,
+//                 자기 방 주문 읽기(58차 — 카운터 수령 매장의 '준비 완료' 알림용)
 //   - 관리자: 패드에서 방 번호 0 + PIN, 또는 관리자 웹 비밀번호 → 토큰 { admin: true, store }
 //               → 그 매장 데이터만 관리 (다른 매장 것은 못 고침)
 //   - 로그인하지 않은 요청: 매장 공개 정보(게임·메뉴·설정) 읽기만
@@ -61,29 +62,38 @@ service cloud.firestore {
 
       // ── 주문 ──
       match /orders/{orderId} {
-        // 주문 목록은 관리자 주문현황에서만 봄
-        allow read: if isAdmin();
+        // 주문 목록: 관리자 주문현황은 전부, 손님 패드는 자기 방 주문만 (58차 — 준비 완료 알림)
+        // 패드 쪽 조회는 반드시 where('room', isEqualTo: '#방번호') 를 붙여야 통과 (order_ready_overlay.dart)
+        allow read: if isAdmin()
+                    || (isPad() && resource.data.room == '#' + string(padRoom()));
 
         // 손님 패드의 주문 생성 (food_order_screen.dart) — 로그인한 그 방 패드만, 자기 방 번호로
         allow create: if isPad()
                       && request.resource.data.keys().hasOnly(
-                           ['room', 'time', 'price', 'items', 'notes', 'roomColor', 'status', 'timestamp'])
+                           ['room', 'time', 'price', 'items', 'notes', 'roomColor', 'status', 'flow', 'timestamp', 'lines'])
                       && request.resource.data.room == '#' + string(padRoom())
                       && roomOk(padRoom())
                       && request.resource.data.items is list
                       && request.resource.data.items.size() > 0
                       && request.resource.data.items.size() <= 100
+                      // 메뉴별 구조(64차, 토스 POS로 보낼 때 씀): 없으면 예전 패드 주문
+                      && (!('lines' in request.resource.data)
+                          || (request.resource.data.lines is list && request.resource.data.lines.size() <= 100))
                       && request.resource.data.price is string
                       && request.resource.data.price.size() <= 10
                       && request.resource.data.notes is string
                       && request.resource.data.notes.size() <= 300
                       && request.resource.data.status == 'pending'
+                      // 수령 방식(58차): 없으면 예전 주문처럼 서빙
+                      && request.resource.data.get('flow', 'serve') in ['serve', 'pickup', 'pickupPay']
                       && request.resource.data.timestamp == request.time;
 
-        // 관리자 주문현황: 상태(status)만 변경 가능
+        // 관리자 주문현황: 상태(status)와 결제 표시(paid — 카운터 결제 후 수령 매장)만 변경 가능
+        // ready = 준비 완료(손님이 카운터로 받으러 옴, 58차)
         allow update: if isAdmin()
-                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-                      && request.resource.data.status in ['pending', 'preparing', 'completed'];
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'paid'])
+                      && request.resource.data.status in ['pending', 'preparing', 'ready', 'completed']
+                      && request.resource.data.get('paid', false) is bool;
 
         // 관리자 주문현황: '완료'된 주문만 삭제 가능
         allow delete: if isAdmin() && resource.data.status == 'completed';
@@ -140,6 +150,11 @@ service cloud.firestore {
                      && request.resource.data.count is int
                      && request.resource.data.count >= 1
                      && request.resource.data.count <= 30;
+        // 음식 수령 방식 (관리자 웹 '매장 설정', 58차): 세 가지 중 하나
+        allow write: if isAdmin()
+                     && docId == 'orderFlow'
+                     && request.resource.data.keys().hasOnly(['mode', 'updatedAt'])
+                     && request.resource.data.mode in ['serve', 'pickup', 'pickupPay'];
       }
     }
 

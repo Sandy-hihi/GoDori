@@ -4,6 +4,7 @@ import 'firebase_options.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/admin_session.dart';
+import 'widgets/order_ready_overlay.dart';
 import 'widgets/pad_shell.dart';
 
 void main() async {
@@ -40,6 +41,8 @@ class GodoriApp extends StatelessWidget {
           },
         ),
       ),
+      // 카운터 수령 매장: 주문한 음식이 준비되면 어느 화면에서든 알림 (58차)
+      builder: (context, child) => OrderReadyOverlay(child: child ?? const SizedBox.shrink()),
       home: const StartupScreen(),
     );
   }

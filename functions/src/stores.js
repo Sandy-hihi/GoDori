@@ -2,8 +2,9 @@
 // 매장 계정 (47차) — 여러 매장이 각자 데이터·설정을 갖는 구조
 //
 // Firestore
-//   stores/{storeId}                    { name, status, createdAt }    매장 기본 정보 (누구나 읽기)
+//   stores/{storeId}                    { name, status, createdAt, features }    매장 기본 정보 (누구나 읽기, 쓰기는 서버만)
 //        status: 'pending'(가입 승인 대기) | 'active'(운영 중, 없으면 이걸로 봄) | 'suspended'(정지) | 'rejected'(거절)
+//        features: { adminDashboard, tossPos }  매장별 기능 켜기·끄기 (59차, 아래 FEATURE_DEFAULTS)
 //   stores/{storeId}/private/account    { padPassword(Hash), pin(Hash), webPassword(Hash) }  서버만 읽음
 //   stores/{storeId}/private/profile    { ownerName, phone, signedUpAt, approvedAt, ... }    가입 정보 (서버만)
 //   stores/{storeId}/private/usage      { r2Bytes, r2Files }   룰 영상 저장 용량 (서버만)
@@ -44,6 +45,33 @@ function statusError(status) {
   if (status === 'suspended') return httpError(403, 'SUSPENDED', '이용이 정지된 매장이에요. 운영자에게 문의해 주세요.');
   return null;
 }
+// 매장별 기능 켜기·끄기 (59차) — stores/{매장}.features. 값이 없으면 아래 기본값
+//   adminDashboard  패드 방 번호 0 관리자 대시보드(주문 현황). 사장님이 관리자 웹 '매장 설정'에서, 운영자도 바꿀 수 있음
+//   tossPos         토스 POS 연동. 운영자 페이지에서만 바꿈 (사장님은 보기만)
+const FEATURE_DEFAULTS = { adminDashboard: true, tossPos: false };
+const OWNER_FEATURES = ['adminDashboard']; // 사장님(관리자)이 직접 바꿀 수 있는 것
+
+function featuresOf(storeData) {
+  const f = (storeData && storeData.features) || {};
+  const out = {};
+  for (const [k, def] of Object.entries(FEATURE_DEFAULTS)) out[k] = typeof f[k] === 'boolean' ? f[k] : def;
+  return out;
+}
+
+// 요청 값에서 기능 칸만 골라냄 (allowed 밖의 이름·불리언이 아닌 값은 400)
+function cleanFeatures(body, allowed = Object.keys(FEATURE_DEFAULTS)) {
+  const out = {};
+  for (const [k, v] of Object.entries(body || {})) {
+    if (k === 'storeId') continue;
+    if (!Object.prototype.hasOwnProperty.call(FEATURE_DEFAULTS, k)) throw httpError(400, 'INVALID_FEATURE', `모르는 설정이에요: ${k}`);
+    if (!allowed.includes(k)) throw httpError(403, 'OPS_ONLY', k === 'tossPos' ? '토스 POS 연동은 운영자에게 요청해 주세요.' : '운영자만 바꿀 수 있는 설정이에요.');
+    if (typeof v !== 'boolean') throw httpError(400, 'INVALID_FEATURE', `${k}는 true/false로 보내 주세요.`);
+    out[k] = v;
+  }
+  if (!Object.keys(out).length) throw httpError(400, 'NOTHING', '바꿀 설정이 없어요.');
+  return out;
+}
+
 const MAX_ROOMS = 30; // firestore.rules·앱(RoomSettingsService.maxCount)과 같아야 함
 const DEFAULT_ROOMS = 11;
 
@@ -130,11 +158,21 @@ function createFirestoreStores(db) {
     async getAccount(storeId) {
       const [store, acc] = await Promise.all([storeRef(storeId).get(), priv(storeId, 'account').get()]);
       if (!store.exists) return null;
-      return { ...(acc.exists ? acc.data() : {}), name: String(store.get('name') || ''), status: statusOf(store.data()) };
+      return { ...(acc.exists ? acc.data() : {}), name: String(store.get('name') || ''), status: statusOf(store.data()), features: featuresOf(store.data()) };
     },
     async getStatus(storeId) {
       const store = await storeRef(storeId).get();
       return store.exists ? statusOf(store.data()) : null;
+    },
+    // 기능 켜기·끄기 (59차): 보낸 칸만 바꾸고 바뀐 뒤 전체 값을 돌려줌
+    async setFeatures(storeId, fields) {
+      const ref = storeRef(storeId);
+      const doc = await ref.get();
+      if (!doc.exists) throw httpError(404, 'NO_STORE', '없는 매장이에요.');
+      const update = { featuresUpdatedAt: FieldValue.serverTimestamp() };
+      for (const [k, v] of Object.entries(fields)) update[`features.${k}`] = v;
+      await ref.update(update);
+      return featuresOf({ features: { ...((doc.data() || {}).features || {}), ...fields } });
     },
     // 가입 신청: 아이디가 비어 있을 때만 만듦 (동시에 같은 아이디로 신청해도 하나만)
     async createSignup({ storeId, name, profile, account }) {
@@ -160,6 +198,7 @@ function createFirestoreStores(db) {
           id: d.id,
           name: String(d.get('name') || ''),
           status: statusOf(d.data()),
+          features: featuresOf(d.data()),
           createdAt: iso(d.get('createdAt')),
           migratedFromLegacy: d.get('migratedFromLegacy') === true,
           ownerName: String(p.ownerName || ''),
@@ -281,11 +320,17 @@ function createMemoryStores(initial = {}) {
     usage,
     async getAccount(id) {
       const s = stores.get(id);
-      return s ? { ...(s.account || {}), name: s.name || '', status: statusOf(s) } : null;
+      return s ? { ...(s.account || {}), name: s.name || '', status: statusOf(s), features: featuresOf(s) } : null;
     },
     async getStatus(id) {
       const s = stores.get(id);
       return s ? statusOf(s) : null;
+    },
+    async setFeatures(id, fields) {
+      const s = stores.get(id);
+      if (!s) throw httpError(404, 'NO_STORE', '없는 매장이에요.');
+      s.features = { ...(s.features || {}), ...fields };
+      return featuresOf(s);
     },
     async createSignup({ storeId, name, profile, account }) {
       if (stores.has(storeId)) throw httpError(409, 'ID_TAKEN', '이미 쓰고 있는 매장 아이디예요. 다른 아이디를 골라 주세요.');
@@ -296,7 +341,7 @@ function createMemoryStores(initial = {}) {
     },
     async listStores() {
       return [...stores.entries()].map(([id, s]) => ({
-        id, name: s.name || '', status: statusOf(s), ownerName: (s.profile || {}).ownerName || '',
+        id, name: s.name || '', status: statusOf(s), features: featuresOf(s), ownerName: (s.profile || {}).ownerName || '',
         phone: (s.profile || {}).phone || '', r2Bytes: s.r2Bytes || 0, r2Files: s.r2Files || 0,
       }));
     },
@@ -360,6 +405,10 @@ module.exports = {
   seoulDateKey,
   statusOf,
   statusError,
+  FEATURE_DEFAULTS,
+  OWNER_FEATURES,
+  featuresOf,
+  cleanFeatures,
   MAX_ROOMS,
   cleanStoreId,
   hashSecret,

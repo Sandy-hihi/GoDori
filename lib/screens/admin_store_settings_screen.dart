@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 
+import 'package:boardpad/models/order_flow.dart';
 import 'package:boardpad/services/admin_session.dart';
+import 'package:boardpad/services/order_flow_service.dart';
 import 'package:boardpad/services/room_settings_service.dart';
 import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
+import 'package:boardpad/widgets/store_features_card.dart';
 import 'admin_event_manage_screen.dart';
 import 'admin_game_manage_screen.dart';
 import 'admin_home_layout_screen.dart';
 import 'admin_menu_manage_screen.dart';
 import 'admin_notice_manage_screen.dart';
 
-/// 관리자 웹: 매장 설정 (방 개수, 로그인 아이디·비밀번호)
+/// 관리자 웹: 매장 설정 (방 개수, 음식 수령 방식, 로그인 아이디·비밀번호)
 class AdminStoreSettingsScreen extends StatefulWidget {
   const AdminStoreSettingsScreen({super.key});
 
@@ -180,12 +183,131 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
                           ),
                         ),
                         const SizedBox(height: 24),
+                        const _OrderFlowCard(),
+                        const SizedBox(height: 24),
+                        const StoreFeaturesCard(), // 59차: 패드 관리자 대시보드 켜기·끄기, 토스 POS 연동 상태
+                        const SizedBox(height: 24),
                         const _LoginCard(),
                       ],
                     ),
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 음식 수령 방식 카드 (58차) — 누르면 바로 저장. settings/orderFlow
+/// 이미 들어온 주문은 주문할 때의 방식대로 처리되고, 바꾼 뒤 새로 들어오는 주문부터 새 방식.
+class _OrderFlowCard extends StatefulWidget {
+  const _OrderFlowCard();
+
+  @override
+  State<_OrderFlowCard> createState() => _OrderFlowCardState();
+}
+
+class _OrderFlowCardState extends State<_OrderFlowCard> {
+  late final Stream<OrderFlow> _stream = OrderFlowService.watch();
+  bool _saving = false;
+
+  Future<void> _select(OrderFlow flow, OrderFlow current) async {
+    if (flow == current || _saving) return;
+    setState(() => _saving = true);
+    try {
+      await OrderFlowService.save(flow);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('저장했어요. 지금부터 들어오는 주문은 \'${flow.title}\' 방식이에요.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('저장하지 못했어요. Firestore 규칙(배포.bat 5번)을 확인해 주세요. ($e)')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Widget _option(OrderFlow flow, OrderFlow current) {
+    final selected = flow == current;
+    final icon = switch (flow) {
+      OrderFlow.serve => Icons.room_service_outlined,
+      OrderFlow.pickup => Icons.storefront_outlined,
+      OrderFlow.pickupPay => Icons.payments_outlined,
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: selected ? _navy.withValues(alpha: 0.06) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: selected ? _navy : Colors.black12, width: selected ? 2 : 1),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: _saving ? null : () => _select(flow, current),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                    color: selected ? _navy : Colors.black38),
+                const SizedBox(width: 12),
+                Icon(icon, color: selected ? _navy : Colors.black54),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(flow.title,
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: selected ? _navy : Colors.black87)),
+                      const SizedBox(height: 4),
+                      Text(flow.description, style: const TextStyle(color: Colors.black54, height: 1.45)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 720),
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      child: StreamBuilder<OrderFlow>(
+        stream: _stream,
+        builder: (context, snap) {
+          final current = snap.data ?? OrderFlow.fallback;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Text('음식 수령 방식', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 12),
+                  if (_saving) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                '음식이 준비됐을 때 손님에게 어떻게 전달하는지 골라 주세요. 누르면 바로 저장돼요.\n'
+                '이미 들어온 주문은 주문할 때의 방식 그대로 처리돼요.',
+                style: TextStyle(color: Colors.black54, height: 1.5),
+              ),
+              const SizedBox(height: 20),
+              for (final f in OrderFlow.values) _option(f, current),
+            ],
+          );
+        },
       ),
     );
   }

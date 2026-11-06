@@ -34,6 +34,17 @@ const R2_BUCKET = 'godori-rule-videos';
 const R2_ACCESS_KEY_ID = R2_ENABLED ? defineSecret('R2_ACCESS_KEY_ID') : null;
 const R2_SECRET_ACCESS_KEY = R2_ENABLED ? defineSecret('R2_SECRET_ACCESS_KEY') : null;
 
+// ── 토스 POS 연동 (64차, 토스플레이스 Open API) ──
+// 키가 없어도 '가짜 포스'(운영자 페이지에서 매장을 가짜로 연결)로 개발·시연할 수 있음.
+// 진짜로 켜는 순서는 고도리 폴더의 "토스 POS 연결 방법.txt":
+//   1) 토스플레이스 개발자센터에서 앱(API)·키·웹훅 만들기  2) "토스 비밀값 등록.ps1"로 3개 등록
+//   3) 아래 TOSS_ENABLED = true  4) 배포.bat 4번
+// 비밀값은 선언만 있어도 배포할 때 값이 있어야 해서 R2처럼 스위치로 켜고 끔.
+const TOSS_ENABLED = true; // 68차: 토스플레이스 키·웹훅 비밀값 등록 끝 (11-06)
+const TOSS_ACCESS_KEY = TOSS_ENABLED ? defineSecret('TOSS_ACCESS_KEY') : null;
+const TOSS_SECRET_KEY = TOSS_ENABLED ? defineSecret('TOSS_SECRET_KEY') : null;
+const TOSS_WEBHOOK_SECRET = TOSS_ENABLED ? defineSecret('TOSS_WEBHOOK_SECRET') : null;
+
 const REGION = 'asia-northeast3'; // 서울
 
 let db = null;
@@ -62,8 +73,13 @@ function getHandle() {
   const { createR2Storage } = require('./src/r2');
   const { createFirestoreStores } = require('./src/stores');
   const { createFirestoreOps, createMonitoring } = require('./src/ops');
+  const { createTossClient } = require('./src/toss');
+  const { createTossRoutes } = require('./src/toss-routes');
+  const { createFirestoreTossData } = require('./src/toss-data');
+  const { createFirestoreInsights, createInsightRoutes } = require('./src/insights');
 
   const db = getDb();
+  const storesData = createFirestoreStores(db);
   const url = (BGG_APPS_SCRIPT_URL.value() || '').trim();
   const secret = (BGG_RELAY_SECRET.value() || '').trim();
 
@@ -73,7 +89,23 @@ function getHandle() {
       relay: url && secret ? { resolve: async () => ({ url, secret, transport: 'appsscript' }) } : undefined,
     }),
     // 매장 계정 (stores/{매장}/private/account — 서버만 읽음, 보안 규칙이 앱의 읽기를 막음)
-    stores: createFirestoreStores(db),
+    stores: storesData,
+    // 토스 POS 연동 (64차): 키가 없으면 가짜 포스만
+    toss: createTossRoutes({
+      data: createFirestoreTossData(db),
+      stores: storesData,
+      live: TOSS_ENABLED
+        ? createTossClient({ accessKey: TOSS_ACCESS_KEY.value().trim(), secretKey: TOSS_SECRET_KEY.value().trim() })
+        : null,
+      webhookSecret: TOSS_ENABLED ? TOSS_WEBHOOK_SECRET.value().trim() : '',
+      httpError: (status, code, message) => Object.assign(new Error(message), { status, code }),
+    }),
+    // 매장 통계 (65차): 패드 주문·게임 상세 조회를 stores/{매장}/statsDaily 에 셈 → 운영자 페이지 '매장 통계'
+    insights: createInsightRoutes({
+      data: createFirestoreInsights(db),
+      stores: storesData,
+      httpError: (status, code, message) => Object.assign(new Error(message), { status, code }),
+    }),
     // 운영자 페이지 (48차): _ops/account, 프로젝트 전체 사용량(Cloud Monitoring)
     ops: createFirestoreOps(db),
     monitoring: createMonitoring({
@@ -190,6 +222,7 @@ async function serve(handler, req, res) {
     query: req.query || {},
     headers,
     body: req.body,
+    rawBody: req.rawBody, // 토스 웹훅 서명 확인용 원본 본문 (64차)
   });
   res.status(out.status);
   for (const [k, v] of Object.entries(out.headers || {})) res.set(k, v);
@@ -200,7 +233,11 @@ async function serve(handler, req, res) {
 exports.api = onRequest(
   {
     region: REGION,
-    secrets: [BGG_APP_TOKEN, BGG_RELAY_SECRET, BGG_APPS_SCRIPT_URL, ...(R2_ENABLED ? [R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY] : [])],
+    secrets: [
+      BGG_APP_TOKEN, BGG_RELAY_SECRET, BGG_APPS_SCRIPT_URL,
+      ...(R2_ENABLED ? [R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY] : []),
+      ...(TOSS_ENABLED ? [TOSS_ACCESS_KEY, TOSS_SECRET_KEY, TOSS_WEBHOOK_SECRET] : []),
+    ],
     maxInstances: 3, // 요청 폭주 시 비용 상한
     timeoutSeconds: 120, // BGG 중계가 느릴 때 재시도까지 기다릴 수 있게
     memory: '256MiB',

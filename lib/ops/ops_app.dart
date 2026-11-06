@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'ops_insights.dart';
 import 'ops_service.dart';
+import 'ops_toss.dart';
 
 /// 운영자 페이지 (48차, 49차부터 따로 사이트) — https://godori-ops.web.app (lib/main_ops.dart)
-/// 가입된 매장 관리(가입 승인·거절·정지·다시 열기·삭제)와 서버 이용 통계(비용 관리).
+/// 가입된 매장 관리(가입 승인·거절·정지·다시 열기·삭제, 59차 기능 켜기·끄기 — 토스 POS 연동·패드 대시보드)와 서버 이용 통계(비용 관리).
+/// 65차: '매장 통계' 탭 — 매장별 인기 메뉴·많이 찾는 게임·시간대별 주문 (lib/ops/ops_insights.dart)
 /// 운영자 비밀번호는 Firestore _ops/account (처음엔 콘솔에서 password 필드로 만들고, 여기 '설정'에서 바꾸기)
 class OpsApp extends StatelessWidget {
   const OpsApp({super.key});
@@ -185,7 +188,7 @@ class _OpsHome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           backgroundColor: _ink,
@@ -203,10 +206,10 @@ class _OpsHome extends StatelessWidget {
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white60,
             indicatorColor: _orange,
-            tabs: [Tab(text: '매장'), Tab(text: '이용 통계'), Tab(text: '설정')],
+            tabs: [Tab(text: '매장'), Tab(text: '매장 통계'), Tab(text: '이용 통계'), Tab(text: '설정')],
           ),
         ),
-        body: const TabBarView(children: [_StoresTab(), _UsageTab(), _SettingsTab()]),
+        body: const TabBarView(children: [_StoresTab(), OpsInsightsTab(), _UsageTab(), _SettingsTab()]),
       ),
     );
   }
@@ -224,8 +227,27 @@ class _StoresTab extends StatefulWidget {
 class _StoresTabState extends State<_StoresTab> {
   late Future<List<Map<String, dynamic>>> _future = OpsService.stores();
   final Set<String> _busy = {};
+  Map<String, dynamic>? _toss; // 64차: 토스 POS 연결 현황 (/api/ops/toss/overview)
 
-  void _reload() => setState(() => _future = OpsService.stores());
+  @override
+  void initState() {
+    super.initState();
+    _loadToss();
+  }
+
+  Future<void> _loadToss() async {
+    try {
+      final t = await OpsService.tossOverview();
+      if (mounted) setState(() => _toss = t);
+    } catch (_) {
+      // 서버가 아직 64차 전이면 토스 줄만 안 보임
+    }
+  }
+
+  void _reload() {
+    setState(() => _future = OpsService.stores());
+    _loadToss();
+  }
 
   Future<void> _act(Map<String, dynamic> s, String action) async {
     final id = s['id'] as String;
@@ -271,6 +293,52 @@ class _StoresTabState extends State<_StoresTab> {
     } finally {
       if (mounted) setState(() => _busy.remove(id));
     }
+  }
+
+  // 59차: 매장 기능 켜기·끄기 (토스 POS 연동은 여기서만, 패드 대시보드는 사장님도 관리자 웹에서 바꿈)
+  Future<void> _setFeature(Map<String, dynamic> s, String key, bool on) async {
+    final id = s['id'] as String;
+    if (key == 'tossPos') {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('$id — 토스 POS 연동을 ${on ? '켤' : '끌'}까요?'),
+          content: Text(on
+              ? '이 매장에 토스 POS 연동 기능이 열려요. (토스 쪽 연동 승인·매장 연결이 끝난 뒤에 켜 주세요)'
+              : '이 매장의 패드 주문이 더 이상 토스 POS로 가지 않아요.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('확인')),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
+    setState(() => _busy.add(id));
+    try {
+      final f = await OpsService.setFeatures(id, {key: on});
+      s['features'] = f;
+      if (mounted) _toast(context, '$id: ${key == 'tossPos' ? '토스 POS 연동' : '패드 관리자 대시보드'} ${on ? '켬' : '끔'}');
+    } on OpsException catch (e) {
+      if (mounted) _toast(context, e.message);
+    } finally {
+      if (mounted) setState(() => _busy.remove(id));
+    }
+  }
+
+  Widget _featureSwitch(Map<String, dynamic> s, String key, String label, bool fallback, bool busy) {
+    final f = s['features'] is Map ? s['features'] as Map : const {};
+    final on = f[key] is bool ? f[key] as bool : fallback;
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      SizedBox(
+        height: 32,
+        child: FittedBox(
+          child: Switch(value: on, activeTrackColor: _green, onChanged: busy ? null : (v) => _setFeature(s, key, v)),
+        ),
+      ),
+      const SizedBox(width: 4),
+      Text(label, style: TextStyle(fontSize: 13, color: on ? Colors.black87 : Colors.black45, fontWeight: FontWeight.w600)),
+    ]);
   }
 
   Widget _statusChip(String status) {
@@ -342,6 +410,13 @@ class _StoresTabState extends State<_StoresTab> {
                     '  ·  룰 영상 ${_n(_num(s['r2Files']))}개 ${_gb(_num(s['r2Bytes']))}',
                     style: const TextStyle(color: Colors.black54, fontSize: 13),
                   ),
+                  const SizedBox(height: 8),
+                  Wrap(spacing: 20, runSpacing: 4, children: [
+                    _featureSwitch(s, 'tossPos', '토스 POS 연동', false, busy),
+                    _featureSwitch(s, 'adminDashboard', '패드 관리자 대시보드(방 0)', true, busy),
+                  ]),
+                  if ((s['features'] as Map?)?['tossPos'] == true)
+                    OpsTossRow(storeId: id, overview: _toss, onChanged: _loadToss),
                 ],
               ),
             ),

@@ -1,5 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:boardpad/models/order_flow.dart';
+import 'package:boardpad/services/order_flow_service.dart';
+import 'package:boardpad/services/store_features.dart';
+import 'package:boardpad/services/toss_pos_service.dart';
+import 'package:boardpad/services/insight_service.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
@@ -28,6 +34,14 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
   bool _isSubmitting = false;
   String? _selectedCategory;
 
+  // 음식 수령 방식 (매장 설정 — 방으로 가져다 드림 / 카운터 수령 / 카운터 결제 후 수령, 58차)
+  OrderFlow _flow = OrderFlow.fallback;
+  StreamSubscription<OrderFlow>? _flowSub;
+
+  // 토스 POS 연동(59·64차)을 켠 매장이면 주문 직후 서버에 '포스로 보내기'를 부탁함
+  bool _tossPos = false;
+  StreamSubscription<StoreFeatures>? _featuresSub;
+
   // ── 인피니티 스크롤: 모든 카테고리를 한 목록에 이어 붙이고, 마지막 카테고리 다음에 다시 처음 카테고리가
   //    끝없이 반복됨. 위 버튼과 스크롤 위치를 서로 맞춤 ──
   final ScrollController _scroll = ScrollController();
@@ -44,13 +58,17 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
   static const double _gridGap = 16;
   static const double _loopMarkH = 64; // 한 바퀴 끝 '처음으로' 표시
 
-  // 장바구니 (메뉴명(옵션) : {단가, 수량})
+  // 장바구니 (메뉴명(옵션) : {단가, 수량, + 포스용 메뉴 ID·이름·카테고리·기본가·옵션 목록(64차)})
   Map<String, Map<String, dynamic>> cart = {};
 
   @override
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
+    _flowSub = OrderFlowService.watch().listen((f) {
+      if (mounted) setState(() => _flow = f);
+    });
+    _featuresSub = StoreFeaturesService.watch().listen((f) => _tossPos = f.tossPos);
     if (widget.initialMenuId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openInitialMenu());
     }
@@ -60,6 +78,8 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
   void dispose() {
     _noteController.dispose();
     _scroll.dispose();
+    _flowSub?.cancel();
+    _featuresSub?.cancel();
     super.dispose();
   }
 
@@ -73,6 +93,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
         padSnack(context, '선택한 메뉴가 없어졌거나 품절이에요. 다른 메뉴를 골라 주세요.');
         return;
       }
+      menu['_id'] = doc.id; // 포스용 메뉴 ID (64차)
       _showMenuOptionDialog(context, menu);
     } catch (_) {
       if (!mounted) return;
@@ -95,7 +116,9 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
   }
 
   // 장바구니 담기 (옵션 및 합산 가격 반영)
-  void _addToCartWithOptions(Map<String, dynamic> menu, List<String> selectedOptions, int additionalPrice) {
+  // optionDetails: 고른 옵션 [{group: 옵션 그룹 이름, name, price}] — 토스 POS로 보낼 때 씀(64차)
+  void _addToCartWithOptions(Map<String, dynamic> menu, List<String> selectedOptions, int additionalPrice,
+      {List<Map<String, dynamic>> optionDetails = const []}) {
     String baseName = menu['name'] ?? '이름 없음';
     int finalPrice = _price(menu['price']) + additionalPrice;
     String optionsText = selectedOptions.isNotEmpty ? '(${selectedOptions.join(', ')})' : '';
@@ -105,7 +128,15 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
       if (cart.containsKey(cartKey)) {
         cart[cartKey]!['quantity'] = (cart[cartKey]!['quantity'] as num).toInt() + 1;
       } else {
-        cart[cartKey] = {'unitPrice': finalPrice, 'quantity': 1};
+        cart[cartKey] = {
+          'unitPrice': finalPrice,
+          'quantity': 1,
+          'menuId': (menu['_id'] ?? '').toString(),
+          'name': baseName,
+          'category': (menu['category'] ?? '').toString(),
+          'basePrice': _price(menu['price']),
+          'options': optionDetails,
+        };
       }
     });
     padSnack(context, '$cartKey 담았어요');
@@ -139,12 +170,24 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
     try {
       List<String> orderItems = [];
       cart.forEach((cartKey, item) => orderItems.add('$cartKey x ${item['quantity']}'));
+      // 메뉴별 구조 (64차) — 서버가 토스 POS 주문으로 바꿀 때 씀. 화면 표시는 위 items 그대로
+      final lines = [
+        for (final item in cart.values)
+          {
+            'menuId': item['menuId'] ?? '',
+            'name': item['name'] ?? '',
+            'category': item['category'] ?? '',
+            'basePrice': item['basePrice'] ?? item['unitPrice'],
+            'quantity': item['quantity'],
+            'options': item['options'] ?? const [],
+          },
+      ];
 
       final now = DateTime.now();
       final timeString = '${now.hour}시 ${now.minute.toString().padLeft(2, '0')}분';
 
       await AdminSession.ensureSignedIn(); // 보안 규칙: 로그인한 그 방 패드만, 자기 방 번호로 주문 가능
-      await StoreScope.col('orders').add({
+      final ref = await StoreScope.col('orders').add({
         'room': '#${widget.roomNumber ?? 1}',
         'time': timeString,
         'price': _getTotalPrice().toString(),
@@ -152,8 +195,14 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
         'notes': _noteController.text.isEmpty ? '추가사항 없음' : _noteController.text,
         'roomColor': 0xFFC2365A,
         'status': 'pending',
+        'flow': _flow.id, // 이 주문의 수령 방식 — 주문현황 버튼 흐름·패드 준비 완료 알림이 이걸 따름
         'timestamp': FieldValue.serverTimestamp(),
+        'lines': lines,
       });
+      // 토스 POS로 보내기 — 기다리지 않음. 실패하면 서버가 주문에 적어 두고 관리자 화면에서 '다시 보내기'
+      if (_tossPos) unawaited(TossPosService.sendOrder(ref.id).catchError((_) => <String, dynamic>{}));
+      // 매장 통계(65차, 운영자 페이지 인기 메뉴) — 기다리지 않음, 실패해도 손님 화면엔 영향 없음
+      unawaited(InsightService.countOrder(ref.id));
 
       if (!mounted) return;
       setState(() {
@@ -177,14 +226,15 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         contentPadding: const EdgeInsets.fromLTRB(32, 32, 32, 12),
-        content: const Column(
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.check_circle_rounded, color: kOrange, size: 64),
-            SizedBox(height: 12),
-            Text('주문이 접수됐어요', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
-            SizedBox(height: 6),
-            Text('준비되면 자리로 가져다드릴게요.', style: TextStyle(fontSize: 15, color: kMuted)),
+            const Icon(Icons.check_circle_rounded, color: kOrange, size: 64),
+            const SizedBox(height: 12),
+            const Text('주문이 접수됐어요', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
+            const SizedBox(height: 6),
+            Text(_flow.orderDoneText,
+                textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, color: kMuted, height: 1.4)),
           ],
         ),
         actionsAlignment: MainAxisAlignment.center,
@@ -355,12 +405,18 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                         child: FilledButton(
                           onPressed: () {
                             List<String> finalOptions = [];
-                            for (var list in selectedOptionsMap.values) {
-                              for (var opt in list) {
+                            final details = <Map<String, dynamic>>[];
+                            for (final e in selectedOptionsMap.entries) {
+                              for (var opt in e.value) {
                                 finalOptions.add(opt['name']);
+                                details.add({
+                                  'group': '${optionGroups[e.key]['groupName'] ?? ''}',
+                                  'name': '${opt['name'] ?? ''}',
+                                  'price': (opt['price'] as int? ?? 0),
+                                });
                               }
                             }
-                            _addToCartWithOptions(menu, finalOptions, additionalPrice);
+                            _addToCartWithOptions(menu, finalOptions, additionalPrice, optionDetails: details);
                             Navigator.pop(context);
                           },
                           style: FilledButton.styleFrom(
@@ -472,6 +528,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
             final byCategory = <String, List<Map<String, dynamic>>>{};
             for (final doc in menuSnap.data?.docs ?? const <QueryDocumentSnapshot>[]) {
               final data = doc.data() as Map<String, dynamic>;
+              data['_id'] = doc.id; // 포스용 메뉴 ID (64차)
               byCategory.putIfAbsent((data['category'] ?? '').toString(), () => []).add(data);
             }
             for (final list in byCategory.values) {
@@ -846,6 +903,28 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: kInk)),
                   ],
                 ),
+                if (_flow.cartNotice != null) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: kOrange.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(_flow.payAtPickup ? Icons.payments_outlined : Icons.storefront_outlined,
+                            size: 18, color: kOrange),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(_flow.cartNotice!,
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: kBody, height: 1.35)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 SizedBox(
                   height: 58,

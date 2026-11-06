@@ -11,12 +11,15 @@
 //   GET  /api/stores/check-id?id=  아이디 쓸 수 있는지 / POST /api/stores/signup  사장님 가입 신청 (48차, 승인 대기로 만들어짐)
 //   POST /api/usage/report        (패드·관리자) { reads }  앱이 센 Firestore 읽기 수 보고
 //   POST /api/auth/verify-exit    (패드·관리자) { password }  패드 로그아웃 전 확인 — 패드 비밀번호 또는 관리자 PIN (55차)
+//   POST /api/store/features      (관리자) { adminDashboard }  패드 관리자 대시보드 켜기·끄기 (59차, tossPos는 운영자만)
 //   /api/ops/*                    운영자 페이지 (로그인, 매장 목록·승인·정지·삭제, 이용 통계) — 아래 opsRoute
 //   GET  /api/bgg/search?q=이름     이름으로 검색 -> { results: [{ id, name, yearPublished, thumbnail }] }
 //   GET  /api/bgg/lookup?id=13     geek ID 상세 -> { geekId, name, bggName, minPlayers, maxPlayers, recommendedPlayers, weight, rank, difficulty }
 //   GET  /api/bgg/image?id=13      사진 -> { dataUrl, contentType }
 //   POST /api/bgg/details          { ids: [...] } 여러 개 상세(대용량 추가용, 한 번에 최대 30개) -> { games: [...], missing: [...] }
 //   /api/video/*                   룰 설명 영상(Cloudflare R2) — 자세한 건 src/video.js
+//   /api/toss/*, /api/ops/toss/*   토스 POS 연동 (64차) — 자세한 건 src/toss-routes.js
+//   /api/stats/*, /api/ops/insights  매장 통계 — 인기 메뉴·인기 게임 (65차) — 자세한 건 src/insights.js
 //
 // 로그인 흐름 (Firebase Authentication, 47차부터 매장별)
 //   1) 패드: 매장 아이디 + 패드 비밀번호 + 방 번호(관리자는 0 → PIN 한 번 더) / 관리자 웹: 매장 아이디 + 비밀번호
@@ -27,7 +30,7 @@
 // /api/bgg/* 와 영상 올리기·지우기는 그 매장 관리자만, /api/video/play-url 은 그 매장 패드·관리자.
 
 const crypto = require('crypto');
-const { STORE_ID_RE, MAX_ROOMS, RESERVED_IDS, STATUSES, cleanStoreId, hashSecret, checkSecret, secretOf, safeEqual, statusError, seoulDateKey } = require('./stores');
+const { STORE_ID_RE, MAX_ROOMS, RESERVED_IDS, STATUSES, cleanStoreId, hashSecret, checkSecret, secretOf, safeEqual, statusError, seoulDateKey, OWNER_FEATURES, cleanFeatures } = require('./stores');
 
 const MIN = 60 * 1000;
 const IMAGE_MAX_BYTES = 1.5 * 1024 * 1024;
@@ -122,9 +125,11 @@ function clientIp(headers) {
 // video:            룰 영상 API (src/video.js createVideoApi). 없으면 /api/video/* 는 503
 // ops:              운영자 계정 (src/ops.js)   monitoring: 프로젝트 전체 사용량 (src/ops.js createMonitoring, 없으면 안내)
 // revokeStoreTokens: async (storeId) => 그 매장 패드·관리자 로그인 끊기 (정지·거절할 때)
+// toss:             토스 POS 연동 API (src/toss-routes.js createTossRoutes). 없으면 /api/toss/* 는 503
+// insights:         매장 통계 API (src/insights.js createInsightRoutes, 65차). 없으면 /api/stats/* 는 503
 function createHandler({
   bgg, stores, getLegacySecrets = async () => ({}), verifyIdToken, createToken, attempts, video = null,
-  ops = null, monitoring = null, revokeStoreTokens = async () => {}, now = () => Date.now(),
+  ops = null, monitoring = null, revokeStoreTokens = async () => {}, now = () => Date.now(), toss = null, insights = null,
 }) {
   const limit = createLimiter(now);
 
@@ -236,6 +241,10 @@ function createHandler({
     const account = await checkStorePassword(ip, storeId, password, 'pad');
 
     if (room === 0) {
+      // 59차: 매장이 패드 관리자 대시보드를 끈 경우 (비밀번호가 맞은 뒤에만 알려 줌)
+      if (account.features && account.features.adminDashboard === false) {
+        throw httpError(403, 'DASHBOARD_OFF', '이 매장은 패드 관리자 대시보드(방 번호 0)를 쓰지 않아요. 주문 관리는 관리자 웹에서 해 주세요.');
+      }
       const pin = typeof body.pin === 'string' ? body.pin.trim() : '';
       if (!pin) return { needPin: true, store: storeId, storeName: account.name };
       if (pin.length > 20) throw httpError(400, 'INVALID_PASSWORD', 'PIN이 너무 길어요.');
@@ -332,6 +341,14 @@ function createHandler({
     return { ok: true };
   }
 
+  // ── 매장 기능 켜기·끄기 (59차) — 사장님은 adminDashboard만, tossPos는 운영자 페이지에서 ──
+  async function setStoreFeatures(req) {
+    const user = await requireAdmin(req);
+    rate(`features:${user.store}`, 20, MIN, '설정 변경');
+    const fields = cleanFeatures(req.body, OWNER_FEATURES);
+    return { ok: true, store: user.store, features: await stores.setFeatures(user.store, fields) };
+  }
+
   // ── 앱이 센 Firestore 읽기 보고 (매장별 사용량 추정용) ──
   async function usageReport(req) {
     const user = await requireStoreUser(req);
@@ -379,6 +396,12 @@ function createHandler({
         await Promise.resolve(revokeStoreTokens(storeId)).catch((e) => console.warn('[운영] 로그인 끊기 실패', storeId, e && e.message));
       }
       return { ok: true, store: storeId, status };
+    }
+    // 59차: 매장 기능 켜기·끄기 { storeId, adminDashboard?, tossPos? }
+    if (path === '/api/ops/store-features' && req.method === 'POST') {
+      const storeId = cleanStoreId(body.storeId);
+      const fields = cleanFeatures(body);
+      return { ok: true, store: storeId, features: await stores.setFeatures(storeId, fields) };
     }
     if (path === '/api/ops/store-delete' && req.method === 'POST') {
       const storeId = cleanStoreId(body.storeId);
@@ -523,7 +546,29 @@ function createHandler({
       if (path === '/api/stores/signup' && req.method === 'POST') return reply(200, await signup(req));
       if (path === '/api/usage/report' && req.method === 'POST') return reply(200, await usageReport(req));
       if (path === '/api/auth/verify-exit' && req.method === 'POST') return reply(200, await verifyExit(req));
+      if (path === '/api/store/features' && req.method === 'POST') return reply(200, await setStoreFeatures(req));
+      // 65차: 매장 통계 — 패드가 주문·게임 조회를 보고, 운영자가 매장별 인기 메뉴·게임을 봄
+      if (path.startsWith('/api/stats/')) {
+        if (!insights) throw httpError(503, 'NO_INSIGHTS', '매장 통계가 서버에 연결되지 않았어요.');
+        return reply(200, await insights.route(req, path, { requireStoreUser, rate }));
+      }
+      if (path === '/api/ops/insights') {
+        await requireOps(req);
+        rate('ops', 120, MIN, '운영자 요청');
+        if (!insights) throw httpError(503, 'NO_INSIGHTS', '매장 통계가 서버에 연결되지 않았어요.');
+        return reply(200, await insights.opsRoute(req, path));
+      }
+      if (path.startsWith('/api/ops/toss/')) {
+        await requireOps(req);
+        rate('ops', 120, MIN, '운영자 요청');
+        if (!toss) throw httpError(503, 'NO_TOSS', '토스 POS 연동이 서버에 연결되지 않았어요.');
+        return reply(200, await toss.opsRoute(req, path));
+      }
       if (path.startsWith('/api/ops/')) return reply(200, await opsRoute(req, path));
+      if (path.startsWith('/api/toss/')) {
+        if (!toss) throw httpError(503, 'NO_TOSS', '토스 POS 연동이 서버에 연결되지 않았어요.');
+        return reply(200, await toss.route(req, path, { requireStoreUser, requireAdmin, rate }));
+      }
 
       if (path.startsWith('/api/video/')) return reply(200, await videoRoute(req, path));
 

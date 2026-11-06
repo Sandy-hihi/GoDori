@@ -99,9 +99,35 @@ class OpsService {
   static Future<void> setStatus(String storeId, String status) =>
       _call('POST', '/api/ops/store-status', body: {'storeId': storeId, 'status': status});
 
+  /// 매장 기능 켜기·끄기 (59차) — { adminDashboard?, tossPos? } → 바뀐 뒤 전체 값
+  static Future<Map<String, dynamic>> setFeatures(String storeId, Map<String, bool> fields) async {
+    final r = await _call('POST', '/api/ops/store-features', body: {'storeId': storeId, ...fields});
+    return Map<String, dynamic>.from((r['features'] as Map?) ?? const {});
+  }
+
+  // ── 토스 POS 연결 (64차) ──
+  static Future<Map<String, dynamic>> tossOverview() => _call('GET', '/api/ops/toss/overview');
+
+  static Future<void> tossLink(String storeId, String mode, {String? merchantId}) =>
+      _call('POST', '/api/ops/toss/link', body: {'storeId': storeId, 'mode': mode, 'merchantId': ?merchantId});
+
+  static Future<void> tossUnlink(String storeId) => _call('POST', '/api/ops/toss/unlink', body: {'storeId': storeId});
+
+  static Future<void> tossConfig(String storeId, {required bool printOrderSheet}) =>
+      _call('POST', '/api/ops/toss/config', body: {'storeId': storeId, 'printOrderSheet': printOrderSheet});
+
+  static Future<List<Map<String, dynamic>>> tossFakeOrders(String storeId) async {
+    final r = await _call('GET', '/api/ops/toss/fake-orders', query: {'storeId': storeId});
+    return [for (final o in (r['orders'] as List? ?? const [])) Map<String, dynamic>.from(o as Map)];
+  }
+
   static Future<void> deleteSignup(String storeId) => _call('POST', '/api/ops/store-delete', body: {'storeId': storeId});
 
   static Future<Map<String, dynamic>> usage(int days) => _call('GET', '/api/ops/usage', query: {'days': '$days'});
+
+  /// 매장 통계 (65차) — storeId: 매장 아이디 또는 'all'(운영 중인 매장 전체). 인기 메뉴·게임·시간대별 주문
+  static Future<Map<String, dynamic>> insights(String storeId, int days) =>
+      _call('GET', '/api/ops/insights', query: {'storeId': storeId, 'days': '$days'});
 
   static Future<Map<String, dynamic>> projectUsage(int days) =>
       _call('GET', '/api/ops/project-usage', query: {'days': '$days'});

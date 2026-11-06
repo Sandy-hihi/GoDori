@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:boardpad/services/admin_session.dart';
 import 'admin_order_screen.dart';
 import 'dashboard_screen.dart';
+import '../widgets/admin_pad_gate.dart';
 import '../widgets/pad_shell.dart';
 
 const _navy = Color(0xFF1E2B3C);
@@ -11,6 +12,7 @@ const _orange = Color(0xFFE2711D);
 /// 패드 로그인 (47차) — 매장 아이디 + 패드 비밀번호 + 방 번호
 ///  - 방 번호 1~ : 그 매장 설정이 반영된 그 방 손님 화면
 ///  - 방 번호 0  : 비밀번호 확인 후 관리자 PIN을 한 번 더 묻고 관리자 대시보드
+///                 (매장 설정에서 대시보드를 끈 매장은 서버가 막음 — 59차, 열려 있던 것도 AdminPadGate가 닫음)
 ///  - 자동 로그인: 켜 두면 앱을 다시 켜도 로그인 화면 없이 바로 그 방으로 (손님 방은 기본 켜짐, 0번은 기본 꺼짐)
 ///    로그아웃은 홈 화면 왼쪽 위(로고)를 빠르게 10번 누르기(56차) → 패드 비밀번호 또는 관리자 PIN 입력(55차) → 이 화면으로, 자동 로그인도 풀림
 class LoginScreen extends StatefulWidget {
@@ -116,13 +118,16 @@ class _LoginScreenState extends State<LoginScreen> {
 
   /// 관리자 대시보드. 나오면 로그아웃 (패드에 관리자 권한이 남지 않게) — 자동 로그인도 풂
   Future<void> _openAdmin() async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminOrderScreen()));
+    final closed = await Navigator.push(context, adminPadRoute(const AdminOrderScreen()));
     await AdminSession.signOut();
     await AdminSession.savePrefs(storeId: _idController.text.trim().toLowerCase(), autoLogin: false);
     if (!mounted) return;
     setState(() {
       _autoTouched = false;
       _autoLogin = _roomController.text.trim() != '0';
+      if (closed == AdminPadGate.closedByOwner) {
+        _error = '매장 설정에서 패드 관리자 대시보드를 꺼서 닫았어요. 주문 관리는 관리자 웹에서 해 주세요.';
+      }
     });
   }
 

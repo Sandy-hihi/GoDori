@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'store_features.dart';
 import 'store_scope.dart';
 
 /// 로그인 실패 이유 (화면에 그대로 보여 줄 문장)
@@ -234,6 +235,15 @@ class AdminSession {
     }, idToken: token);
     final changed = body['changed'];
     return changed is List ? changed.map((e) => e.toString()).toList() : const [];
+  }
+
+  /// 관리자 웹 '매장 설정': 매장 기능 켜기·끄기 (59차, 사장님은 adminDashboard만). 바뀐 뒤 전체 값
+  static Future<StoreFeatures> setStoreFeatures(Map<String, bool> fields) async {
+    final token = await idToken();
+    if (token == null) throw AdminLoginException('로그인이 풀렸어요. 다시 로그인해 주세요.');
+    final body = await _post('/api/store/features', fields, idToken: token);
+    final f = body['features'];
+    return StoreFeatures.fromStoreData({'features': f is Map ? f : const {}});
   }
 
   /// 패드 로그아웃 전 확인 (55차) — 패드 비밀번호 또는 관리자 PIN. 틀리면 [AdminLoginException]
