@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boardpad/services/store_info_service.dart';
@@ -57,6 +58,84 @@ String formatDateKo(DateTime t) {
   return '${t.month}월 ${t.day}일 (${days[t.weekday - 1]})';
 }
 
+/// 보이는 버튼과 로고 연타가 같은 인증·로그아웃 절차를 사용합니다.
+class PadLogoutActions {
+  const PadLogoutActions();
+
+  Future<void> verifyPassword(String password) =>
+      AdminSession.verifyExit(password);
+  Future<void> signOut() => AdminSession.signOutPad();
+}
+
+Future<void> showPadLogout(
+  BuildContext context, {
+  int? roomNumber,
+  PadLogoutActions actions = const PadLogoutActions(),
+}) async {
+  final navigator = Navigator.of(context);
+  final ok = await showDialog<bool>(
+    context: context,
+    barrierDismissible: true,
+    builder: (_) => _ExitDialog(roomNumber: roomNumber, actions: actions),
+  );
+  if (ok != true || !context.mounted) return;
+  await actions.signOut();
+  if (!context.mounted) return;
+  navigator.pushAndRemoveUntil(
+    MaterialPageRoute(builder: (_) => const LoginScreen()),
+    (_) => false,
+  );
+}
+
+/// 손님용 패드의 방 번호를 다시 입력하기 위한 직원용 버튼.
+class PadLogoutButton extends StatefulWidget {
+  final int? roomNumber;
+  final Color? foregroundColor;
+  final bool enabled;
+  final PadLogoutActions actions;
+
+  const PadLogoutButton({
+    super.key,
+    this.roomNumber,
+    this.foregroundColor,
+    this.enabled = true,
+    this.actions = const PadLogoutActions(),
+  });
+
+  @override
+  State<PadLogoutButton> createState() => _PadLogoutButtonState();
+}
+
+class _PadLogoutButtonState extends State<PadLogoutButton> {
+  bool _opening = false;
+
+  Future<void> _open() async {
+    if (_opening) return;
+    setState(() => _opening = true);
+    try {
+      await showPadLogout(
+        context,
+        roomNumber: widget.roomNumber,
+        actions: widget.actions,
+      );
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => TextButton.icon(
+    onPressed: widget.enabled && !_opening ? _open : null,
+    style: TextButton.styleFrom(
+      foregroundColor: widget.foregroundColor,
+      minimumSize: const Size(0, 48),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+    ),
+    icon: const Icon(Icons.logout, size: 18),
+    label: const Text('로그아웃 · 방 변경', style: TextStyle(fontSize: 12)),
+  );
+}
+
 /// 빠르게 10번 누르면 '패드 로그아웃' 창 (55·56차)
 /// 예전(47차)엔 5초 누르기로 바로 로그아웃 → 손님이 무심코 로고를 오래 누르고 있다가 로그아웃되는 일이 잦아서
 /// 56차부터 빠르게 10번(누르는 사이 0.7초 안) + 패드 비밀번호(직원용) 또는 관리자 PIN을 넣어야 로그아웃됨.
@@ -93,21 +172,13 @@ class _HoldToExitState extends State<HoldToExit> {
   Future<void> _askExit() async {
     if (!mounted || _dialogOpen) return;
     _dialogOpen = true;
-    final navigator = Navigator.of(context);
     // 62차: 연타하다 11·12번째 터치가 창 바깥(어두운 배경)에 닿으면 창이 바로 닫혀서 다시 10번을 눌러야 했음
     // → 창이 뜬 뒤 2초 동안은 바깥을 눌러도 안 닫힘(_ExitDialog의 PopScope), 2초 뒤부터는 바깥을 누르면 닫힘
-    final ok = await showDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      builder: (_) => const _ExitDialog(),
-    );
-    _dialogOpen = false;
-    if (ok != true || !mounted) return;
-    await AdminSession.signOut();
-    navigator.pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (_) => false,
-    );
+    try {
+      await showPadLogout(context);
+    } finally {
+      _dialogOpen = false;
+    }
   }
 
   @override
@@ -123,7 +194,9 @@ class _HoldToExitState extends State<HoldToExit> {
 
 /// 패드 로그아웃 확인 창 — 맞으면 true로 닫힘
 class _ExitDialog extends StatefulWidget {
-  const _ExitDialog();
+  final int? roomNumber;
+  final PadLogoutActions actions;
+  const _ExitDialog({this.roomNumber, required this.actions});
 
   @override
   State<_ExitDialog> createState() => _ExitDialogState();
@@ -173,7 +246,7 @@ class _ExitDialogState extends State<_ExitDialog> {
       _error = null;
     });
     try {
-      await AdminSession.verifyExit(pw);
+      await widget.actions.verifyPassword(pw);
       if (mounted) Navigator.of(context).pop(true);
     } on AdminLoginException catch (e) {
       if (!mounted) return;
@@ -198,15 +271,27 @@ class _ExitDialogState extends State<_ExitDialog> {
   Widget _dialog(BuildContext context) {
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Text('패드 로그아웃', style: TextStyle(fontWeight: FontWeight.bold)),
+      title: const Text(
+        '패드 로그아웃',
+        style: TextStyle(fontWeight: FontWeight.bold),
+      ),
       content: SizedBox(
         width: 360,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('직원용이에요. 패드 비밀번호 또는 관리자 PIN을 입력하세요.\n손님이시라면 \'닫기\'를 눌러 주세요.',
-                style: TextStyle(color: Colors.black54, height: 1.4)),
+            if (widget.roomNumber != null) ...[
+              Text(
+                '현재 방: ${widget.roomNumber}번',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+            ],
+            const Text(
+              '방 번호를 바꾸려면 로그아웃한 뒤 다시 로그인하세요.\n직원이 패드 비밀번호 또는 관리자 PIN을 입력해 주세요.',
+              style: TextStyle(color: Colors.black54, height: 1.4),
+            ),
             const SizedBox(height: 16),
             TextField(
               controller: _controller,
@@ -217,7 +302,9 @@ class _ExitDialogState extends State<_ExitDialog> {
               onSubmitted: (_) => _submit(),
               decoration: InputDecoration(
                 labelText: '비밀번호 또는 PIN',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 errorText: _error,
                 errorMaxLines: 2,
               ),
@@ -232,9 +319,18 @@ class _ExitDialogState extends State<_ExitDialog> {
         ),
         FilledButton(
           onPressed: _checking ? null : _submit,
-          style: FilledButton.styleFrom(backgroundColor: const Color(0xFF1E2B3C)),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF1E2B3C),
+          ),
           child: _checking
-              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
               : const Text('로그아웃'),
         ),
       ],
@@ -260,7 +356,7 @@ class StorePhoneText extends StatelessWidget {
   }
 }
 
-/// settings/<docId> 문서의 items 중 첫 번째 항목 제목 (공지: notices, 이벤트: events)
+/// `settings/<docId>` 문서의 items 중 첫 번째 항목 제목 (공지: notices, 이벤트: events)
 class LatestItemTitle extends StatelessWidget {
   final String docId;
   final String emptyText;
@@ -300,7 +396,14 @@ class LatestItemTitle extends StatelessWidget {
 }
 
 /// 게임 목록의 인원 필터 값 (게임 목록 화면의 playerOptions와 같아야 함)
-const List<String> homePlayerOptions = ['2인전용', '2인이상', '3인이상', '4인이상', '5인이상', '6인이상'];
+const List<String> homePlayerOptions = [
+  '2인전용',
+  '2인이상',
+  '3인이상',
+  '4인이상',
+  '5인이상',
+  '6인이상',
+];
 
 /// settings/genres 문서의 장르 목록
 Future<List<String>> loadGenres() async {
@@ -323,7 +426,9 @@ Future<void> showFilterPicker({
   return showModalBottomSheet(
     context: context,
     backgroundColor: Colors.white,
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
     builder: (ctx) => SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
@@ -331,7 +436,10 @@ Future<void> showFilterPicker({
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 18),
             FutureBuilder<List<String>>(
               future: options,
@@ -344,7 +452,10 @@ Future<void> showFilterPicker({
                 }
                 final list = snapshot.data!;
                 if (list.isEmpty) {
-                  return const Text('선택할 항목이 없어요.', style: TextStyle(color: Colors.grey));
+                  return const Text(
+                    '선택할 항목이 없어요.',
+                    style: TextStyle(color: Colors.grey),
+                  );
                 }
                 return Wrap(
                   spacing: 10,
@@ -352,10 +463,16 @@ Future<void> showFilterPicker({
                   children: list.map((value) {
                     return ActionChip(
                       avatar: showDifficultyColors
-                          ? CircleAvatar(backgroundColor: difficultyColor(value), radius: 7)
+                          ? CircleAvatar(
+                              backgroundColor: difficultyColor(value),
+                              radius: 7,
+                            )
                           : null,
                       label: Text(value, style: const TextStyle(fontSize: 17)),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
                       shape: const StadiumBorder(),
                       onPressed: () {
                         Navigator.pop(ctx);
