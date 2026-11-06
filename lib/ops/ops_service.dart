@@ -44,8 +44,8 @@ class OpsService {
     }
     if (user == null) return false;
     try {
-      final r = await user.getIdTokenResult();
-      if (r.claims?['ops'] == true) return true;
+      final claims = await tokenClaimsOf(user); // 윈도우 앱에서도 읽히게 (admin_session.dart)
+      if (claims?['ops'] == true) return true;
     } catch (_) {}
     await auth.signOut();
     return false;

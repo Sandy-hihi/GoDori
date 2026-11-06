@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'package:boardpad/models/order_flow.dart';
+import 'package:boardpad/services/admin_session.dart';
 import 'package:boardpad/services/usage_meter.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
 
@@ -58,7 +59,7 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
     int? room;
     if (user != null) {
       try {
-        final claims = (await user.getIdTokenResult()).claims;
+        final claims = await tokenClaimsOf(user); // 윈도우 앱에서도 읽히게
         final r = claims?['room'];
         if (claims?['pad'] == true && claims?['store'] is String && r is num && r >= 1) {
           store = claims!['store'] as String;

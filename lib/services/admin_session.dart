@@ -17,6 +17,28 @@ class AdminLoginException implements Exception {
   String toString() => message;
 }
 
+/// 로그인 토큰에 붙은 표시(claims: store·pad·room·admin·ops).
+/// 윈도우 앱(firebase_auth 6.7 윈도우 구현)은 getIdTokenResult()에 토큰 문자열만 넣고 claims를 안 채워서,
+/// 비어 있으면 토큰(JWT) 가운데 부분을 직접 풀어 읽음. 화면을 고르는 용도일 뿐 — 진짜 권한 검사는 서버·보안 규칙이 함.
+Future<Map<String, dynamic>?> tokenClaimsOf(User user) async {
+  final r = await user.getIdTokenResult();
+  final claims = r.claims;
+  if (claims != null && claims.isNotEmpty) return claims;
+  return decodeTokenClaims(r.token);
+}
+
+/// JWT 문자열의 가운데(payload) 부분을 풀어 Map으로. 형식이 이상하면 null
+Map<String, dynamic>? decodeTokenClaims(String? token) {
+  if (token == null) return null;
+  final parts = token.split('.');
+  if (parts.length != 3) return null;
+  try {
+    final decoded = jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))));
+    if (decoded is Map<String, dynamic>) return decoded;
+  } catch (_) {}
+  return null;
+}
+
 /// 로그인된 상태 (토큰에 붙은 표시에서 읽음)
 class PadSession {
   final String store;
@@ -101,7 +123,7 @@ class AdminSession {
     if (user == null) return null;
     PadSession? s;
     try {
-      s = _sessionFrom((await user.getIdTokenResult()).claims);
+      s = _sessionFrom(await tokenClaimsOf(user));
     } catch (e) {
       debugPrint('로그인 정보 읽기 실패: $e');
     }
