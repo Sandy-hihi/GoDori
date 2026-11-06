@@ -13,6 +13,7 @@ import 'admin_notice_manage_screen.dart';
 
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
+import 'package:boardpad/widgets/admin_colors.dart';
 import 'package:boardpad/services/store_scope.dart';
 
 class AdminEventManageScreen extends StatefulWidget {
@@ -73,13 +74,13 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                       children: [
                         Radio<String>(
                           value: 'text',
-                          activeColor: const Color(0xFF00B37E),
+                          activeColor: kAdminAccent,
                         ),
                         const Text('텍스트'),
                         const SizedBox(width: 24),
                         Radio<String>(
                           value: 'image',
-                          activeColor: const Color(0xFF00B37E),
+                          activeColor: kAdminAccent,
                         ),
                         const Text('이미지'),
                       ],
@@ -263,7 +264,7 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                                 content: Text(
                                   existing != null ? '수정되었습니다.' : '등록되었습니다.',
                                 ),
-                                backgroundColor: const Color(0xFF00B37E),
+                                backgroundColor: kAdminAccent,
                               ),
                             );
                           }
@@ -280,7 +281,7 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                         }
                       },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF00B37E),
+                  backgroundColor: kAdminAccent,
                   foregroundColor: Colors.white,
                 ),
                 child: isUploading
@@ -392,7 +393,7 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF00B37E),
+                          backgroundColor: kAdminAccent,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 24,
@@ -470,10 +471,10 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                                 leading: CircleAvatar(
                                   backgroundColor: isImage
                                       ? Colors.blue.shade50
-                                      : Colors.green.shade50,
+                                      : kAdminAccentSoft,
                                   child: Icon(
                                     isImage ? Icons.image : Icons.text_fields,
-                                    color: isImage ? Colors.blue : Colors.green,
+                                    color: isImage ? Colors.blue : kAdminAccent,
                                   ),
                                 ),
                                 title: Text(

@@ -8,8 +8,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:boardpad/services/bgg_service.dart';
 import 'package:boardpad/utils/game_meta.dart';
 import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/widgets/admin_colors.dart';
 
-const Color kAdminGreen = Color(0xFF00B37E);
 const Color kAdminNavy = Color(0xFF1E2B3C);
 
 class GameFormError implements Exception {
@@ -453,8 +453,8 @@ class _GameFormFieldsState extends State<GameFormFields> {
                     .map((g) => FilterChip(
                           label: Text(g),
                           selected: f.genres.contains(g),
-                          selectedColor: kAdminGreen.withValues(alpha: 0.2),
-                          checkmarkColor: kAdminGreen,
+                          selectedColor: kAdminAccent.withValues(alpha: 0.2),
+                          checkmarkColor: kAdminAccent,
                           onSelected: (on) => setState(() => on ? f.genres.add(g) : f.genres.remove(g)),
                         ))
                     .toList(),
@@ -617,7 +617,7 @@ class _BggSearchDialogState extends State<BggSearchDialog> {
                   onPressed: _loading ? null : _search,
                   icon: const Icon(Icons.search),
                   label: const Text('검색'),
-                  style: ElevatedButton.styleFrom(backgroundColor: kAdminGreen, foregroundColor: Colors.white),
+                  style: ElevatedButton.styleFrom(backgroundColor: kAdminAccent, foregroundColor: Colors.white),
                 ),
               ],
             ),

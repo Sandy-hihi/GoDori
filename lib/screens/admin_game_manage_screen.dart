@@ -13,6 +13,7 @@ import 'package:boardpad/utils/mp4_info.dart';
 import 'package:boardpad/utils/game_meta.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
+import 'package:boardpad/widgets/admin_colors.dart';
 import 'package:boardpad/widgets/game_admin/game_edit_dialog.dart';
 import 'package:boardpad/widgets/game_admin/game_form.dart';
 import 'admin_event_manage_screen.dart';
@@ -124,7 +125,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
     ScaffoldMessenger.of(context).removeCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
-      backgroundColor: error ? Colors.redAccent : kAdminGreen,
+      backgroundColor: error ? Colors.redAccent : kAdminAccent,
     ));
   }
 
@@ -219,7 +220,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                                               await _editGenre(g, editCtrl.text);
                                               if (ectx.mounted) Navigator.pop(ectx);
                                             },
-                                            style: ElevatedButton.styleFrom(backgroundColor: kAdminGreen, foregroundColor: Colors.white),
+                                            style: ElevatedButton.styleFrom(backgroundColor: kAdminAccent, foregroundColor: Colors.white),
                                             child: const Text('저장'),
                                           ),
                                         ],
@@ -281,7 +282,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                           addCtrl.clear();
                           setDlg(() {});
                         },
-                        style: ElevatedButton.styleFrom(backgroundColor: kAdminGreen, foregroundColor: Colors.white),
+                        style: ElevatedButton.styleFrom(backgroundColor: kAdminAccent, foregroundColor: Colors.white),
                         child: const Text('추가'),
                       ),
                     ],
@@ -693,7 +694,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
           if (check.ok)
             ElevatedButton(
               onPressed: () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(backgroundColor: kAdminGreen, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(backgroundColor: kAdminAccent, foregroundColor: Colors.white),
               child: const Text('그래도 올리기'),
             ),
         ],
@@ -877,7 +878,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
             const Spacer(),
             ElevatedButton(
               onPressed: _addBusy ? null : () => _addGame(registeredGeekIds),
-              style: ElevatedButton.styleFrom(backgroundColor: kAdminGreen, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16)),
+              style: ElevatedButton.styleFrom(backgroundColor: kAdminAccent, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16)),
               child: _addBusy
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                   : const Text('추가', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -1087,7 +1088,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
             decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey.shade100))),
             child: Row(
               children: [
-                SizedBox(width: 28, child: Text('${i + 1}', style: const TextStyle(fontWeight: FontWeight.bold, color: kAdminGreen))),
+                SizedBox(width: 28, child: Text('${i + 1}', style: const TextStyle(fontWeight: FontWeight.bold, color: kAdminAccent))),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1206,9 +1207,9 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color: on ? kAdminGreen : Colors.white,
+                              color: on ? kAdminAccent : Colors.white,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: on ? kAdminGreen : Colors.grey.shade300),
+                              border: Border.all(color: on ? kAdminAccent : Colors.grey.shade300),
                             ),
                             child: Text(x, style: TextStyle(fontSize: 11, color: on ? Colors.white : Colors.black54)),
                           ),
@@ -1235,7 +1236,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                 message: available ? '이용 가능 (끄면 손님 앱에서 숨김)' : '숨김 (분실·수리 등)',
                 child: Switch(
                   value: available,
-                  activeThumbColor: kAdminGreen,
+                  activeTrackColor: kAdminAccent,
                   onChanged: (v) => doc.reference.update({'isAvailable': v}),
                 ),
               ),
@@ -1309,7 +1310,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
         child: ChoiceChip(
           label: Text(label),
           selected: selected,
-          selectedColor: kAdminGreen,
+          selectedColor: kAdminAccent,
           labelStyle: TextStyle(color: selected ? Colors.white : Colors.black87, fontWeight: selected ? FontWeight.bold : FontWeight.normal),
           onSelected: (_) => onTap(),
         ),
@@ -1453,8 +1454,8 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                         icon: const Icon(Icons.settings, size: 18),
                         label: const Text('장르 관리'),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: kAdminGreen,
-                          side: const BorderSide(color: kAdminGreen),
+                          foregroundColor: kAdminAccent,
+                          side: const BorderSide(color: kAdminAccent),
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                         ),
                       ),

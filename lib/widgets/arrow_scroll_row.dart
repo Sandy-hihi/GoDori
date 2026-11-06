@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/admin_colors.dart';
 
 /// 가로로 넘치는 버튼 줄 + 좌우 화살표.
 /// 내용이 화면 폭보다 길 때만 화살표가 나타나고, 더 갈 곳이 없는 쪽 화살표는 숨김.
@@ -11,7 +12,7 @@ class ArrowScrollRow extends StatefulWidget {
   const ArrowScrollRow({
     super.key,
     required this.children,
-    this.arrowColor = const Color(0xFF00B37E),
+    this.arrowColor = kAdminAccent,
     this.height = 44,
   });
 

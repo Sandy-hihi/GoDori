@@ -13,6 +13,7 @@ import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/arrow_scroll_row.dart';
 import 'package:flutter/foundation.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
+import 'package:boardpad/widgets/admin_colors.dart';
 import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/services/usage_meter.dart';
 
@@ -196,7 +197,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                           value: isRequired,
                           onChanged: (val) =>
                               setGroupState(() => isRequired = val ?? false),
-                          activeColor: const Color(0xFF00B37E),
+                          activeColor: kAdminAccent,
                         ),
                         const Text(
                           '손님이 반드시 선택해야 하는 필수 옵션입니다.',
@@ -315,7 +316,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                     Navigator.pop(context);
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF00B37E),
+                    backgroundColor: kAdminAccent,
                     foregroundColor: Colors.white,
                   ),
                   child: const Text(
@@ -667,7 +668,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                               }
                             },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF00B37E),
+                        backgroundColor: kAdminAccent,
                         foregroundColor: Colors.white,
                       ),
                       child: isUploading
@@ -798,18 +799,18 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                             onPressed: () => _showCategoryManageDialog(context),
                             icon: const Icon(
                               Icons.category,
-                              color: Color(0xFF00B37E),
+                              color: kAdminAccent,
                             ),
                             label: const Text(
                               '카테고리 관리',
                               style: TextStyle(
-                                color: Color(0xFF00B37E),
+                                color: kAdminAccent,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                             style: OutlinedButton.styleFrom(
                               side: const BorderSide(
-                                color: Color(0xFF00B37E),
+                                color: kAdminAccent,
                                 width: 2,
                               ),
                               padding: const EdgeInsets.symmetric(
@@ -827,7 +828,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                               style: TextStyle(fontWeight: FontWeight.bold),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF00B37E),
+                              backgroundColor: kAdminAccent,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 24,
@@ -865,9 +866,9 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                               child: ChoiceChip(
                                 label: Text(cat),
                                 selected: isSelected,
-                                // 체크 표시가 생기면서 칩 폭이 바뀌어 글자가 잘리지 않게 (선택은 초록 배경으로 구분)
+                                // 체크 표시가 생기면서 칩 폭이 바뀌어 글자가 잘리지 않게 (선택은 남색 배경으로 구분)
                                 showCheckmark: false,
-                                selectedColor: const Color(0xFF00B37E),
+                                selectedColor: kAdminAccent,
                                 labelStyle: TextStyle(
                                   color: isSelected
                                       ? Colors.white
@@ -1022,7 +1023,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                           );
                                         }
                                       }),
-                                      activeThumbColor: const Color(0xFF00B37E),
+                                      activeTrackColor: kAdminAccent,
                                     ),
                                     Text(
                                       (menu['isSoldOut'] ?? false)
@@ -1155,7 +1156,7 @@ class _CategoryManageDialogState extends State<_CategoryManageDialog> {
                             }
                           },
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF00B37E),
+                            backgroundColor: kAdminAccent,
                             foregroundColor: Colors.white,
                           ),
                           child: const Text('추가'),

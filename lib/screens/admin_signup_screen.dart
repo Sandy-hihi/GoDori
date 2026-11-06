@@ -133,7 +133,7 @@ class _AdminSignupScreenState extends State<AdminSignupScreen> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.mark_email_read_outlined, size: 64, color: Color(0xFF00B37E)),
+        const Icon(Icons.mark_email_read_outlined, size: 64, color: _navy),
         const SizedBox(height: 16),
         const Text('가입 신청이 접수됐어요', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),

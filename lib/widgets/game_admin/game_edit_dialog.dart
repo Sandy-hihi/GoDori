@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:boardpad/services/bgg_service.dart';
 import 'game_form.dart';
+import 'package:boardpad/widgets/admin_colors.dart';
 import 'package:boardpad/services/store_scope.dart';
 
 /// 등록된 게임 정보 수정 팝업. 저장하면 true를 돌려줌.
@@ -128,7 +129,7 @@ class _GameEditDialogState extends State<GameEditDialog> {
         TextButton(onPressed: _busy ? null : () => Navigator.pop(context, false), child: const Text('취소', style: TextStyle(color: Colors.grey))),
         ElevatedButton(
           onPressed: _busy ? null : _save,
-          style: ElevatedButton.styleFrom(backgroundColor: kAdminGreen, foregroundColor: Colors.white),
+          style: ElevatedButton.styleFrom(backgroundColor: kAdminAccent, foregroundColor: Colors.white),
           child: _busy
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
               : const Text('저장', style: TextStyle(fontWeight: FontWeight.bold)),
