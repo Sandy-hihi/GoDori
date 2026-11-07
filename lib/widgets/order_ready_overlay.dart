@@ -10,6 +10,7 @@ import 'package:boardpad/models/order_flow.dart';
 import 'package:boardpad/services/admin_session.dart';
 import 'package:boardpad/services/usage_meter.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
+import 'package:boardpad/widgets/pad_shell.dart';
 
 /// 손님 패드: 주문한 음식이 '준비 완료'되면 알림 (58차 — 카운터에서 받아 가는 매장)
 ///
@@ -20,7 +21,7 @@ import 'package:boardpad/widgets/home/home_theme.dart';
 ///   관리자가 주문현황에서 '받아 감'/'결제·전달 완료'를 누르면 사라짐
 /// - 관리자 토큰(방 0)·로그아웃 상태에서는 아무것도 안 함
 /// - 81차: 자기 방 roomStatus 문서도 구독 — 토스 포스에서 그 방 패드 주문이 다 결제되면(settledAt이 바뀜)
-///   손님이 바꾼 언어를 로그인 때 고른 언어로 되돌림. 토스 연동을 안 하는 매장은 문서가 안 생겨서 아무 일 없음
+///   손님이 바꾼 언어를 로그인 때 고른 언어로 되돌리고 홈 화면으로 돌아감(82차). 토스 연동을 안 하는 매장은 문서가 안 생겨서 아무 일 없음
 class OrderReadyOverlay extends StatefulWidget {
   final Widget child;
   const OrderReadyOverlay({super.key, required this.child});
@@ -118,6 +119,7 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
     if (settled != null && settled != _settledSeen) {
       _settledSeen = settled;
       GuestLanguage.instance.resetToDefault();
+      PadShell.goHome(); // 82차: 다음 손님을 위해 홈 화면으로
     }
   }
 

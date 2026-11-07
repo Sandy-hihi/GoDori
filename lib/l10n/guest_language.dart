@@ -251,7 +251,10 @@ class GuestText extends StatelessWidget {
 }
 
 class GuestLanguageButton extends StatelessWidget {
-  const GuestLanguageButton({super.key});
+  const GuestLanguageButton({super.key, this.color});
+
+  /// 글자·아이콘 색 (82차: 어두운 사이드바에선 밝은 색을 넘김 — 없으면 테마 기본색)
+  final Color? color;
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: GuestLanguage.instance,
@@ -272,14 +275,15 @@ class GuestLanguageButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.language),
+            Icon(Icons.language, color: color),
             const SizedBox(width: 6),
             Text(
               GuestLanguage.names[GuestLanguage.codes.indexOf(
                 GuestLanguage.instance.code,
               )],
+              style: TextStyle(color: color, fontWeight: FontWeight.w600),
             ),
-            const Icon(Icons.arrow_drop_down),
+            Icon(Icons.arrow_drop_down, color: color),
           ],
         ),
       ),

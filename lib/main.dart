@@ -25,6 +25,7 @@ class GodoriApp extends StatelessWidget {
     return ListenableBuilder(
       listenable: GuestLanguage.instance,
       builder: (context, _) => MaterialApp(
+      navigatorKey: PadShell.navigatorKey, // 82차: 방 결제 끝 → 홈으로 (order_ready_overlay.dart)
       locale: Locale(GuestLanguage.instance.code),
       supportedLocales: const [Locale('ko'), Locale('en'), Locale('zh'), Locale('ja')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,

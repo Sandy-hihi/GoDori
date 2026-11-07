@@ -157,19 +157,40 @@ class HomeSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final light = layout.sidebarIsLight;
     final fg = light ? kInk : const Color(0xFFEFE8DC);
-    final children = <Widget>[
-      if (current == 'home') const GuestLanguageButton(),
-    ];
+    // 82차: 언어 버튼은 홈·내부 화면 모두 사이드바의 '직원 호출' 바로 위 (직원 호출이 없으면 맨 아래).
+    // 어두운 사이드바에서도 보이게 사이드바 글자색 + 다른 항목처럼 옅은 상자
+    final language = Container(
+      decoration: BoxDecoration(
+        color: fg.withValues(alpha: light ? 0.07 : 0.09),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: GuestLanguageButton(color: fg),
+    );
+    final children = <Widget>[];
+    var languageAdded = false;
+    void addGap() {
+      if (children.isNotEmpty && children.last is! Spacer) {
+        children.add(const SizedBox(height: 14));
+      }
+    }
+
     for (var i = 0; i < layout.sidebarItems.length; i++) {
       final item = layout.sidebarItems[i];
       if (item.type == 'spacer') {
         children.add(const Spacer());
         continue;
       }
-      if (children.isNotEmpty && children.last is! Spacer) {
-        children.add(const SizedBox(height: 14));
+      if (item.type == 'staffCall' && !languageAdded) {
+        addGap();
+        children.add(language);
+        languageAdded = true;
       }
+      addGap();
       children.add(_buildItem(context, item, fg, light));
+    }
+    if (!languageAdded) {
+      addGap();
+      children.add(language);
     }
     return Container(
       width: HomeLayout.sidebarWidth,
