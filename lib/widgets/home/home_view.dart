@@ -3,6 +3,8 @@ import 'package:boardpad/l10n/guest_language.dart';
 import 'package:flutter/material.dart';
 
 import 'package:boardpad/models/home_layout.dart';
+import 'package:boardpad/utils/image_helper.dart';
+import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/services/staff_call_service.dart';
 import 'package:boardpad/widgets/home_common.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
@@ -206,10 +208,45 @@ class HomeSidebar extends StatelessWidget {
     final boxColor = fg.withValues(alpha: light ? 0.07 : 0.09);
     switch (item.type) {
       case 'logo':
+        final logoUrl = (o['imageUrl'] ?? '').toString().trim();
+        final storeName = (o['name'] ?? '').toString().trim();
+        final hasLogo = hasValidImage(logoUrl);
+        // 매장이 로고·이름을 설정했으면 그걸 보여 주고, 둘 다 비었으면 고도리 기본 브랜드 (80차).
+        // 어느 경우든 이 자리를 빠르게 10번 누르면 패드 로그아웃 창.
         return HoldToExit(
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 60),
-            child: Center(child: GodoriBrand(size: 48, textColor: fg)),
+            child: (!hasLogo && storeName.isEmpty)
+                ? Center(child: GodoriBrand(size: 48, textColor: fg))
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (hasLogo) ...[
+                        ClipOval(
+                          child: AppNetworkImage(
+                            imageUrl: logoUrl,
+                            width: 76,
+                            height: 76,
+                            fit: BoxFit.cover,
+                            errorWidget: (c, u, e) =>
+                                const SizedBox(width: 76, height: 76),
+                          ),
+                        ),
+                        if (storeName.isNotEmpty) const SizedBox(height: 10),
+                      ],
+                      if (storeName.isNotEmpty)
+                        Text(
+                          storeName,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: fg,
+                          ),
+                        ),
+                    ],
+                  ),
           ),
         );
       case 'room':
