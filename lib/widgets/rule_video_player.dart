@@ -1,3 +1,4 @@
+import 'package:boardpad/l10n/guest_language.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -483,7 +484,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
                           const Icon(Icons.smart_display_rounded, color: kOrange),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text('${widget.title} 룰 설명',
+                            child: GuestText('${widget.title} 룰 설명',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
@@ -509,7 +510,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.7), borderRadius: BorderRadius.circular(20)),
-                  child: Text(_notice!, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+                  child: GuestText(_notice!, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
                 ),
               ),
             ),
@@ -526,7 +527,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
           children: [
             const Icon(Icons.error_outline, color: Colors.white70, size: 56),
             const SizedBox(height: 12),
-            Text(_error!,
+            GuestText(_error!,
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
             const SizedBox(height: 16),
@@ -538,11 +539,11 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
                   _openLink(context, link);
                 },
                 icon: const Icon(Icons.play_circle_fill),
-                label: const Text('유튜브 영상으로 보기', style: TextStyle(fontWeight: FontWeight.w800)),
+                label: const GuestText('유튜브 영상으로 보기', style: TextStyle(fontWeight: FontWeight.w800)),
                 style: FilledButton.styleFrom(backgroundColor: kOrange, foregroundColor: Colors.white),
               )
             else
-              const Text('직원에게 설명을 요청해 주세요.', style: TextStyle(color: Colors.white70)),
+              const GuestText('직원에게 설명을 요청해 주세요.', style: TextStyle(color: Colors.white70)),
           ],
         ),
       );
@@ -632,7 +633,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
                   ),
                   child: Row(
                     children: [
-                      Text(_fmt(v.position), style: const TextStyle(color: Colors.white, fontSize: 14)),
+                      GuestText(_fmt(v.position), style: const TextStyle(color: Colors.white, fontSize: 14)),
                       const SizedBox(width: 12),
                       Expanded(
                         child: VideoProgressIndicator(
@@ -647,7 +648,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      Text(_fmt(v.duration), style: const TextStyle(color: Colors.white, fontSize: 14)),
+                      GuestText(_fmt(v.duration), style: const TextStyle(color: Colors.white, fontSize: 14)),
                       if (_hasBoth) ...[
                         const SizedBox(width: 12),
                         _qualityButton(),
@@ -685,7 +686,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
           children: [
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 12, 16, 6),
-              child: Text('재생 속도', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)),
+              child: GuestText('재생 속도', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w700)),
             ),
             for (final sp in _speeds)
               InkWell(
@@ -698,7 +699,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
                         width: 28,
                         child: sp == _speed ? const Icon(Icons.check_rounded, color: kOrange, size: 22) : null,
                       ),
-                      Text(sp == 1.0 ? '1x (보통)' : '${_num(sp)}x',
+                      GuestText(sp == 1.0 ? '1x (보통)' : '${_num(sp)}x',
                           style: TextStyle(
                             color: sp == _speed ? kOrange : Colors.white,
                             fontSize: 17,
@@ -738,7 +739,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
               children: [
                 Icon(left ? Icons.fast_rewind_rounded : Icons.fast_forward_rounded, color: Colors.white, size: 44),
                 const SizedBox(height: 4),
-                Text('$_seekFlashSeconds초',
+                GuestText('$_seekFlashSeconds초',
                     style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
               ],
             ),
@@ -767,7 +768,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
               children: [
                 const Icon(Icons.speed_rounded, color: Colors.white, size: 22),
                 const SizedBox(width: 4),
-                Text(label, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
+                GuestText(label, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
               ],
             ),
           ),
@@ -810,7 +811,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
             children: [
               Icon(hd ? Icons.hd_rounded : Icons.sd_rounded, color: Colors.white, size: 22),
               const SizedBox(width: 4),
-              Text(hd ? '1080p' : '720p', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
+              GuestText(hd ? '1080p' : '720p', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700)),
             ],
           ),
         ),

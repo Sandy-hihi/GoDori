@@ -1,3 +1,4 @@
+import 'package:boardpad/l10n/guest_language.dart';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -122,7 +123,7 @@ class _PartyScreenState extends State<PartyScreen> {
 
   void _message(String message) {
     ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+        .showSnackBar(SnackBar(content: GuestText(message)));
   }
 
   Future<bool> _save(PartySession next) async {
@@ -214,16 +215,16 @@ class _PartyScreenState extends State<PartyScreen> {
       await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: Text(title),
-          content: Text(message),
+          title: GuestText(title),
+          content: GuestText(message),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('취소'),
+              child: const GuestText('취소'),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('확인'),
+              child: const GuestText('확인'),
             ),
           ],
         ),
@@ -277,9 +278,9 @@ class _PartyScreenState extends State<PartyScreen> {
         subtitle: '인원별 추천 · 승패 기록과 음료 내기 · 밸런스 게임으로 팀 나누기',
         headerBottom: const PadTabBar(
           tabs: [
-            Tab(text: '인원별 추천'),
-            Tab(text: '승패 · 음료 내기'),
-            Tab(text: '밸런스 게임 · 팀'),
+            Tab(child: GuestText('인원별 추천')),
+            Tab(child: GuestText('승패 · 음료 내기')),
+            Tab(child: GuestText('밸런스 게임 · 팀')),
           ],
         ),
         body: _loading
@@ -289,8 +290,8 @@ class _PartyScreenState extends State<PartyScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(_loadError!),
-                    TextButton(onPressed: _load, child: const Text('다시 시도')),
+                    GuestText(_loadError!),
+                    TextButton(onPressed: _load, child: const GuestText('다시 시도')),
                   ],
                 ),
               )
@@ -324,7 +325,7 @@ class _PartyScreenState extends State<PartyScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
+          GuestText(
             title,
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kInk),
           ),
@@ -342,8 +343,8 @@ class _PartyScreenState extends State<PartyScreen> {
         keyboardType: TextInputType.number,
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
         decoration: InputDecoration(
-          labelText: '인원 수',
-          suffixText: '명',
+          labelText: guestTr(context, '인원 수'),
+          suffixText: guestTr(context, '명'),
           errorText: _countError,
         ),
         onSubmitted: (_) => _recommend(),
@@ -352,10 +353,10 @@ class _PartyScreenState extends State<PartyScreen> {
       FilledButton.icon(
         onPressed: _recommend,
         icon: const Icon(Icons.search),
-        label: const Text('인원에 맞는 게임 추천'),
+        label: const GuestText('인원에 맞는 게임 추천'),
       ),
       const SizedBox(height: 8),
-      const Text('카페에 등록된 이용 가능 게임 중 최소·최대 인원이 맞는 게임입니다. 직원 추천 게임을 먼저 표시합니다.'),
+      const GuestText('카페에 등록된 이용 가능 게임 중 최소·최대 인원이 맞는 게임입니다. 직원 추천 게임을 먼저 표시합니다.'),
     ]),
     FutureBuilder<List<Map<String, dynamic>>>(
       future: _catalog,
@@ -384,7 +385,7 @@ class _PartyScreenState extends State<PartyScreen> {
         });
         return _card('$_playerCount명에게 맞는 게임 · ${games.length}개', [
           if (games.isEmpty)
-            const Text('해당 인원에 맞는 등록 게임이 없습니다. 다른 인원을 입력하거나 직원에게 문의해주세요.'),
+            const GuestText('해당 인원에 맞는 등록 게임이 없습니다. 다른 인원을 입력하거나 직원에게 문의해주세요.'),
           for (final game in games)
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -392,8 +393,8 @@ class _PartyScreenState extends State<PartyScreen> {
                 game['isRecommended'] == true ? Icons.star : Icons.extension,
                 color: kOrange,
               ),
-              title: Text((game['title'] ?? '이름 없는 게임').toString()),
-              subtitle: Text(
+              title: GuestText((game['title'] ?? '이름 없는 게임').toString()),
+              subtitle: GuestText(
                 [game['players'], game['time'], game['difficulty']]
                     .where((v) => v != null && v.toString().isNotEmpty)
                     .join(' · '),
@@ -427,10 +428,10 @@ class _PartyScreenState extends State<PartyScreen> {
   }
 
   Widget _catalogError() => _card('게임 목록을 불러오지 못했습니다', [
-    const Text('연결을 확인하고 다시 시도해주세요.'),
+    const GuestText('연결을 확인하고 다시 시도해주세요.'),
     TextButton(
       onPressed: () => setState(() => _catalog = _newCatalog()),
-      child: const Text('목록 다시 불러오기'),
+      child: const GuestText('목록 다시 불러오기'),
     ),
   ]);
 
@@ -459,7 +460,7 @@ class _PartyScreenState extends State<PartyScreen> {
         spacing: 8,
         children: [
           ChoiceChip(
-            label: const Text('직접 입력'),
+            label: const GuestText('직접 입력'),
             selected: !_chooseMenu,
             onSelected: locked
                 ? null
@@ -469,7 +470,7 @@ class _PartyScreenState extends State<PartyScreen> {
                   }),
           ),
           ChoiceChip(
-            label: const Text('주문 메뉴에서 선택'),
+            label: const GuestText('주문 메뉴에서 선택'),
             selected: _chooseMenu,
             onSelected: locked
                 ? null
@@ -487,13 +488,13 @@ class _PartyScreenState extends State<PartyScreen> {
             if (snapshot.hasError) {
               return Column(
                 children: [
-                  const Text('주문 메뉴를 불러오지 못했습니다. 직접 입력하거나 다시 시도하세요.'),
+                  const GuestText('주문 메뉴를 불러오지 못했습니다. 직접 입력하거나 다시 시도하세요.'),
                   TextButton(
                     onPressed: () => setState(() {
                       _menus = null;
                       _loadMenus();
                     }),
-                    child: const Text('메뉴 다시 불러오기'),
+                    child: const GuestText('메뉴 다시 불러오기'),
                   ),
                 ],
               );
@@ -504,19 +505,19 @@ class _PartyScreenState extends State<PartyScreen> {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (menus.isEmpty) const Text('주문 가능한 메뉴가 없습니다. 직접 입력해주세요.'),
+                if (menus.isEmpty) const GuestText('주문 가능한 메뉴가 없습니다. 직접 입력해주세요.'),
                 if (_menuId != null && !available)
-                  const Text('선택했던 메뉴가 삭제되었거나 품절되었습니다.'),
+                  const GuestText('선택했던 메뉴가 삭제되었거나 품절되었습니다.'),
                 DropdownButtonFormField<String>(
                   key: ValueKey('bet_menu_${_menuId ?? ''}_$available'),
                   initialValue: available ? _menuId : null,
                   isExpanded: true,
-                  decoration: const InputDecoration(labelText: '음식 · 음료 주문 메뉴'),
+                  decoration: InputDecoration(labelText: guestTr(context, '음식 · 음료 주문 메뉴')),
                   items: menus
                       .map(
                         (m) => DropdownMenuItem<String>(
                           value: m['id'] as String,
-                          child: Text(
+                          child: GuestText(
                             "${m['name']} · ${m['price']}원",
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -542,7 +543,7 @@ class _PartyScreenState extends State<PartyScreen> {
         maxLength: 120,
         decoration: InputDecoration(
           labelText: _chooseMenu ? '선택 메뉴 · 내기 내용' : '음료 · 내기 내용',
-          hintText: '예: 모두의 아메리카노 한 잔씩 사기',
+          hintText: guestTr(context, '예: 모두의 아메리카노 한 잔씩 사기'),
         ),
       ),
     ],
@@ -551,7 +552,7 @@ class _PartyScreenState extends State<PartyScreen> {
   Widget _setup() {
     final locked = _session.rounds.isNotEmpty;
     return _card('일행과 음료 내기 설정', [
-      const Text(
+      const GuestText(
         '이름은 줄바꿈 또는 쉼표로 구분하세요. 동명이인은 별명으로 구분하세요. 밸런스 팀 나누기는 이름만 저장해도 됩니다. 승패 기록 전에는 카페와 음료 내기를 정해주세요.',
       ),
       TextField(
@@ -559,17 +560,17 @@ class _PartyScreenState extends State<PartyScreen> {
         minLines: 2,
         maxLines: 5,
         enabled: !locked,
-        decoration: const InputDecoration(
-          labelText: '참가자 이름',
-          hintText: '민수, 지수, 도리',
+        decoration: InputDecoration(
+          labelText: guestTr(context, '참가자 이름'),
+          hintText: guestTr(context, '민수, 지수, 도리'),
         ),
       ),
       TextField(
         controller: _cafe,
         enabled: !locked,
         maxLength: 80,
-        decoration: const InputDecoration(
-          labelText: '미리 정한 보드게임 카페',
+        decoration: InputDecoration(
+          labelText: guestTr(context, '미리 정한 보드게임 카페'),
         ),
       ),
       _betInput(locked),
@@ -585,14 +586,14 @@ class _PartyScreenState extends State<PartyScreen> {
             ),
           ),
           icon: const Icon(Icons.shopping_cart_outlined),
-          label: const Text('선택 메뉴 주문하기'),
+          label: const GuestText('선택 메뉴 주문하기'),
         ),
       if (!locked)
-        FilledButton(onPressed: _saveSetup, child: const Text('일행과 내기 저장')),
-      if (locked) const Text('첫 기록 이후에는 참가자와 내기 조건이 고정됩니다. 변경하려면 새 일행을 시작하세요.'),
+        FilledButton(onPressed: _saveSetup, child: const GuestText('일행과 내기 저장')),
+      if (locked) const GuestText('첫 기록 이후에는 참가자와 내기 조건이 고정됩니다. 변경하려면 새 일행을 시작하세요.'),
       const SizedBox(height: 8),
-      const Text('이 기기에 방별로 저장됩니다. 다른 기기와 공유되지 않으며 실제 음료 주문은 전송하지 않습니다.'),
-      TextButton(onPressed: _reset, child: const Text('새 일행 시작 · 기록 초기화')),
+      const GuestText('이 기기에 방별로 저장됩니다. 다른 기기와 공유되지 않으며 실제 음료 주문은 전송하지 않습니다.'),
+      TextButton(onPressed: _reset, child: const GuestText('새 일행 시작 · 기록 초기화')),
     ]);
   }
 
@@ -604,7 +605,7 @@ class _PartyScreenState extends State<PartyScreen> {
           future: _catalog,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              return const Text('등록 게임을 불러오지 못했습니다. 아래에 게임 이름을 직접 입력할 수 있습니다.');
+              return const GuestText('등록 게임을 불러오지 못했습니다. 아래에 게임 이름을 직접 입력할 수 있습니다.');
             }
             if (!snapshot.hasData) return const LinearProgressIndicator();
             final titles =
@@ -614,14 +615,14 @@ class _PartyScreenState extends State<PartyScreen> {
                     .toSet()
                     .toList()
                   ..sort();
-            if (titles.isEmpty) return const Text('등록 게임이 없습니다. 이름을 직접 입력하세요.');
+            if (titles.isEmpty) return const GuestText('등록 게임이 없습니다. 이름을 직접 입력하세요.');
             return DropdownButtonFormField<String>(
               key: ValueKey(_game.text),
               initialValue: titles.contains(_game.text) ? _game.text : null,
               isExpanded: true,
-              decoration: const InputDecoration(labelText: '등록 게임 선택'),
+              decoration: InputDecoration(labelText: guestTr(context, '등록 게임 선택')),
               items: titles
-                  .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                  .map((t) => DropdownMenuItem(value: t, child: GuestText(t)))
                   .toList(),
               onChanged: (value) => setState(() => _game.text = value ?? ''),
             );
@@ -630,9 +631,9 @@ class _PartyScreenState extends State<PartyScreen> {
         TextField(
           controller: _game,
           maxLength: 100,
-          decoration: const InputDecoration(labelText: '게임 이름 · 직접 입력 가능'),
+          decoration: InputDecoration(labelText: guestTr(context, '게임 이름 · 직접 입력 가능')),
         ),
-        const Text('승자·패자를 선택하세요. 함께 하지 않은 사람은 미참가로 두세요.'),
+        const GuestText('승자·패자를 선택하세요. 함께 하지 않은 사람은 미참가로 두세요.'),
         for (final player in _session.players)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -641,14 +642,14 @@ class _PartyScreenState extends State<PartyScreen> {
               runSpacing: 4,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Text(
+                GuestText(
                   player,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 for (final outcome in ['미참가', '승', '패'])
                   ChoiceChip(
                     key: ValueKey('outcome_${player}_$outcome'),
-                    label: Text(outcome),
+                    label: GuestText(outcome),
                     selected: (_outcomes[player] ?? '미참가') == outcome,
                     onSelected: (_) =>
                         setState(() => _outcomes[player] = outcome),
@@ -659,22 +660,22 @@ class _PartyScreenState extends State<PartyScreen> {
         FilledButton.icon(
           onPressed: _recordRound,
           icon: const Icon(Icons.save),
-          label: const Text('이 판의 승패 저장'),
+          label: const GuestText('이 판의 승패 저장'),
         ),
       ]),
       _scoreboard(),
       _card('판별 기록 · ${_session.rounds.length}판', [
-        if (_session.rounds.isEmpty) const Text('아직 기록이 없습니다.'),
+        if (_session.rounds.isEmpty) const GuestText('아직 기록이 없습니다.'),
         for (var i = _session.rounds.length - 1; i >= 0; i--)
           ListTile(
             contentPadding: EdgeInsets.zero,
-            title: Text('${i + 1}판 · ${_session.rounds[i].game}'),
-            subtitle: Text(
+            title: GuestText('${i + 1}판 · ${_session.rounds[i].game}'),
+            subtitle: GuestText(
               '승: ${_session.rounds[i].winners.join(', ')}\n패: ${_session.rounds[i].losers.join(', ')}\n${_session.rounds[i].playedAt.toLocal().toString().split('.').first}',
             ),
             isThreeLine: true,
             trailing: IconButton(
-              tooltip: '이 판 기록 삭제',
+              tooltip: guestTr(context, '이 판 기록 삭제'),
               icon: const Icon(Icons.delete_outline),
               onPressed: () => _removeRound(i),
             ),
@@ -695,10 +696,10 @@ class _PartyScreenState extends State<PartyScreen> {
         key: ValueKey(_statsGame),
         initialValue: _statsGame ?? '',
         isExpanded: true,
-        decoration: const InputDecoration(labelText: '게임별 기록 보기'),
+        decoration: InputDecoration(labelText: guestTr(context, '게임별 기록 보기')),
         items: [
-          const DropdownMenuItem(value: '', child: Text('전체 게임')),
-          ...games.map((g) => DropdownMenuItem(value: g, child: Text(g))),
+          const DropdownMenuItem(value: '', child: GuestText('전체 게임')),
+          ...games.map((g) => DropdownMenuItem(value: g, child: GuestText(g))),
         ],
         onChanged: (value) =>
             setState(() => _statsGame = value == '' ? null : value),
@@ -706,11 +707,11 @@ class _PartyScreenState extends State<PartyScreen> {
       for (final player in players)
         ListTile(
           contentPadding: EdgeInsets.zero,
-          title: Text(player),
-          trailing: Text('${wins[player]}승 / ${losses[player]}패'),
+          title: GuestText(player),
+          trailing: GuestText('${wins[player]}승 / ${losses[player]}패'),
         ),
       const Divider(),
-      Text(
+      GuestText(
         drinkWinners.isEmpty
             ? '기록이 쌓이면 음료 내기 당첨자가 표시됩니다.'
             : '현재 음료 내기 ${drinkWinners.length > 1 ? '공동 당첨: ' : '당첨: '}${drinkWinners.join(', ')}',
@@ -720,8 +721,8 @@ class _PartyScreenState extends State<PartyScreen> {
           color: kOrange,
         ),
       ),
-      Text('${_session.cafe} · ${_session.drink}'),
-      const Text(
+      GuestText('${_session.cafe} · ${_session.drink}'),
+      const GuestText(
         '내기는 전체 게임의 누적 패배 횟수로 계산합니다. 가장 많이 패한 사람이 당첨되며 동률이면 공동 당첨입니다.',
       ),
     ]);
@@ -729,17 +730,17 @@ class _PartyScreenState extends State<PartyScreen> {
 
   Widget _balance() => _page([
     _card('대화의 시작, 밸런스 게임', [
-      const Text('정답은 없어요. 각자 고른 이유를 이야기해보세요!'),
+      const GuestText('정답은 없어요. 각자 고른 이유를 이야기해보세요!'),
       const SizedBox(height: 16),
-      Text(
+      GuestText(
         'A · ${_question.a}',
         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
       ),
       const Padding(
         padding: EdgeInsets.symmetric(vertical: 8),
-        child: Text('VS'),
+        child: GuestText('VS'),
       ),
-      Text(
+      GuestText(
         'B · ${_question.b}',
         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
       ),
@@ -751,17 +752,17 @@ class _PartyScreenState extends State<PartyScreen> {
           _teams = null;
         }),
         icon: const Icon(Icons.shuffle),
-        label: const Text('다음 랜덤 질문'),
+        label: const GuestText('다음 랜덤 질문'),
       ),
-      const Text('준비된 30개 질문을 무작위로 뽑습니다. 한 바퀴가 돌기 전에는 같은 질문이 반복되지 않습니다.'),
+      const GuestText('준비된 30개 질문을 무작위로 뽑습니다. 한 바퀴가 돌기 전에는 같은 질문이 반복되지 않습니다.'),
     ]),
     if (_session.players.isEmpty)
       _card('선택으로 팀 나누기', [
-        const Text('승패 · 음료 내기 탭에서 일행 이름을 저장하면 선택으로 팀을 나눌 수 있습니다.'),
+        const GuestText('승패 · 음료 내기 탭에서 일행 이름을 저장하면 선택으로 팀을 나눌 수 있습니다.'),
         Builder(
           builder: (context) => TextButton(
             onPressed: () => DefaultTabController.of(context).animateTo(1),
-            child: const Text('일행 이름 입력하기'),
+            child: const GuestText('일행 이름 입력하기'),
           ),
         ),
       ])
@@ -774,12 +775,12 @@ class _PartyScreenState extends State<PartyScreen> {
               spacing: 12,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Text(
+                GuestText(
                   player,
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 ChoiceChip(
-                  label: const Text('A'),
+                  label: const GuestText('A'),
                   selected: _votes[player] == true,
                   onSelected: (_) => setState(() {
                     _votes[player] = true;
@@ -787,7 +788,7 @@ class _PartyScreenState extends State<PartyScreen> {
                   }),
                 ),
                 ChoiceChip(
-                  label: const Text('B'),
+                  label: const GuestText('B'),
                   selected: _votes[player] == false,
                   onSelected: (_) => setState(() {
                     _votes[player] = false;
@@ -797,7 +798,7 @@ class _PartyScreenState extends State<PartyScreen> {
               ],
             ),
           ),
-        Text('선택 완료: ${_votes.length} / ${_session.players.length}명'),
+        GuestText('선택 완료: ${_votes.length} / ${_session.players.length}명'),
         const SizedBox(height: 12),
         FilledButton(
           onPressed: _votes.length != _session.players.length
@@ -806,7 +807,7 @@ class _PartyScreenState extends State<PartyScreen> {
                   _teams = choiceTeams(_session.players, _votes);
                   _randomTeams = false;
                 }),
-          child: const Text('A/B 선택으로 팀 나누기'),
+          child: const GuestText('A/B 선택으로 팀 나누기'),
         ),
         OutlinedButton(
           onPressed: _votes.length != _session.players.length
@@ -815,30 +816,30 @@ class _PartyScreenState extends State<PartyScreen> {
                   _teams = balancedRandomTeams(_session.players, Random());
                   _randomTeams = true;
                 }),
-          child: const Text('선택과 별개로 인원 균등 랜덤 팀'),
+          child: const GuestText('선택과 별개로 인원 균등 랜덤 팀'),
         ),
         if (_teams != null) ...[
           const Divider(),
-          Text(
+          GuestText(
             _randomTeams ? '인원 균등 랜덤 팀 결과' : '같은 선택을 한 사람끼리 팀',
             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           for (var i = 0; i < 2; i++)
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(
+              title: GuestText(
                 '${_randomTeams
                     ? (i + 1).toString()
                     : i == 0
                     ? 'A'
                     : 'B'}팀 · ${_teams![i].length}명',
               ),
-              subtitle: Text(
+              subtitle: GuestText(
                 _teams![i].isEmpty ? '선택한 사람이 없습니다.' : _teams![i].join(', '),
               ),
             ),
           if (!_randomTeams && _teams!.any((t) => t.isEmpty))
-            const Text('모두 같은 답을 골랐네요! 다음 질문으로 다시 고르거나 인원 균등 랜덤 팀을 이용하세요.'),
+            const GuestText('모두 같은 답을 골랐네요! 다음 질문으로 다시 고르거나 인원 균등 랜덤 팀을 이용하세요.'),
         ],
       ]),
   ]);

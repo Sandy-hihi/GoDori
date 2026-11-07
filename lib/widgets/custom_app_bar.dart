@@ -1,3 +1,4 @@
+import 'package:boardpad/l10n/guest_language.dart';
 import 'package:flutter/material.dart';
 import 'package:boardpad/widgets/store_brand.dart';
 import 'dart:async';
@@ -63,7 +64,7 @@ class _CustomAppBarState extends State<CustomAppBar> {
             ElevatedButton.icon(
               onPressed: () => StaffCallService.callStaff(context, widget.roomNumber ?? 0),
               icon: const Icon(Icons.notifications_active),
-              label: const Text('직원 호출', style: TextStyle(fontWeight: FontWeight.bold)),
+              label: const GuestText('직원 호출', style: TextStyle(fontWeight: FontWeight.bold)),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF007E5B),
                 foregroundColor: Colors.white,

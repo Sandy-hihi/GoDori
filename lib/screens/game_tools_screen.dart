@@ -1,3 +1,4 @@
+import 'package:boardpad/l10n/guest_language.dart';
 import 'package:flutter/material.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
@@ -117,14 +118,14 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('시간 직접 입력', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const GuestText('시간 직접 입력', style: TextStyle(fontWeight: FontWeight.bold)),
         content: Row(
           children: [
             Expanded(
               child: TextField(
                 controller: minCtrl,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: '분', border: OutlineInputBorder(), suffixText: '분'),
+                decoration: InputDecoration(labelText: guestTr(context, '분'), border: OutlineInputBorder(), suffixText: guestTr(context, '분')),
               ),
             ),
             const SizedBox(width: 16),
@@ -132,13 +133,13 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
               child: TextField(
                 controller: secCtrl,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: '초', border: OutlineInputBorder(), suffixText: '초'),
+                decoration: InputDecoration(labelText: guestTr(context, '초'), border: OutlineInputBorder(), suffixText: guestTr(context, '초')),
               ),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const GuestText('취소')),
           ElevatedButton(
             onPressed: () {
               final m = int.tryParse(minCtrl.text) ?? 0;
@@ -151,7 +152,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
               Navigator.pop(ctx);
             },
             style: ElevatedButton.styleFrom(backgroundColor: kInk, foregroundColor: Colors.white),
-            child: const Text('확인'),
+            child: const GuestText('확인'),
           ),
         ],
       ),
@@ -246,7 +247,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
           children: [
             Icon(icon, color: selected ? Colors.white : Colors.grey, size: 20),
             const SizedBox(width: 8),
-            Text(label, style: TextStyle(color: selected ? Colors.white : Colors.grey, fontWeight: FontWeight.bold, fontSize: 16)),
+            GuestText(label, style: TextStyle(color: selected ? Colors.white : Colors.grey, fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
       ),
@@ -274,7 +275,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                 borderRadius: BorderRadius.circular(24),
                 boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 16, offset: const Offset(0, 4))],
               ),
-              child: Text(
+              child: GuestText(
                 _formatCd(_remainingSeconds),
                 style: TextStyle(fontSize: 100, fontWeight: FontWeight.bold, color: timeColor, fontFeatures: const []),
               ),
@@ -284,14 +285,14 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                 padding: const EdgeInsets.only(top: 12),
                 child: Column(
                   children: [
-                    const Text('⏰ 시간 종료!', style: TextStyle(fontSize: 24, color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                    const GuestText('⏰ 시간 종료!', style: TextStyle(fontSize: 24, color: Colors.redAccent, fontWeight: FontWeight.bold)),
                     if (_alarmPlaying)
                       Padding(
                         padding: const EdgeInsets.only(top: 12),
                         child: ElevatedButton.icon(
                           onPressed: _stopAlarm,
                           icon: const Icon(Icons.volume_off),
-                          label: const Text('알림 끄기', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          label: const GuestText('알림 끄기', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.redAccent,
                             foregroundColor: Colors.white,
@@ -317,7 +318,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                 OutlinedButton.icon(
                   onPressed: _cdRunning ? null : _showTimeInputDialog,
                   icon: const Icon(Icons.edit),
-                  label: const Text('직접 입력'),
+                  label: const GuestText('직접 입력'),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                     side: const BorderSide(color: kInk),
@@ -357,7 +358,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            Text(
+            GuestText(
               '🔄 리셋: 설정 시간으로 복귀   🗑 초기화: 전체 지우기',
               style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
             ),
@@ -376,7 +377,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
-      child: Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+      child: GuestText(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
     );
   }
 
@@ -396,7 +397,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
               borderRadius: BorderRadius.circular(32),
               border: Border.all(color: Colors.black12, width: 4),
             ),
-            child: Center(child: Text('$diceNumber', style: const TextStyle(fontSize: 100, fontWeight: FontWeight.bold))),
+            child: Center(child: GuestText('$diceNumber', style: const TextStyle(fontSize: 100, fontWeight: FontWeight.bold))),
           ),
           const SizedBox(height: 48),
           ElevatedButton(
@@ -405,7 +406,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
               backgroundColor: kOrange,
             ),
-            child: const Text('주사위 굴리기', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+            child: const GuestText('주사위 굴리기', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
           ),
         ],
       ),
@@ -515,7 +516,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
           children: [
             Icon(icon, color: selected ? Colors.white : Colors.grey, size: 20),
             const SizedBox(width: 8),
-            Text(label, style: TextStyle(color: selected ? Colors.white : Colors.grey, fontWeight: FontWeight.bold, fontSize: 16)),
+            GuestText(label, style: TextStyle(color: selected ? Colors.white : Colors.grey, fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
       ),
@@ -534,14 +535,14 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('인원 설정', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const GuestText('인원 설정', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               _buildCountRow('총 인원', _playerCount, 2, 20, (v) => setState(() { _playerCount = v; _syncControllers(v); _teamResult = []; })),
               const SizedBox(height: 8),
               _buildCountRow('팀 수', _teamCount, 2, 10, (v) => setState(() { _teamCount = v; _teamResult = []; })),
               const SizedBox(height: 20),
-              const Text('이름 입력 (선택)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const Text('비워두면 번호로 자동 부여', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              const GuestText('이름 입력 (선택)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const GuestText('비워두면 번호로 자동 부여', style: TextStyle(fontSize: 12, color: Colors.grey)),
               const SizedBox(height: 8),
               Expanded(
                 child: ListView.builder(
@@ -551,13 +552,13 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                     child: TextField(
                       controller: _nameControllers[i],
                       decoration: InputDecoration(
-                        labelText: '${i + 1}번째 참가자',
+                        labelText: guestTr(context, '${i + 1}번째 참가자'),
                         isDense: true,
                         border: const OutlineInputBorder(),
                         prefixIcon: CircleAvatar(
                           radius: 14,
                           backgroundColor: kInk,
-                          child: Text('${i + 1}', style: const TextStyle(color: Colors.white, fontSize: 11)),
+                          child: GuestText('${i + 1}', style: const TextStyle(color: Colors.white, fontSize: 11)),
                         ),
                       ),
                       onChanged: (_) => setState(() => _teamResult = []),
@@ -571,7 +572,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                 child: ElevatedButton.icon(
                   onPressed: _teamCount > _playerCount ? null : _divideTeams,
                   icon: const Icon(Icons.shuffle),
-                  label: const Text('랜덤 팀 배분', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  label: const GuestText('랜덤 팀 배분', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: kOrange,
                     foregroundColor: Colors.white,
@@ -582,7 +583,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
               if (_teamCount > _playerCount)
                 const Padding(
                   padding: EdgeInsets.only(top: 8),
-                  child: Text('⚠ 팀 수가 인원보다 많습니다', style: TextStyle(color: Colors.red, fontSize: 12)),
+                  child: GuestText('⚠ 팀 수가 인원보다 많습니다', style: TextStyle(color: Colors.red, fontSize: 12)),
                 ),
             ],
           ),
@@ -597,7 +598,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                     children: [
                       Icon(Icons.groups, size: 80, color: Colors.grey),
                       SizedBox(height: 16),
-                      Text('인원과 팀 수를 설정하고 랜덤 팀 배분을 눌러주세요',
+                      GuestText('인원과 팀 수를 설정하고 랜덤 팀 배분을 눌러주세요',
                           textAlign: TextAlign.center,
                           style: TextStyle(fontSize: 20, color: Colors.grey)),
                     ],
@@ -630,7 +631,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                                 color: _teamColors[i % _teamColors.length],
                                 borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
                               ),
-                              child: Text('${i + 1}팀', textAlign: TextAlign.center,
+                              child: GuestText('${i + 1}팀', textAlign: TextAlign.center,
                                   style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
                             ),
                             Expanded(
@@ -643,7 +644,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                                     children: [
                                       Icon(Icons.person, color: _teamColors[i % _teamColors.length], size: 18),
                                       const SizedBox(width: 8),
-                                      Text(_teamResult[i][j], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                                      GuestText(_teamResult[i][j], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                                     ],
                                   ),
                                 ),
@@ -672,12 +673,12 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('인원 설정', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const GuestText('인원 설정', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               _buildCountRow('총 인원', _playerCount, 2, 20, (v) => setState(() { _playerCount = v; _syncControllers(v); _drawOrder = []; _remainingPool = []; _drawFinished = false; })),
               const SizedBox(height: 20),
-              const Text('이름 입력 (선택)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const Text('비워두면 번호로 자동 부여', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              const GuestText('이름 입력 (선택)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const GuestText('비워두면 번호로 자동 부여', style: TextStyle(fontSize: 12, color: Colors.grey)),
               const SizedBox(height: 8),
               Expanded(
                 child: ListView.builder(
@@ -687,13 +688,13 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                     child: TextField(
                       controller: _nameControllers[i],
                       decoration: InputDecoration(
-                        labelText: '${i + 1}번째 참가자',
+                        labelText: guestTr(context, '${i + 1}번째 참가자'),
                         isDense: true,
                         border: const OutlineInputBorder(),
                         prefixIcon: CircleAvatar(
                           radius: 14,
                           backgroundColor: kInk,
-                          child: Text('${i + 1}', style: const TextStyle(color: Colors.white, fontSize: 11)),
+                          child: GuestText('${i + 1}', style: const TextStyle(color: Colors.white, fontSize: 11)),
                         ),
                       ),
                     ),
@@ -706,7 +707,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                 child: OutlinedButton.icon(
                   onPressed: _initDraw,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('뽑기 초기화', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  label: const GuestText('뽑기 초기화', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: kInk,
                     side: const BorderSide(color: kInk, width: 2),
@@ -737,7 +738,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                           children: [
                             const Icon(Icons.check_circle, color: kOrange, size: 60),
                             const SizedBox(height: 8),
-                            const Text('모든 순서가 결정됐습니다!',
+                            const GuestText('모든 순서가 결정됐습니다!',
                                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kOrange)),
                           ],
                         )
@@ -746,13 +747,13 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                               children: [
                                 const Icon(Icons.touch_app, size: 60, color: Colors.grey),
                                 const SizedBox(height: 8),
-                                const Text('초기화 후 뽑기 시작 버튼을 눌러주세요',
+                                const GuestText('초기화 후 뽑기 시작 버튼을 눌러주세요',
                                     style: TextStyle(fontSize: 18, color: Colors.grey)),
                                 const SizedBox(height: 16),
                                 ElevatedButton.icon(
                                   onPressed: _initDraw,
                                   icon: const Icon(Icons.play_arrow),
-                                  label: const Text('뽑기 시작', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                  label: const GuestText('뽑기 시작', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: kInk,
                                     foregroundColor: Colors.white,
@@ -763,13 +764,13 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                             )
                           : Column(
                               children: [
-                                Text('남은 인원: ${_remainingPool.length}명',
+                                GuestText('남은 인원: ${_remainingPool.length}명',
                                     style: const TextStyle(fontSize: 16, color: Colors.grey)),
                                 const SizedBox(height: 16),
                                 ElevatedButton.icon(
                                   onPressed: _drawNext,
                                   icon: const Icon(Icons.casino, size: 28),
-                                  label: const Text('다음 순서 뽑기!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                                  label: const GuestText('다음 순서 뽑기!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: kOrange,
                                     foregroundColor: Colors.white,
@@ -798,7 +799,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                               color: kInk,
                               borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
                             ),
-                            child: const Text('뽑힌 순서', textAlign: TextAlign.center,
+                            child: const GuestText('뽑힌 순서', textAlign: TextAlign.center,
                                 style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                           ),
                           Expanded(
@@ -810,10 +811,10 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                                 return ListTile(
                                   leading: CircleAvatar(
                                     backgroundColor: rank == 1 ? Colors.amber : (rank == 2 ? Colors.grey.shade400 : (rank == 3 ? Colors.brown.shade300 : kInk)),
-                                    child: Text('$rank', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                    child: GuestText('$rank', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                                   ),
-                                  title: Text(_drawOrder[i], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                  subtitle: Text('$rank번째'),
+                                  title: GuestText(_drawOrder[i], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                  subtitle: GuestText('$rank번째'),
                                 );
                               },
                             ),
@@ -833,7 +834,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
   Widget _buildCountRow(String label, int value, int min, int max, ValueChanged<int> onChanged) {
     return Row(
       children: [
-        SizedBox(width: 80, child: Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
+        SizedBox(width: 80, child: GuestText(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
         const Spacer(),
         IconButton(
           onPressed: value > min ? () => onChanged(value - 1) : null,
@@ -842,7 +843,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
         ),
         SizedBox(
           width: 40,
-          child: Text('$value', textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+          child: GuestText('$value', textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
         ),
         IconButton(
           onPressed: value < max ? () => onChanged(value + 1) : null,
@@ -933,7 +934,7 @@ class _StopwatchTabState extends State<_StopwatchTab> {
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 16, offset: const Offset(0, 4))],
                 ),
-                child: Text(
+                child: GuestText(
                   _formatSw(_stopwatch.elapsed),
                   style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: kInk),
                 ),
@@ -986,7 +987,7 @@ class _StopwatchTabState extends State<_StopwatchTab> {
                     borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
                   ),
                   child: Center(
-                    child: Text('랩 기록 (${_laps.length})', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                    child: GuestText('랩 기록 (${_laps.length})', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
                   ),
                 ),
                 Expanded(
@@ -999,9 +1000,9 @@ class _StopwatchTabState extends State<_StopwatchTab> {
                       leading: CircleAvatar(
                         radius: 14,
                         backgroundColor: kOrange,
-                        child: Text('${_laps.length - index}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                        child: GuestText('${_laps.length - index}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                       ),
-                      title: Text(_laps[index], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      title: GuestText(_laps[index], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ),
@@ -1023,7 +1024,7 @@ class _ToolTabLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
-      children: [Icon(icon, size: 20), const SizedBox(width: 6), Text(text)],
+      children: [Icon(icon, size: 20), const SizedBox(width: 6), GuestText(text)],
     );
   }
 }

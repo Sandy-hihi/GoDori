@@ -1,3 +1,5 @@
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:boardpad/l10n/guest_language.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 
@@ -11,6 +13,7 @@ import 'widgets/pad_shell.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await GuestLanguage.instance.load();
   runApp(const GodoriApp());
 }
 
@@ -19,7 +22,12 @@ class GodoriApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return ListenableBuilder(
+      listenable: GuestLanguage.instance,
+      builder: (context, _) => MaterialApp(
+      locale: Locale(GuestLanguage.instance.code),
+      supportedLocales: const [Locale('ko'), Locale('en'), Locale('zh'), Locale('ja')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       debugShowCheckedModeBanner: false,
       title: '고도리',
       theme: ThemeData(
@@ -42,9 +50,9 @@ class GodoriApp extends StatelessWidget {
       ),
       // 카운터 수령 매장: 주문한 음식이 준비되면 어느 화면에서든 알림 (58차)
       builder: (context, child) =>
-          OrderReadyOverlay(child: child ?? const SizedBox.shrink()),
+          GuestLocaleScope(child: OrderReadyOverlay(child: child ?? const SizedBox.shrink())),
       home: const StartupScreen(),
-    );
+    ));
   }
 }
 

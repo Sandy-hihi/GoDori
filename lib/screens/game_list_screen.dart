@@ -1,3 +1,4 @@
+import 'package:boardpad/l10n/guest_language.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -231,7 +232,7 @@ class _GameListScreenState extends State<GameListScreen> {
       final bool isRecommended = game['isRecommended'] == true;
       final bool matchesTab = selectedTab == '전체' || (selectedTab == '추천' && isRecommended);
       final bool matchesGenre = selectedGenre == '전체' || gameGenres(game).contains(selectedGenre); // 장르 여러 개 지원
-      final bool matchesSearch = (game['title'] ?? '').toString().toLowerCase().contains(searchQuery.toLowerCase());
+      final bool matchesSearch = '${game['title'] ?? ''} ${guestField(context, game, 'title')}'.toLowerCase().contains(searchQuery.toLowerCase());
       final bool matchesPlayers = _matchesPlayerFilter(game['players']?.toString(), selectedPlayers);
       final bool matchesTime = _matchesTimeFilter(game['time']?.toString(), selectedTime);
       final bool matchesDifficulty = selectedDifficulty == null || game['difficulty'] == selectedDifficulty;
@@ -307,7 +308,7 @@ class _GameListScreenState extends State<GameListScreen> {
         }),
         style: const TextStyle(fontSize: 16, color: kInk),
         decoration: InputDecoration(
-          hintText: '게임 이름으로 검색',
+          hintText: guestTr(context, '게임 이름으로 검색'),
           hintStyle: const TextStyle(color: kMuted),
           prefixIcon: const Icon(Icons.search, color: kMuted),
           suffixIcon: searchQuery.isEmpty
@@ -390,7 +391,7 @@ class _GameListScreenState extends State<GameListScreen> {
               TextButton.icon(
                 onPressed: _clearFilters,
                 icon: const Icon(Icons.refresh, size: 18),
-                label: const Text('필터 초기화', style: TextStyle(fontWeight: FontWeight.w700)),
+                label: const GuestText('필터 초기화', style: TextStyle(fontWeight: FontWeight.w700)),
                 style: TextButton.styleFrom(foregroundColor: kMuted),
               ),
           ],
@@ -438,7 +439,7 @@ class _GameListScreenState extends State<GameListScreen> {
         }),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          child: Text(
+          child: GuestText(
             genre == '전체' ? '# 모든 장르' : '# $genre',
             style: TextStyle(
               fontSize: 14,
@@ -467,7 +468,7 @@ class _GameListScreenState extends State<GameListScreen> {
           padding: const EdgeInsets.fromLTRB(32, 0, 32, 10),
           child: Row(
             children: [
-              Text('${games.length}개의 게임 · 가나다순',
+              GuestText('${games.length}개의 게임 · 가나다순',
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: kMuted)),
             ],
           ),
@@ -606,23 +607,23 @@ class _GameListScreenState extends State<GameListScreen> {
           const SizedBox(width: 6),
           DropdownButtonHideUnderline(
             child: DropdownButton<String?>(
-              hint: Text(hint, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: kBody)),
+              hint: GuestText(hint, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: kBody)),
               value: safeValue,
               dropdownColor: Colors.white,
               borderRadius: BorderRadius.circular(14),
               iconEnabledColor: active ? Colors.white : kBody,
               selectedItemBuilder: (context) => [
-                Center(child: Text('전체 $hint')),
+                Center(child: GuestText('전체 $hint')),
                 ...items.map((item) => Center(
-                      child: Text(item,
+                      child: GuestText(item,
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
                     )),
               ],
               items: [
-                DropdownMenuItem<String?>(value: null, child: Text('전체 $hint', style: const TextStyle(color: kInk))),
+                DropdownMenuItem<String?>(value: null, child: GuestText('전체 $hint', style: const TextStyle(color: kInk))),
                 ...items.map((item) => DropdownMenuItem<String?>(
                       value: item,
-                      child: Text(item, style: const TextStyle(color: kInk)),
+                      child: GuestText(item, style: const TextStyle(color: kInk)),
                     )),
               ],
               onChanged: onChanged,
@@ -637,7 +638,7 @@ class _GameListScreenState extends State<GameListScreen> {
   // 게임 상세 팝업
   void _showDetail(Map<String, dynamic> game) {
     InsightService.gameViewed(game['_docId']?.toString()); // 매장 통계(65차) — 많이 찾는 게임
-    final title = (game['title'] ?? '').toString();
+    final title = guestField(context, game, 'title');
     final imageUrl = game['imageUrl']?.toString();
     final difficulty = (game['difficulty'] ?? '').toString();
     final note = (game['pickNote'] ?? '').toString().trim();
@@ -685,7 +686,7 @@ class _GameListScreenState extends State<GameListScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 _GameBadges(game: game),
-                                Text(title,
+                                GuestText(title,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: kInk)),
@@ -700,7 +701,7 @@ class _GameListScreenState extends State<GameListScreen> {
                       ),
                       if (genres.isNotEmpty) ...[
                         const SizedBox(height: 4),
-                        Text(genres.map((g) => '#$g').join('  '),
+                        GuestText(genres.map((g) => '#$g').join('  '),
                             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: kOrange)),
                       ],
                       const SizedBox(height: 16),
@@ -726,7 +727,7 @@ class _GameListScreenState extends State<GameListScreen> {
                               const Icon(Icons.format_quote_rounded, color: kOrange),
                               const SizedBox(width: 8),
                               Expanded(
-                                child: Text(note,
+                                child: GuestText(note,
                                     maxLines: 3,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(fontSize: 15, height: 1.4, color: kInk)),
@@ -737,7 +738,7 @@ class _GameListScreenState extends State<GameListScreen> {
                       ],
                       if (tags.isNotEmpty) ...[
                         const SizedBox(height: 12),
-                        Text(tags,
+                        GuestText(tags,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontSize: 13, color: kMuted)),
@@ -749,7 +750,7 @@ class _GameListScreenState extends State<GameListScreen> {
                         child: FilledButton.icon(
                           onPressed: () => _launchVideo(ctx, game),
                           icon: const Icon(Icons.play_circle_fill),
-                          label: Text(!hasVideo ? '룰 영상 준비 중' : (ownVideo ? '매장 룰 설명 영상 보기' : '룰 설명 영상 보기 (유튜브)'),
+                          label: GuestText(!hasVideo ? '룰 영상 준비 중' : (ownVideo ? '매장 룰 설명 영상 보기' : '룰 설명 영상 보기 (유튜브)'),
                               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                           style: FilledButton.styleFrom(
                             backgroundColor: hasVideo ? kOrange : kMuted,
@@ -780,7 +781,7 @@ class _GameListScreenState extends State<GameListScreen> {
           Row(children: [
             Icon(icon, size: 16, color: kMuted),
             const SizedBox(width: 4),
-            Text(label, style: const TextStyle(fontSize: 12, color: kMuted)),
+            GuestText(label, style: const TextStyle(fontSize: 12, color: kMuted)),
           ]),
           const SizedBox(height: 4),
           Row(
@@ -790,7 +791,7 @@ class _GameListScreenState extends State<GameListScreen> {
                 const SizedBox(width: 6),
               ],
               Flexible(
-                child: Text(value.isEmpty ? '-' : value,
+                child: GuestText(value.isEmpty ? '-' : value,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: kInk)),
@@ -830,7 +831,7 @@ class _GameBadges extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[Icon(icon, size: 12, color: Colors.white), const SizedBox(width: 2)],
-          Text(text, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
+          GuestText(text, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
         ],
       ),
     );
@@ -893,7 +894,7 @@ class _GameCard extends StatelessWidget {
                             children: [
                               Icon(Icons.play_arrow_rounded, size: 18, color: Colors.white),
                               SizedBox(width: 2),
-                              Text('룰 영상',
+                              GuestText('룰 영상',
                                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white)),
                             ],
                           ),
@@ -909,12 +910,12 @@ class _GameCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text((game['title'] ?? '').toString(),
+                GuestText(guestField(context, game, 'title'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kInk)),
                 const SizedBox(height: 2),
-                Text(genres.isEmpty ? ' ' : genres.join(' · '),
+                GuestText(genres.isEmpty ? ' ' : genres.join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 13, color: kMuted)),
@@ -935,7 +936,7 @@ class _GameCard extends StatelessWidget {
                             ),
                             const SizedBox(width: 5),
                             Flexible(
-                              child: Text(difficulty,
+                              child: GuestText(difficulty,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: kBody)),
@@ -963,7 +964,7 @@ class _GameCard extends StatelessWidget {
           const SizedBox(width: 4),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 90),
-            child: Text(text,
+            child: GuestText(text,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: kBody)),
@@ -1056,7 +1057,7 @@ class _InitialRail extends StatelessWidget {
                         color: g == current ? kOrange : Colors.transparent,
                         shape: BoxShape.circle,
                       ),
-                      child: Text(
+                      child: GuestText(
                         g,
                         style: TextStyle(
                           fontSize: 14,
@@ -1092,7 +1093,7 @@ class _LoopMark extends StatelessWidget {
               children: [
                 const Icon(Icons.replay_rounded, size: 18, color: kMuted),
                 const SizedBox(width: 6),
-                Text('$firstGroup부터 다시',
+                GuestText('$firstGroup부터 다시',
                     style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: kMuted)),
               ],
             ),

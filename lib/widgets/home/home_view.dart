@@ -1,9 +1,9 @@
+import 'package:boardpad/widgets/store_brand.dart';
+import 'package:boardpad/l10n/guest_language.dart';
 import 'package:flutter/material.dart';
 
 import 'package:boardpad/models/home_layout.dart';
 import 'package:boardpad/services/staff_call_service.dart';
-import 'package:boardpad/utils/image_helper.dart';
-import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/home_common.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
 
@@ -60,6 +60,8 @@ class HomeView extends StatelessWidget {
               ],
             ),
             // 왼쪽 영역을 껐을 때도 직원이 패드를 끌 수 있게 왼쪽 위 구석에 숨은 영역
+            if (!layout.sidebarVisible)
+              const Positioned(right: 12, top: 12, child: Material(child: GuestLanguageButton())),
             if (!layout.sidebarVisible)
               const Positioned(
                 left: 0,
@@ -153,7 +155,9 @@ class HomeSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final light = layout.sidebarIsLight;
     final fg = light ? kInk : const Color(0xFFEFE8DC);
-    final children = <Widget>[];
+    final children = <Widget>[
+      if (current == 'home') const GuestLanguageButton(),
+    ];
     for (var i = 0; i < layout.sidebarItems.length; i++) {
       final item = layout.sidebarItems[i];
       if (item.type == 'spacer') {
@@ -202,42 +206,10 @@ class HomeSidebar extends StatelessWidget {
     final boxColor = fg.withValues(alpha: light ? 0.07 : 0.09);
     switch (item.type) {
       case 'logo':
-        final logoUrl = (o['imageUrl'] ?? '').toString().trim();
-        final storeName = (o['name'] ?? '').toString().trim();
-        // 로고·매장 이름은 매장이 설정한 경우에만 보임(기본값 없음).
-        // 둘 다 비어도 10번 누르기(나가기) 자리는 남도록 최소 높이 유지.
         return HoldToExit(
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 60),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (hasValidImage(logoUrl)) ...[
-                  ClipOval(
-                    child: AppNetworkImage(
-                      imageUrl: logoUrl,
-                      width: 76,
-                      height: 76,
-                      fit: BoxFit.cover,
-                      errorWidget: (c, u, e) =>
-                          const SizedBox(width: 76, height: 76),
-                    ),
-                  ),
-                  if (storeName.isNotEmpty) const SizedBox(height: 10),
-                ],
-                if (storeName.isNotEmpty)
-                  Text(
-                    storeName,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: fg,
-                    ),
-                  ),
-              ],
-            ),
+            child: Center(child: GodoriBrand(size: 48, textColor: fg)),
           ),
         );
       case 'room':
@@ -250,14 +222,14 @@ class HomeSidebar extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
+              GuestText(
                 '지금 이용 중인 방',
                 style: TextStyle(
                   fontSize: 12,
                   color: fg.withValues(alpha: 0.65),
                 ),
               ),
-              Text(
+              GuestText(
                 '${roomNumber ?? '-'}번 룸',
                 style: TextStyle(
                   fontSize: 28,
@@ -275,7 +247,7 @@ class HomeSidebar extends StatelessWidget {
             onPressed: () =>
                 StaffCallService.callStaff(context, roomNumber ?? 0),
             icon: const Icon(Icons.notifications_active),
-            label: const Text(
+            label: const GuestText(
               '직원 호출',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
             ),
@@ -305,14 +277,14 @@ class HomeSidebar extends StatelessWidget {
             builder: (context, now) => Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                GuestText(
                   formatDateKo(now),
                   style: TextStyle(
                     fontSize: 12,
                     color: fg.withValues(alpha: 0.65),
                   ),
                 ),
-                Text(
+                GuestText(
                   formatTimeKo(now),
                   style: TextStyle(
                     fontSize: 22,
@@ -356,7 +328,7 @@ class HomeSidebar extends StatelessWidget {
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: Text(
+                          child: GuestText(
                             label,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -391,7 +363,7 @@ class HomeSidebar extends StatelessWidget {
             color: boxColor,
             borderRadius: BorderRadius.circular(16),
           ),
-          child: Text(
+          child: GuestText(
             (o['text'] ?? '안내 문구를 입력해 주세요').toString(),
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
@@ -412,7 +384,7 @@ class HomeSidebar extends StatelessWidget {
                 children: [
                   Icon(Icons.wifi, size: 18, color: fg),
                   const SizedBox(width: 6),
-                  Text(
+                  GuestText(
                     '와이파이',
                     style: TextStyle(
                       fontSize: 12,
@@ -422,7 +394,7 @@ class HomeSidebar extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 4),
-              Text(
+              GuestText(
                 (o['ssid'] ?? '와이파이 이름').toString(),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -432,7 +404,7 @@ class HomeSidebar extends StatelessWidget {
                   color: fg,
                 ),
               ),
-              Text(
+              GuestText(
                 (o['password'] ?? '').toString(),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -457,7 +429,7 @@ class HomeSidebar extends StatelessWidget {
                 child: HomeQr(url: url.isEmpty ? null : url),
               ),
               const SizedBox(height: 6),
-              Text(
+              GuestText(
                 (o['label'] ?? '리뷰 남기기').toString(),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

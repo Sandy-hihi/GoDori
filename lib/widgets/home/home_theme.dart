@@ -1,3 +1,4 @@
+import 'package:boardpad/l10n/guest_language.dart';
 import 'package:flutter/material.dart';
 import 'package:boardpad/screens/event_screen.dart';
 import 'package:boardpad/screens/food_order_screen.dart';
@@ -145,9 +146,9 @@ class HomeShortcutTile extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: textColor)),
+              GuestText(label, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: textColor)),
               if (sub != null)
-                Text(sub!,
+                GuestText(sub!,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 12, color: textColor.withValues(alpha: 0.65))),
@@ -183,7 +184,7 @@ class HomeCardHeader extends StatelessWidget {
         Icon(icon, color: iconColor, size: 20),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(title,
+          child: GuestText(title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: titleColor)),
@@ -228,7 +229,7 @@ class HomePillButton extends StatelessWidget {
                 const SizedBox(width: 8),
               ],
               Flexible(
-                child: Text(label,
+                child: GuestText(label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: kInk)),

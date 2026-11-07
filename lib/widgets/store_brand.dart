@@ -1,9 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
-import 'package:boardpad/utils/image_helper.dart';
-import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/services/store_scope.dart';
 
 /// 매장 이름·로고 — 관리자 웹 "홈 화면 꾸미기 > 왼쪽 영역 > 로고 설정"에서 바꾼 값을
@@ -81,35 +80,48 @@ class StoreName extends StatelessWidget {
   }
 }
 
-/// 동그란 매장 로고. 매장이 관리자 웹에서 로고를 올린 경우에만 보이고,
-/// 안 올렸으면 아무것도 그리지 않음(기본 로고 없음 — 매장마다 직접 설정).
-/// padding: 로고가 보일 때만 붙는 여백(로고가 없으면 여백도 같이 사라짐).
+/// 고도리 기본 브랜드: 제공된 SVG와 한글 워드마크를 가로로 표시한다.
+class GodoriBrand extends StatelessWidget {
+  static const assetPath = 'assets/images/godori_logo.svg';
+  final double size;
+  final Color? textColor;
+  const GodoriBrand({super.key, this.size = 48, this.textColor});
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      ExcludeSemantics(
+        child: SvgPicture.asset(
+          assetPath,
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
+        ),
+      ),
+      SizedBox(width: size * 0.22),
+      Text(
+        '고도리',
+        style: TextStyle(
+          fontSize: size * 0.52,
+          fontWeight: FontWeight.w800,
+          color: textColor,
+          height: 1.1,
+        ),
+      ),
+    ],
+  );
+}
+
+/// 기존 공통 로고 위치에서도 SVG와 고도리 워드마크를 함께 사용한다.
 class StoreLogo extends StatelessWidget {
   final double size;
   final EdgeInsetsGeometry padding;
   const StoreLogo({super.key, this.size = 40, this.padding = EdgeInsets.zero});
 
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<StoreBrand>(
-      stream: StoreBrand.stream,
-      initialData: StoreBrand.latest,
-      builder: (context, snap) {
-        final url = (snap.data ?? StoreBrand.latest).logoUrl;
-        if (!hasValidImage(url)) return const SizedBox.shrink();
-        return Padding(
-          padding: padding,
-          child: ClipOval(
-            child: AppNetworkImage(
-              imageUrl: url!,
-              width: size,
-              height: size,
-              fit: BoxFit.cover,
-              errorWidget: (c, u, e) => SizedBox(width: size, height: size),
-            ),
-          ),
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => Padding(
+    padding: padding,
+    child: GodoriBrand(size: size),
+  );
 }

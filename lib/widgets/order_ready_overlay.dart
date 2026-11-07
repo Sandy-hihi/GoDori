@@ -1,3 +1,4 @@
+import 'package:boardpad/l10n/guest_language.dart';
 import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
@@ -163,7 +164,7 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
             children: [
               const Icon(Icons.room_service_rounded, color: Colors.white, size: 22),
               const SizedBox(width: 10),
-              Text(
+              GuestText(
                 flow.payAtPickup ? '음식이 준비됐어요 · 카운터에서 결제하고 받아 가 주세요' : '음식이 준비됐어요 · 카운터에서 받아 가 주세요',
                 style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
               ),
@@ -197,11 +198,11 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
                     color: kOrange, size: 50),
               ),
               const SizedBox(height: 18),
-              const Text('주문하신 음식이 준비됐어요!',
+              const GuestText('주문하신 음식이 준비됐어요!',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: kInk)),
               const SizedBox(height: 8),
-              Text(flow.readyText(_totalPrice),
+              GuestText(flow.readyText(_totalPrice),
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: kBody, height: 1.4)),
               if (items.isNotEmpty) ...[
@@ -216,13 +217,13 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
                       for (final it in items.take(maxLines))
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2),
-                          child: Text(it,
+                          child: GuestText(it,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontSize: 15, color: kInk, fontWeight: FontWeight.w600)),
                         ),
                       if (items.length > maxLines)
-                        Text('외 ${items.length - maxLines}개', style: const TextStyle(fontSize: 14, color: kMuted)),
+                        GuestText('외 ${items.length - maxLines}개', style: const TextStyle(fontSize: 14, color: kMuted)),
                     ],
                   ),
                 ),
@@ -237,7 +238,7 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
                     backgroundColor: kOrange,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
-                  child: const Text('확인했어요', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                  child: const GuestText('확인했어요', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                 ),
               ),
             ],

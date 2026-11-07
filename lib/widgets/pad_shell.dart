@@ -1,3 +1,4 @@
+import 'package:boardpad/l10n/guest_language.dart';
 import 'package:flutter/material.dart';
 
 import 'package:boardpad/models/home_layout.dart';
@@ -77,7 +78,7 @@ class PadShell extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
+                                GuestText(
                                   title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -89,7 +90,7 @@ class PadShell extends StatelessWidget {
                                 ),
                                 if (subtitle != null) ...[
                                   const SizedBox(height: 2),
-                                  Text(
+                                  GuestText(
                                     subtitle!,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -102,6 +103,7 @@ class PadShell extends StatelessWidget {
                               ],
                             ),
                           ),
+                          const GuestLanguageButton(),
                           if (headerTrailing != null) ...[
                             const SizedBox(width: 16),
                             headerTrailing!,
@@ -264,7 +266,7 @@ class PadPill extends StatelessWidget {
                 Icon(icon, size: 18, color: selected ? Colors.white : kBody),
                 const SizedBox(width: 6),
               ],
-              Text(
+              GuestText(
                 label,
                 style: TextStyle(
                   fontSize: fontSize,
@@ -346,7 +348,7 @@ class PadEmpty extends StatelessWidget {
             child: Icon(icon, size: 40, color: kMuted),
           ),
           const SizedBox(height: 14),
-          Text(
+          GuestText(
             text,
             textAlign: TextAlign.center,
             style: const TextStyle(fontSize: 17, color: kMuted),
@@ -363,7 +365,7 @@ void padSnack(BuildContext context, String message, {bool error = false}) {
   m.removeCurrentSnackBar();
   m.showSnackBar(
     SnackBar(
-      content: Text(
+      content: GuestText(
         message,
         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
       ),

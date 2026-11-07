@@ -1,3 +1,4 @@
+import 'package:boardpad/l10n/guest_language.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
@@ -89,8 +90,8 @@ class _PostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isImage = item['type'] == 'image';
-    final title = (item['title'] ?? '').toString();
-    final content = (item['content'] ?? '').toString();
+    final title = (guestField(context, item, 'title')).toString();
+    final content = (guestField(context, item, 'content')).toString();
 
     return HomeCard(
       padding: const EdgeInsets.all(24),
@@ -107,7 +108,7 @@ class _PostCard extends StatelessWidget {
               ),
               const SizedBox(width: 14),
               Expanded(
-                child: Text(title,
+                child: GuestText(title,
                     style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: kInk)),
               ),
             ],
@@ -131,7 +132,7 @@ class _PostCard extends StatelessWidget {
               ),
             )
           else
-            Text(content, style: const TextStyle(fontSize: 17, height: 1.75, color: kBody)),
+            GuestText(content, style: const TextStyle(fontSize: 17, height: 1.75, color: kBody)),
         ],
       ),
     );

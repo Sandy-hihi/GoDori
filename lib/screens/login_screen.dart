@@ -1,3 +1,5 @@
+import 'package:boardpad/widgets/store_brand.dart';
+import 'package:boardpad/l10n/guest_language.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:boardpad/services/admin_session.dart';
@@ -7,7 +9,6 @@ import '../widgets/admin_pad_gate.dart';
 import '../widgets/pad_shell.dart';
 
 const _navy = Color(0xFF1E2B3C);
-const _orange = Color(0xFFE2711D);
 
 /// 패드 로그인 (47차) — 매장 아이디 + 패드 비밀번호 + 방 번호
 ///  - 방 번호 1~ : 그 매장 설정이 반영된 그 방 손님 화면
@@ -167,13 +168,13 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 Icon(Icons.lock, color: _navy),
                 SizedBox(width: 8),
-                Text('관리자 인증', style: TextStyle(fontWeight: FontWeight.bold)),
+                GuestText('관리자 인증', style: TextStyle(fontWeight: FontWeight.bold)),
               ],
             ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('방 번호 0은 관리자 대시보드예요.\n관리자 PIN을 입력하세요.',
+                const GuestText('방 번호 0은 관리자 대시보드예요.\n관리자 PIN을 입력하세요.',
                     textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
                 const SizedBox(height: 16),
                 TextField(
@@ -204,14 +205,14 @@ class _LoginScreenState extends State<LoginScreen> {
             actions: [
               TextButton(
                 onPressed: checking ? null : () => Navigator.pop(ctx),
-                child: const Text('취소', style: TextStyle(color: Colors.grey)),
+                child: const GuestText('취소', style: TextStyle(color: Colors.grey)),
               ),
               ElevatedButton(
                 onPressed: checking ? null : submit,
                 style: ElevatedButton.styleFrom(backgroundColor: _navy, foregroundColor: Colors.white),
                 child: checking
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('확인', style: TextStyle(fontWeight: FontWeight.bold)),
+                    : const GuestText('확인', style: TextStyle(fontWeight: FontWeight.bold)),
               ),
             ],
           );
@@ -222,7 +223,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   InputDecoration _decoration(String label, IconData icon, {String? helper, Widget? suffix}) {
     return InputDecoration(
-      labelText: label,
+      labelText: guestTr(context, label),
       helperText: helper,
       prefixIcon: Icon(icon),
       suffixIcon: suffix,
@@ -251,12 +252,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const Icon(Icons.casino_rounded, size: 56, color: _orange),
+                  const Align(alignment: Alignment.centerRight, child: GuestLanguageButton()),
+                  const Center(child: GodoriBrand(size: 56)),
                   const SizedBox(height: 12),
-                  const Text('고도리 패드 로그인',
+                  const GuestText('고도리 패드 로그인',
                       textAlign: TextAlign.center, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 4),
-                  const Text('매장 직원이 처음 한 번만 해 주세요',
+                  const GuestText('매장 직원이 처음 한 번만 해 주세요',
                       textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
                   const SizedBox(height: 24),
                   TextField(
@@ -311,8 +313,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     contentPadding: EdgeInsets.zero,
                     controlAffinity: ListTileControlAffinity.leading,
                     activeColor: _navy,
-                    title: const Text('자동 로그인', style: TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text(
+                    title: const GuestText('자동 로그인', style: TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: GuestText(
                       isAdminRoom
                           ? '관리자는 꺼 두는 걸 추천해요. 켜면 앱을 켤 때 PIN 없이 대시보드가 열려요.'
                           : '앱을 껐다 켜도 이 방으로 바로 들어가요.',
@@ -322,7 +324,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 4),
-                    Text(_error!, style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600)),
+                    GuestText(_error!, style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600)),
                   ],
                   const SizedBox(height: 16),
                   SizedBox(
@@ -336,7 +338,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       child: _busy
                           ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Text('로그인', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          : const GuestText('로그인', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],

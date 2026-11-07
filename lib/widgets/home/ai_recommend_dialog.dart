@@ -1,3 +1,4 @@
+import 'package:boardpad/l10n/guest_language.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:boardpad/screens/game_list_screen.dart';
@@ -92,8 +93,8 @@ class _AiRecommendDialogState extends State<AiRecommendDialog> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w800, letterSpacing: -0.8)),
-              if (sub != null) Text(sub, style: const TextStyle(fontSize: 15, color: Color(0xFF6F665B))),
+              GuestText(title, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w800, letterSpacing: -0.8)),
+              if (sub != null) GuestText(sub, style: const TextStyle(fontSize: 15, color: Color(0xFF6F665B))),
             ],
           ),
         ),
@@ -102,7 +103,7 @@ class _AiRecommendDialogState extends State<AiRecommendDialog> {
         IconButton.filledTonal(
           onPressed: () => Navigator.pop(context),
           icon: const Icon(Icons.close),
-          tooltip: '닫기',
+          tooltip: guestTr(context, '닫기'),
         ),
       ],
     );
@@ -117,7 +118,7 @@ class _AiRecommendDialogState extends State<AiRecommendDialog> {
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 13),
-          child: Text(label,
+          child: GuestText(label,
               style: TextStyle(
                   fontSize: 16, fontWeight: selected ? FontWeight.w700 : FontWeight.w500, color: selected ? Colors.white : kInk)),
         ),
@@ -130,8 +131,8 @@ class _AiRecommendDialogState extends State<AiRecommendDialog> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text.rich(TextSpan(children: [
-          TextSpan(text: title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-          if (hint != null) TextSpan(text: '  $hint', style: const TextStyle(fontSize: 14, color: kMuted)),
+          TextSpan(text: guestTr(context, title), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+          if (hint != null) TextSpan(text: '  ${guestTr(context, hint)}', style: const TextStyle(fontSize: 14, color: kMuted)),
         ])),
         const SizedBox(height: 10),
         Wrap(spacing: 8, runSpacing: 8, children: chips),
@@ -173,7 +174,7 @@ class _AiRecommendDialogState extends State<AiRecommendDialog> {
             child: FilledButton.icon(
               onPressed: _submit,
               icon: const Icon(Icons.auto_awesome),
-              label: const Text('추천받기', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              label: const GuestText('추천받기', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
               style: FilledButton.styleFrom(
                 backgroundColor: kOrange,
                 foregroundColor: Colors.white,
@@ -194,7 +195,7 @@ class _AiRecommendDialogState extends State<AiRecommendDialog> {
         children: [
           CircularProgressIndicator(color: kOrange),
           SizedBox(height: 20),
-          Text('이 테이블에 맞는 게임을 고르고 있어요…', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+          GuestText('이 테이블에 맞는 게임을 고르고 있어요…', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
         ],
       ),
     );
@@ -218,7 +219,7 @@ class _AiRecommendDialogState extends State<AiRecommendDialog> {
                 shape: const StadiumBorder(),
                 minimumSize: const Size(0, 44),
               ),
-              child: const Text('다시 고르기', style: TextStyle(fontWeight: FontWeight.w700)),
+              child: const GuestText('다시 고르기', style: TextStyle(fontWeight: FontWeight.w700)),
             ),
           ],
         ),
@@ -232,7 +233,7 @@ class _AiRecommendDialogState extends State<AiRecommendDialog> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(color: kBg, borderRadius: BorderRadius.circular(12)),
-                  child: Text(l, style: const TextStyle(fontSize: 13)),
+                  child: GuestText(l, style: const TextStyle(fontSize: 13)),
                 ),
           ],
         ),
@@ -240,7 +241,7 @@ class _AiRecommendDialogState extends State<AiRecommendDialog> {
         if (picks.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 30),
-            child: Text('조건을 조금 넓혀서 다시 골라 보세요. 직원에게 물어보셔도 좋아요.',
+            child: GuestText('조건을 조금 넓혀서 다시 골라 보세요. 직원에게 물어보셔도 좋아요.',
                 textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: kBody)),
           )
         else
@@ -265,7 +266,7 @@ class _AiRecommendDialogState extends State<AiRecommendDialog> {
               const Icon(Icons.info_outline, color: kMuted, size: 20),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
+                child: GuestText(
                   result.fromAi
                       ? '지금 매장에서 꺼낼 수 있는 게임 중에서만 골랐어요. 고르기 어려우면 직원에게 물어보세요.'
                       : '지금 매장에서 꺼낼 수 있는 게임 중 조건에 맞는 것을 골랐어요.',
@@ -276,7 +277,7 @@ class _AiRecommendDialogState extends State<AiRecommendDialog> {
               FilledButton.icon(
                 onPressed: _submit,
                 icon: const Icon(Icons.refresh, size: 18),
-                label: const Text('다른 게임 추천받기', style: TextStyle(fontWeight: FontWeight.w800)),
+                label: const GuestText('다른 게임 추천받기', style: TextStyle(fontWeight: FontWeight.w800)),
                 style: FilledButton.styleFrom(
                   backgroundColor: kOrange,
                   foregroundColor: Colors.white,
@@ -305,7 +306,7 @@ class _ResultCard extends StatelessWidget {
     final url = pick.videoUrl;
     if (url == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('등록된 룰 영상이 없어요. 직원에게 물어보세요.')),
+        const SnackBar(content: GuestText('등록된 룰 영상이 없어요. 직원에게 물어보세요.')),
       );
       return;
     }
@@ -344,7 +345,7 @@ class _ResultCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                         color: rank == 1 ? kAmber : Colors.white, borderRadius: BorderRadius.circular(10)),
-                    child: Text('$rank순위', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: kInk)),
+                    child: GuestText('$rank순위', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: kInk)),
                   ),
                 ),
               ],
@@ -356,7 +357,7 @@ class _ResultCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(pick.title,
+                  GuestText(pick.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
@@ -365,23 +366,23 @@ class _ResultCard extends StatelessWidget {
                     spacing: 8,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      if (pick.players != null) Text(pick.players!, style: const TextStyle(fontSize: 13, color: Color(0xFF6F665B))),
-                      if (pick.time != null) Text('· ${pick.time}', style: const TextStyle(fontSize: 13, color: Color(0xFF6F665B))),
+                      if (pick.players != null) GuestText(pick.players!, style: const TextStyle(fontSize: 13, color: Color(0xFF6F665B))),
+                      if (pick.time != null) GuestText('· ${pick.time}', style: const TextStyle(fontSize: 13, color: Color(0xFF6F665B))),
                       if (pick.difficulty != null)
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text('· ', style: TextStyle(fontSize: 13, color: Color(0xFF6F665B))),
+                            const GuestText('· ', style: TextStyle(fontSize: 13, color: Color(0xFF6F665B))),
                             CircleAvatar(radius: 5, backgroundColor: difficultyColor(pick.difficulty)),
                             const SizedBox(width: 4),
-                            Text(pick.difficulty!, style: const TextStyle(fontSize: 13, color: Color(0xFF6F665B))),
+                            GuestText(pick.difficulty!, style: const TextStyle(fontSize: 13, color: Color(0xFF6F665B))),
                           ],
                         ),
                     ],
                   ),
                   const SizedBox(height: 10),
                   Expanded(
-                    child: Text(pick.reason,
+                    child: GuestText(pick.reason,
                         overflow: TextOverflow.fade,
                         style: const TextStyle(fontSize: 14, height: 1.6, color: Color(0xFF3D362F))),
                   ),
@@ -396,7 +397,7 @@ class _ResultCard extends StatelessWidget {
                             minimumSize: const Size(0, 44),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
-                          child: const Text('룰 영상 보기', style: TextStyle(fontWeight: FontWeight.w700)),
+                          child: const GuestText('룰 영상 보기', style: TextStyle(fontWeight: FontWeight.w700)),
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -416,7 +417,7 @@ class _ResultCard extends StatelessWidget {
                             minimumSize: const Size(0, 44),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
-                          child: const Text('게임 정보', style: TextStyle(fontWeight: FontWeight.w700)),
+                          child: const GuestText('게임 정보', style: TextStyle(fontWeight: FontWeight.w700)),
                         ),
                       ),
                     ],

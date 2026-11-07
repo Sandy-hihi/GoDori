@@ -33,6 +33,8 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
+  flutter_localizations:
+    sdk: flutter
   cupertino_icons: ^1.0.8
   firebase_core: ^4.13.0
   # 로그인: 손님 패드는 익명, 관리자는 서버가 PIN 확인 후 발급한 토큰 (lib/services/admin_session.dart)
@@ -53,6 +55,7 @@ dependencies:
   web: ^1.1.1
   # 웹(크롬)에서 영상 위 버튼·탭이 <video> 요소에 먹히지 않게 (안드로이드 앱에는 영향 없음)
   pointer_interceptor: ^0.10.1
+  flutter_svg: ^2.3.2
 
 dev_dependencies:
   flutter_test:

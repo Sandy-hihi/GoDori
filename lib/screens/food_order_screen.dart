@@ -1,3 +1,4 @@
+import 'package:boardpad/l10n/guest_language.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -231,9 +232,9 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
           children: [
             const Icon(Icons.check_circle_rounded, color: kOrange, size: 64),
             const SizedBox(height: 12),
-            const Text('주문이 접수됐어요', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
+            const GuestText('주문이 접수됐어요', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
             const SizedBox(height: 6),
-            Text(_flow.orderDoneText,
+            GuestText(_flow.orderDoneText,
                 textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, color: kMuted, height: 1.4)),
           ],
         ),
@@ -246,7 +247,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
               minimumSize: const Size(160, 48),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             ),
-            child: const Text('확인', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            child: const GuestText('확인', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
           ),
         ],
       ),
@@ -314,9 +315,9 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('${menu['name'] ?? ''}',
+                                GuestText(guestField(context, menu, 'name'),
                                     style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
-                                Text(_won(basePrice), style: const TextStyle(fontSize: 15, color: kMuted)),
+                                GuestText(_won(basePrice), style: const TextStyle(fontSize: 15, color: kMuted)),
                               ],
                             ),
                           ),
@@ -348,7 +349,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                                 children: [
                                   Row(
                                     children: [
-                                      Text('${group['groupName']}',
+                                      GuestText('${group['groupName']}',
                                           style: const TextStyle(
                                               fontSize: 16, fontWeight: FontWeight.w800, color: kInk)),
                                       const SizedBox(width: 8),
@@ -359,7 +360,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                                           borderRadius: BorderRadius.circular(8),
                                           border: Border.all(color: isRequired ? kOrange : kLine),
                                         ),
-                                        child: Text(isRequired ? '필수' : '선택',
+                                        child: GuestText(isRequired ? '필수' : '선택',
                                             style: TextStyle(
                                               fontSize: 12,
                                               fontWeight: FontWeight.w700,
@@ -375,7 +376,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                                     children: [
                                       for (final opt in opts)
                                         _optionChip(
-                                          name: '${opt['name']}',
+                                          name: guestField(context, opt, 'name'),
                                           price: (opt['price'] as int? ?? 0),
                                           selected: selectedName == opt['name'],
                                           onTap: () => setDialogState(() {
@@ -424,7 +425,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                           ),
-                          child: Text('${_won(totalPrice)} 담기',
+                          child: GuestText('${_won(totalPrice)} 담기',
                               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                         ),
                       ),
@@ -456,13 +457,13 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(name,
+              GuestText(name,
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
                     color: selected ? Colors.white : kInk,
                   )),
-              Text(price > 0 ? '+${_won(price)}' : '추가 금액 없음',
+              GuestText(price > 0 ? '+${_won(price)}' : '추가 금액 없음',
                   style: TextStyle(fontSize: 12, color: selected ? Colors.white70 : kMuted)),
             ],
           ),
@@ -629,9 +630,9 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
-                      Text(it.cat, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
+                      GuestText(it.cat, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
                       const SizedBox(width: 8),
-                      Text('${byCategory[it.cat]!.length}',
+                      GuestText('${byCategory[it.cat]!.length}',
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kMuted)),
                     ],
                   ),
@@ -669,7 +670,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                           children: [
                             Icon(Icons.replay_rounded, size: 18, color: kMuted),
                             SizedBox(width: 6),
-                            Text('메뉴 처음부터 다시',
+                            GuestText('메뉴 처음부터 다시',
                                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: kMuted)),
                           ],
                         ),
@@ -686,7 +687,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
   }
 
   Widget _buildMenuCard(Map<String, dynamic> menuData) {
-    final String name = menuData['name'] ?? '이름 없음';
+    final String name = guestField(context, menuData, 'name');
     final int price = _price(menuData['price']);
     final String? imageUrl = menuData['imageUrl'];
     final bool hasOptions = (menuData['optionGroups'] as List?)?.isNotEmpty == true;
@@ -736,7 +737,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                             color: kInk.withValues(alpha: 0.85),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Text('품절',
+                          child: const GuestText('품절',
                               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
                         ),
                       ),
@@ -752,12 +753,12 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(name,
+                      GuestText(name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: soldOut ? kMuted : kInk)),
                       const SizedBox(height: 2),
-                      Text(_won(price),
+                      GuestText(_won(price),
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w800,
@@ -771,7 +772,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(color: kLine, borderRadius: BorderRadius.circular(12)),
-                    child: const Text('품절', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: kMuted)),
+                    child: const GuestText('품절', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: kMuted)),
                   )
                 else
                   Container(
@@ -805,13 +806,13 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
               children: [
                 const Icon(Icons.shopping_bag_outlined, color: kInk),
                 const SizedBox(width: 8),
-                const Text('장바구니', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kInk)),
+                const GuestText('장바구니', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kInk)),
                 const SizedBox(width: 8),
                 if (cart.isNotEmpty)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
                     decoration: BoxDecoration(color: kOrange, borderRadius: BorderRadius.circular(10)),
-                    child: Text('${_getTotalCount()}',
+                    child: GuestText('${_getTotalCount()}',
                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
                   ),
                 const Spacer(),
@@ -819,7 +820,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                   TextButton(
                     onPressed: () => setState(() => cart.clear()),
                     style: TextButton.styleFrom(foregroundColor: kMuted),
-                    child: const Text('비우기'),
+                    child: const GuestText('비우기'),
                   ),
               ],
             ),
@@ -830,7 +831,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                 ? const Center(
                     child: Padding(
                       padding: EdgeInsets.all(24),
-                      child: Text('메뉴를 눌러 담아 주세요',
+                      child: GuestText('메뉴를 눌러 담아 주세요',
                           textAlign: TextAlign.center, style: TextStyle(fontSize: 16, color: kMuted)),
                     ),
                   )
@@ -845,18 +846,18 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(cartKey,
+                          GuestText(cartKey,
                               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kInk)),
                           const SizedBox(height: 6),
                           Row(
                             children: [
-                              Text(_won(unitPrice * quantity),
+                              GuestText(_won(unitPrice * quantity),
                                   style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: kInk)),
                               const Spacer(),
                               _qtyButton(Icons.remove, () => _updateQuantity(cartKey, -1)),
                               SizedBox(
                                 width: 34,
-                                child: Text('$quantity',
+                                child: GuestText('$quantity',
                                     textAlign: TextAlign.center,
                                     style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: kInk)),
                               ),
@@ -878,7 +879,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                   controller: _noteController,
                   style: const TextStyle(fontSize: 14, color: kInk),
                   decoration: InputDecoration(
-                    hintText: '요청사항 (예: 얼음 적게)',
+                    hintText: guestTr(context, '요청사항 (예: 얼음 적게)'),
                     hintStyle: const TextStyle(color: kMuted),
                     filled: true,
                     fillColor: Colors.white,
@@ -897,9 +898,9 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    const Text('합계', style: TextStyle(fontSize: 16, color: kBody)),
+                    const GuestText('합계', style: TextStyle(fontSize: 16, color: kBody)),
                     const Spacer(),
-                    Text(_won(_getTotalPrice()),
+                    GuestText(_won(_getTotalPrice()),
                         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: kInk)),
                   ],
                 ),
@@ -918,7 +919,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                             size: 18, color: kOrange),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: Text(_flow.cartNotice!,
+                          child: GuestText(_flow.cartNotice!,
                               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: kBody, height: 1.35)),
                         ),
                       ],
@@ -940,7 +941,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                     child: _isSubmitting
                         ? const SizedBox(
                             width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white))
-                        : const Text('주문하기', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+                        : const GuestText('주문하기', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
                   ),
                 ),
               ],

@@ -1,3 +1,4 @@
+import 'package:boardpad/l10n/guest_language.dart';
 import 'dart:async';
 import 'dart:math';
 
@@ -94,11 +95,11 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(formatDateKo(now), style: const TextStyle(fontSize: 13, color: kMuted)),
+                      GuestText(formatDateKo(now), style: const TextStyle(fontSize: 13, color: kMuted)),
                       FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
-                        child: Text(formatTimeKo(now),
+                        child: GuestText(formatTimeKo(now),
                             style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: kInk)),
                       ),
                     ],
@@ -119,10 +120,10 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(formatDateKo(now), style: const TextStyle(fontSize: 12, color: kMuted)),
+                  GuestText(formatDateKo(now), style: const TextStyle(fontSize: 12, color: kMuted)),
                   FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: Text(formatTimeKo(now),
+                    child: GuestText(formatTimeKo(now),
                         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: kInk)),
                   ),
                 ],
@@ -139,11 +140,11 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            const Text('지금 이용 중인 방', style: TextStyle(fontSize: 12, color: Color(0xA6F4EBDC))),
+            const GuestText('지금 이용 중인 방', style: TextStyle(fontSize: 12, color: Color(0xA6F4EBDC))),
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
-              child: Text('${roomNumber ?? '-'}번 룸',
+              child: GuestText('${roomNumber ?? '-'}번 룸',
                   style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: Color(0xFFF4EBDC))),
             ),
           ],
@@ -160,7 +161,7 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
                 children: [
                   Icon(Icons.notifications_active, color: Colors.white, size: 34),
                   SizedBox(width: 12),
-                  Text('직원 호출', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white)),
+                  GuestText('직원 호출', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white)),
                 ],
               )
             : const Column(
@@ -168,7 +169,7 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Icon(Icons.notifications_active, color: Colors.white, size: 30),
-                  Text('직원 호출', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
+                  GuestText('직원 호출', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
                 ],
               ),
       );
@@ -241,11 +242,11 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(_optStr(o, 'ssid') ?? '와이파이 이름',
+                GuestText(_optStr(o, 'ssid') ?? '와이파이 이름',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: kInk)),
-                Text(_optStr(o, 'password') ?? '비밀번호를 입력해 주세요',
+                GuestText(_optStr(o, 'password') ?? '비밀번호를 입력해 주세요',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 13, color: Color(0xFF6F665B))),
@@ -262,7 +263,7 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
           children: [
             Expanded(child: HomeQr(url: _optStr(o, 'url'))),
             const SizedBox(height: 6),
-            Text(_optStr(o, 'label') ?? '리뷰 남기기',
+            GuestText(_optStr(o, 'label') ?? '리뷰 남기기',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kInk)),
@@ -299,13 +300,13 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if ((_optStr(o, 'small') ?? '').isNotEmpty)
-                Text(_optStr(o, 'small')!,
+                GuestText(_optStr(o, 'small')!,
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 18, color: kBody)),
               const SizedBox(height: 4),
               FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
-                child: Text(_optStr(o, 'text') ?? '인사말을 입력해 주세요',
+                child: GuestText(_optStr(o, 'text') ?? '인사말을 입력해 주세요',
                     maxLines: 1, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: kInk)),
               ),
             ],
@@ -323,7 +324,7 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
             const Icon(Icons.sticky_note_2_outlined, color: Color(0xFFB5751E), size: 22),
             const SizedBox(height: 8),
             Flexible(
-              child: Text(_optStr(o, 'text') ?? '안내 문구를 입력해 주세요',
+              child: GuestText(_optStr(o, 'text') ?? '안내 문구를 입력해 주세요',
                   overflow: TextOverflow.fade,
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, height: 1.5, color: kInk)),
             ),
@@ -427,12 +428,12 @@ class _PhotoCard extends StatelessWidget {
                           FittedBox(
                             fit: BoxFit.scaleDown,
                             alignment: Alignment.centerLeft,
-                            child: Text(title,
+                            child: GuestText(title,
                                 style: TextStyle(
                                     fontSize: 28, fontWeight: FontWeight.w800, letterSpacing: -1, color: titleColor)),
                           ),
                           const SizedBox(height: 4),
-                          Text(subtitle,
+                          GuestText(subtitle,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(fontSize: 14, color: subColor)),
@@ -490,8 +491,8 @@ class _SearchWidgetState extends State<_SearchWidget> {
             onSubmitted: (_) => _search(),
             textInputAction: TextInputAction.search,
             style: const TextStyle(fontSize: 15, color: kInk),
-            decoration: const InputDecoration(
-              hintText: '게임 이름으로 검색',
+            decoration: InputDecoration(
+              hintText: guestTr(context, '게임 이름으로 검색'),
               hintStyle: TextStyle(color: Color(0xFF9A958C)),
               border: InputBorder.none,
               isDense: true,
@@ -501,7 +502,7 @@ class _SearchWidgetState extends State<_SearchWidget> {
         IconButton(
           onPressed: _search,
           icon: const Icon(Icons.arrow_forward, color: kInk, size: 20),
-          tooltip: '검색',
+          tooltip: guestTr(context, '검색'),
         ),
       ],
     );
@@ -525,7 +526,7 @@ class _SearchWidgetState extends State<_SearchWidget> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Text('어떤 게임 찾으세요?', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: kInk)),
+          const GuestText('어떤 게임 찾으세요?', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: kInk)),
           const SizedBox(height: 12),
           Container(
             height: 50,
@@ -541,8 +542,8 @@ class _SearchWidgetState extends State<_SearchWidget> {
                     onSubmitted: (_) => _search(),
                     textInputAction: TextInputAction.search,
                     style: const TextStyle(fontSize: 15, color: kInk),
-                    decoration: const InputDecoration(
-                      hintText: '게임 이름으로 검색',
+                    decoration: InputDecoration(
+                      hintText: guestTr(context, '게임 이름으로 검색'),
                       hintStyle: TextStyle(color: Color(0xFF9A958C)),
                       border: InputBorder.none,
                       isDense: true,
@@ -552,7 +553,7 @@ class _SearchWidgetState extends State<_SearchWidget> {
                 IconButton(
                   onPressed: _search,
                   icon: const Icon(Icons.arrow_forward, color: kInk),
-                  tooltip: '검색',
+                  tooltip: guestTr(context, '검색'),
                 ),
               ],
             ),
@@ -594,7 +595,7 @@ class _FinderWidget extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (leading != null) ...[leading, const SizedBox(width: 6)],
-                Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kInk)),
+                GuestText(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kInk)),
               ],
             ),
           ),
@@ -657,7 +658,7 @@ class _FinderWidget extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Text('이렇게 찾아보세요', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: kInk)),
+          const GuestText('이렇게 찾아보세요', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: kInk)),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -714,7 +715,7 @@ class _MenuPickWidget extends StatelessWidget {
       return const HomeCard(
         color: kCreamCard,
         child: Center(
-          child: Text('관리자 화면에서 추천 메뉴를 골라 주세요',
+          child: GuestText('관리자 화면에서 추천 메뉴를 골라 주세요',
               textAlign: TextAlign.center, style: TextStyle(fontSize: 15, color: kMuted)),
         ),
       );
@@ -756,15 +757,15 @@ class _MenuPickWidget extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text(soldOut ? '오늘의 추천 메뉴 · 품절' : '오늘의 추천 메뉴',
+                        GuestText(soldOut ? '오늘의 추천 메뉴 · 품절' : '오늘의 추천 메뉴',
                             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kOrange)),
                         const SizedBox(height: 4),
-                        Text(name.isEmpty ? '메뉴를 불러오는 중' : name,
+                        GuestText(name.isEmpty ? '메뉴를 불러오는 중' : name,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kInk)),
                         if (priceText.isNotEmpty)
-                          Text(priceText, style: const TextStyle(fontSize: 15, color: Color(0xFF6F665B))),
+                          GuestText(priceText, style: const TextStyle(fontSize: 15, color: Color(0xFF6F665B))),
                       ],
                     ),
                   ),
@@ -790,10 +791,10 @@ class _FeeWidget extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Text('요금 안내', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: kInk)),
+          const GuestText('요금 안내', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: kInk)),
           const SizedBox(height: 8),
           if (rows.isEmpty)
-            const Text('관리자 화면에서 요금표를 입력해 주세요', style: TextStyle(fontSize: 14, color: kMuted))
+            const GuestText('관리자 화면에서 요금표를 입력해 주세요', style: TextStyle(fontSize: 14, color: kMuted))
           else
             for (final r in rows.take(4))
               Padding(
@@ -801,12 +802,12 @@ class _FeeWidget extends StatelessWidget {
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text(r.label,
+                      child: GuestText(r.label,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 15, color: kBody)),
                     ),
-                    Text(r.value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kInk)),
+                    GuestText(r.value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kInk)),
                   ],
                 ),
               ),
@@ -885,10 +886,10 @@ class _TimerWidgetState extends State<_TimerWidget> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(_done ? '시간 끝!' : '타이머',
+          GuestText(_done ? '시간 끝!' : '타이머',
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: _done ? kOrange : const Color(0xFF0277BD))),
           FittedBox(
-            child: Text('$mm:$ss',
+            child: GuestText('$mm:$ss',
                 style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w600, color: kInk, letterSpacing: 1)),
           ),
           Row(
@@ -904,7 +905,7 @@ class _TimerWidgetState extends State<_TimerWidget> {
                     padding: EdgeInsets.zero,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: Text(_running ? '멈춤' : '시작', style: const TextStyle(fontWeight: FontWeight.w700)),
+                  child: GuestText(_running ? '멈춤' : '시작', style: const TextStyle(fontWeight: FontWeight.w700)),
                 ),
               ),
               const SizedBox(width: 6),
@@ -1005,7 +1006,7 @@ class _DiceWidgetState extends State<_DiceWidget> {
             height: 36,
             alignment: Alignment.center,
             decoration: BoxDecoration(color: kBg, borderRadius: BorderRadius.circular(12)),
-            child: const Text('눌러서 굴리기', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: kInk)),
+            child: const GuestText('눌러서 굴리기', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: kInk)),
           ),
         ],
       ),
@@ -1052,7 +1053,7 @@ class _BannerWidget extends StatelessWidget {
                 left: 20,
                 right: 20,
                 bottom: 16,
-                child: Text(caption!,
+                child: GuestText(caption!,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
@@ -1099,13 +1100,13 @@ class AiPickWidget extends StatelessWidget {
                 const Icon(Icons.auto_awesome, color: kAmber, size: 20),
                 const SizedBox(width: 8),
                 const Expanded(
-                  child: Text('오늘의 추천 게임',
+                  child: GuestText('오늘의 추천 게임',
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFFF4EBDC))),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(color: const Color(0x2EF0B35A), borderRadius: BorderRadius.circular(10)),
-                  child: const Text('AI', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: kAmber)),
+                  child: const GuestText('AI', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: kAmber)),
                 ),
               ],
             ),
@@ -1125,7 +1126,7 @@ class AiPickWidget extends StatelessWidget {
                       }
                       if (picks.isEmpty) {
                         return const Center(
-                          child: Text('추천 게임을 준비하고 있어요',
+                          child: GuestText('추천 게임을 준비하고 있어요',
                               style: TextStyle(fontSize: 14, color: Color(0xA6F4EBDC))),
                         );
                       }
@@ -1146,7 +1147,7 @@ class AiPickWidget extends StatelessWidget {
                     foregroundColor: kInk,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
-                  child: const Text('우리 테이블 맞춤 추천받기', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+                  child: const GuestText('우리 테이블 맞춤 추천받기', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
                 ),
               ),
             ],
@@ -1187,11 +1188,11 @@ class AiPickWidget extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(picks[i].title,
+                          GuestText(picks[i].title,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFFF4EBDC))),
-                          Text(picks[i].reason,
+                          GuestText(picks[i].reason,
                               maxLines: tall ? 2 : 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(fontSize: 12, color: Color(0xA6F4EBDC))),
