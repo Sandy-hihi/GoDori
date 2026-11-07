@@ -90,7 +90,8 @@ class _PostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isImage = item['type'] == 'image';
-    final title = (guestField(context, item, 'title')).toString();
+    // 매장 번역이 없으면 번역표에 같은 문장(예: '이용안내')이 있을 때만 바꿈 (81차)
+    final title = GuestLanguage.instance.translateExact(guestField(context, item, 'title').toString());
     final content = (guestField(context, item, 'content')).toString();
 
     return HomeCard(

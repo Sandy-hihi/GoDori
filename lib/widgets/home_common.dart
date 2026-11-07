@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:boardpad/l10n/guest_language.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boardpad/services/store_info_service.dart';
 import 'package:boardpad/utils/game_meta.dart';
@@ -333,11 +334,14 @@ class LatestItemTitle extends StatelessWidget {
         if (data is Map<String, dynamic>) {
           final items = data['items'];
           if (items is List && items.isNotEmpty && items.first is Map) {
-            title = ((items.first as Map)['title'] ?? '').toString();
+            // 매장이 넣은 번역(translations) → 없으면 번역표에 같은 문장이 있을 때만 (81차)
+            title = GuestLanguage.instance.translateExact(
+              guestField(context, items.first as Map, 'title'),
+            );
           }
         }
         return Text(
-          title.isEmpty ? emptyText : title,
+          title.isEmpty ? guestTr(context, emptyText) : title,
           maxLines: maxLines,
           overflow: TextOverflow.ellipsis,
           style: style,

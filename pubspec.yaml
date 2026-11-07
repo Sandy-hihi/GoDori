@@ -96,6 +96,21 @@ flutter:
           weight: 700
         - asset: assets/fonts/Pretendard-ExtraBold.otf
           weight: 800
+  # 중국어·일본어 글꼴 (81차) — 손님 패드 번역 문구에 쓰는 글자만 남긴 부분 글꼴(굵기 400·700).
+  # 앱에 넣어 두지 않으면 웹에서 언어를 처음 바꿀 때 글자가 깨졌다가 새로고침해야 보임.
+  # 번역 문구(lib/l10n/guest_messages.dart)에 새 한자·가나를 넣으면 다시 만들어야 함 (assets/fonts/NotoSansCJK-LICENSE.txt)
+    - family: NotoSansSC
+      fonts:
+        - asset: assets/fonts/NotoSansSC-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansSC-Bold.ttf
+          weight: 700
+    - family: NotoSansJP
+      fonts:
+        - asset: assets/fonts/NotoSansJP-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansJP-Bold.ttf
+          weight: 700
   # assets:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg

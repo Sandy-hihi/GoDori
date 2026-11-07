@@ -19,6 +19,8 @@ import 'package:boardpad/widgets/home/home_theme.dart';
 /// - 새로 준비된 주문이 오면 알림 소리(assets/sounds/order_ready.mp3) + 큰 알림 창. '확인'으로 닫아도 위쪽에 작은 띠가 남고,
 ///   관리자가 주문현황에서 '받아 감'/'결제·전달 완료'를 누르면 사라짐
 /// - 관리자 토큰(방 0)·로그아웃 상태에서는 아무것도 안 함
+/// - 81차: 자기 방 roomStatus 문서도 구독 — 토스 포스에서 그 방 패드 주문이 다 결제되면(settledAt이 바뀜)
+///   손님이 바꾼 언어를 로그인 때 고른 언어로 되돌림. 토스 연동을 안 하는 매장은 문서가 안 생겨서 아무 일 없음
 class OrderReadyOverlay extends StatefulWidget {
   final Widget child;
   const OrderReadyOverlay({super.key, required this.child});
@@ -38,6 +40,9 @@ class _ReadyOrder {
 class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
   StreamSubscription<User?>? _authSub;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _orderSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _roomSub;
+  Object? _settledSeen; // 처음 받은 settledAt (켤 때 이미 있던 값으로는 되돌리지 않음)
+  bool _roomFirst = true;
   String? _watchKey; // '매장/방' — 토큰이 새로 고쳐져도 같은 방이면 다시 구독하지 않음
   final _player = AudioPlayer();
 
@@ -73,6 +78,10 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
     _watchKey = key;
     await _orderSub?.cancel();
     _orderSub = null;
+    await _roomSub?.cancel();
+    _roomSub = null;
+    _roomFirst = true;
+    _settledSeen = null;
     if (mounted) {
       setState(() {
         _ready = [];
@@ -90,6 +99,26 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
         .snapshots()
         .metered()
         .listen(_onOrders, onError: (e) => debugPrint('OrderReadyOverlay: $e'));
+    _roomSub = FirebaseFirestore.instance
+        .collection('stores')
+        .doc(store)
+        .collection('roomStatus')
+        .doc('$room')
+        .snapshots() // 문서 하나라 사용량 집계(metered)는 생략
+        .listen(_onRoomStatus, onError: (e) => debugPrint('OrderReadyOverlay roomStatus: $e'));
+  }
+
+  void _onRoomStatus(DocumentSnapshot<Map<String, dynamic>> snap) {
+    final settled = snap.data()?['settledAt'];
+    if (_roomFirst) {
+      _roomFirst = false;
+      _settledSeen = settled;
+      return;
+    }
+    if (settled != null && settled != _settledSeen) {
+      _settledSeen = settled;
+      GuestLanguage.instance.resetToDefault();
+    }
   }
 
   void _onOrders(QuerySnapshot<Map<String, dynamic>> snap) {
@@ -118,6 +147,7 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
   void dispose() {
     _authSub?.cancel();
     _orderSub?.cancel();
+    _roomSub?.cancel();
     _player.dispose();
     super.dispose();
   }

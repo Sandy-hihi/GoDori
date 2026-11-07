@@ -55,6 +55,13 @@ service cloud.firestore {
                 || (exists(roomsPath) && n <= get(roomsPath).data.count));
       }
 
+      // ── 방 결제 상태 (81차, 서버만 씀) — 토스 포스에서 그 방 패드 주문이 다 결제되면 settledAt
+      //    그 방 패드는 자기 방 문서만 읽음(로그인 때 고른 언어로 돌아가려고), 관리자는 전부
+      match /roomStatus/{room} {
+        allow read: if isAdmin() || (isPad() && room == string(padRoom()));
+        allow write: if false;
+      }
+
       // ── 비밀번호 (서버만) ──
       match /private/{docId} {
         allow read, write: if false;

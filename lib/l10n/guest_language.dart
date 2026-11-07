@@ -9,17 +9,39 @@ class GuestLanguage extends ChangeNotifier {
   static final instance = GuestLanguage._();
   static const codes = ['ko', 'en', 'zh', 'ja'];
   static const names = ['한국어', 'English', '中文', '日本語'];
+
+  /// Pretendard에 없는 한자·가나를 그릴 글꼴 (앱에 넣은 부분 글꼴, 81차).
+  /// 일본어일 땐 일본식 한자 모양이 먼저 나오게 JP를 앞에.
+  List<String> get fontFallback =>
+      code == 'ja' ? const ['NotoSansJP', 'NotoSansSC'] : const ['NotoSansSC', 'NotoSansJP'];
   String code = 'ko';
+
+  /// 로그인 때 고른 언어 (81차) — 토스 포스에서 그 방 결제가 끝나면 이 언어로 돌아감
+  String defaultCode = 'ko';
   Future<void> load() async {
     try {
-      final saved = (await SharedPreferences.getInstance()).getString(
-        'guest_language',
-      );
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('guest_language');
       if (codes.contains(saved)) code = saved!;
+      final def = prefs.getString('guest_language_default');
+      defaultCode = codes.contains(def) ? def! : code;
     } catch (_) {
       /* Keep Korean when device storage is unavailable. */
     }
   }
+
+  /// 패드 로그인 성공 때 부름 — 지금 언어를 기본 언어로 저장
+  Future<void> rememberDefault() async {
+    defaultCode = code;
+    try {
+      await (await SharedPreferences.getInstance()).setString('guest_language_default', code);
+    } catch (_) {
+      /* The default still works for the current session. */
+    }
+  }
+
+  /// 손님이 바꾼 언어를 기본 언어로 되돌림 (방 결제 끝, 81차)
+  Future<void> resetToDefault() => select(defaultCode);
 
   Future<void> select(String value) async {
     if (!codes.contains(value) || value == code) return;
@@ -35,11 +57,20 @@ class GuestLanguage extends ChangeNotifier {
     }
   }
 
+  /// 번역표에 똑같은 문장이 있을 때만 바꿈 (매장이 쓴 글 — 공지 제목·인사말 등, 81차).
+  String translateExact(String text) {
+    final i = codes.indexOf(code) - 1;
+    if (i < 0) return text;
+    return guestMessages[text.trim()]?[i] ?? text;
+  }
+
   String translate(String text) {
     final i = codes.indexOf(code) - 1;
     if (i < 0) return text;
     final exact = guestMessages[text];
     if (exact != null) return exact[i];
+    final dated = _translateDateTime(text, i);
+    if (dated != null) return dated;
     if (text.startsWith('전체 ')) {
       return ['All ', '全部', 'すべての'][i] + translate(text.substring(3));
     }
@@ -54,6 +85,39 @@ class GuestLanguage extends ChangeNotifier {
     }
     return text;
   }
+}
+
+// 시계: formatDateKo '11월 7일 (토)' · formatTimeKo '오후 10:01' (home_common.dart, 81차)
+final _dateKo = RegExp(r'^(\d{1,2})월 (\d{1,2})일 \(([월화수목금토일])\)$');
+final _timeKo = RegExp(r'^(오전|오후) (\d{1,2}):(\d{2})$');
+const _weekKo = ['월', '화', '수', '목', '금', '토', '일'];
+const _weekEn = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const _weekZh = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+const _weekJa = ['月', '火', '水', '木', '金', '土', '日'];
+const _monthEn = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/// i: 0 = en, 1 = zh, 2 = ja
+String? _translateDateTime(String text, int i) {
+  final d = _dateKo.firstMatch(text);
+  if (d != null) {
+    final m = int.parse(d[1]!), day = d[2]!, w = _weekKo.indexOf(d[3]!);
+    if (m < 1 || m > 12 || w < 0) return null;
+    return [
+      '${_weekEn[w]}, ${_monthEn[m - 1]} $day',
+      '$m月$day日（${_weekZh[w]}）',
+      '$m月$day日（${_weekJa[w]}）',
+    ][i];
+  }
+  final t = _timeKo.firstMatch(text);
+  if (t != null) {
+    final pm = t[1] == '오후', hm = '${t[2]}:${t[3]}';
+    return [
+      '$hm ${pm ? 'PM' : 'AM'}',
+      '${pm ? '下午' : '上午'}$hm',
+      '${pm ? '午後' : '午前'}$hm',
+    ][i];
+  }
+  return null;
 }
 
 final _patterns = <(RegExp, List<String>)>[

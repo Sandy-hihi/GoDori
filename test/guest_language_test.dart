@@ -94,4 +94,47 @@ void main() {
       );
     },
   );
+
+  // 81차: 시계·매장 글
+  test('clock date and time are translated', () async {
+    final l = GuestLanguage.instance;
+    await l.select('en');
+    expect(l.translate('11월 7일 (토)'), 'Sat, Nov 7');
+    expect(l.translate('오후 10:01'), '10:01 PM');
+    expect(l.translate('오전 9:05'), '9:05 AM');
+    await l.select('zh');
+    expect(l.translate('11월 7일 (토)'), '11月7日（周六）');
+    expect(l.translate('오후 10:01'), '下午10:01');
+    await l.select('ja');
+    expect(l.translate('11월 7일 (토)'), '11月7日（土）');
+    expect(l.translate('오전 9:05'), '午前9:05');
+    await l.select('ko');
+    expect(l.translate('오후 10:01'), '오후 10:01');
+  });
+  test('store text is translated only on exact match', () async {
+    final l = GuestLanguage.instance;
+    await l.select('en');
+    expect(l.translateExact('이용안내'), guestMessages['이용안내']![0]);
+    expect(l.translateExact('안녕하세요!'), 'Hello!');
+    expect(l.translateExact('우리 매장 3번 공지'), '우리 매장 3번 공지');
+    await l.select('ko');
+    expect(l.translateExact('이용안내'), '이용안내');
+  });
+
+  // 81차: 로그인 때 언어 = 기본 언어, 방 결제 끝나면 되돌림
+  test('default language is remembered at login and restored', () async {
+    final l = GuestLanguage.instance;
+    await l.select('en');
+    await l.rememberDefault();
+    await l.select('ja');
+    await l.load();
+    expect(l.code, 'ja');
+    expect(l.defaultCode, 'en');
+    await l.resetToDefault();
+    expect(l.code, 'en');
+    expect(
+      (await SharedPreferences.getInstance()).getString('guest_language'),
+      'en',
+    );
+  });
 }

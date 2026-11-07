@@ -32,6 +32,7 @@ class GodoriApp extends StatelessWidget {
       title: '고도리',
       theme: ThemeData(
         fontFamily: 'Pretendard',
+        fontFamilyFallback: GuestLanguage.instance.fontFallback,
         scaffoldBackgroundColor: const Color(0xFF00B37E),
         // 손님 패드 기본 강조색(진행 표시·스위치·커서 등)을 메인 화면 주황으로
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFE2711D)),

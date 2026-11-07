@@ -1333,5 +1333,20 @@ const guestMessages = <String, List<String>> {
     "Game details",
     "游戏信息",
     "ゲーム情報"
+  ],
+  "안녕하세요!": [
+    "Hello!",
+    "您好！",
+    "こんにちは！"
+  ],
+  "오늘도 즐거운 게임 시간 보내세요": [
+    "Have a great game time today",
+    "祝您今天游戏愉快",
+    "今日も楽しいゲーム時間をお過ごしください"
+  ],
+  "새로운 이벤트": [
+    "New event",
+    "新活动",
+    "新しいイベント"
   ]
 };

@@ -152,9 +152,38 @@ class _LinkDialogState extends State<_LinkDialog> {
   }
 }
 
-class _FakeOrdersDialog extends StatelessWidget {
+class _FakeOrdersDialog extends StatefulWidget {
   final String storeId;
   const _FakeOrdersDialog({required this.storeId});
+
+  @override
+  State<_FakeOrdersDialog> createState() => _FakeOrdersDialogState();
+}
+
+class _FakeOrdersDialogState extends State<_FakeOrdersDialog> {
+  late Future<List<Map<String, dynamic>>> _future = OpsService.tossFakeOrders(widget.storeId);
+  final Set<String> _busy = {};
+
+  // 81차: 가짜 포스에서 '결제 완료' 흉내 → 그 방 패드 주문이 다 끝나면 패드 언어가 로그인 때 언어로
+  Future<void> _complete(Map<String, dynamic> o) async {
+    final key = '${o['orderKey']}';
+    setState(() => _busy.add(key));
+    String msg;
+    try {
+      final r = await OpsService.tossFakeComplete(widget.storeId, o);
+      msg = r['settled'] == true
+          ? '${o['orderNumber'] ?? ''} 결제 끝 — 이 방 패드 언어가 로그인 때 언어로 돌아가요'
+          : '결제 완료로 표시했어요${r['open'] is num ? ' (이 방에 아직 안 끝난 주문 ${r['open']}건)' : ''}';
+    } catch (e) {
+      msg = '$e';
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(msg)));
+    setState(() {
+      _busy.remove(key);
+      _future = OpsService.tossFakeOrders(widget.storeId);
+    });
+  }
 
   // 서버 시각(UTC, ISO) → 한국 시간 '2026-11-06 02:50:52'
   static String _kst(Object? iso) {
@@ -178,12 +207,12 @@ class _FakeOrdersDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('$storeId — 가짜 포스에 들어온 주문'),
+      title: Text('${widget.storeId} — 가짜 포스에 들어온 주문'),
       content: SizedBox(
         width: 560,
         height: 480,
         child: FutureBuilder<List<Map<String, dynamic>>>(
-          future: OpsService.tossFakeOrders(storeId),
+          future: _future,
           builder: (context, snap) {
             if (snap.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
             if (snap.hasError) return Text('${snap.error}', style: const TextStyle(color: Colors.red));
@@ -202,6 +231,16 @@ class _FakeOrdersDialog extends StatelessWidget {
                       for (final li in (o['lineItems'] as List? ?? const [])) Text(_lineText(li as Map)),
                       if ((o['memo'] ?? '').toString().isNotEmpty)
                         Text('${o['memo']}', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: o['posState'] == 'COMPLETED'
+                            ? Text('결제 완료 ✓ ${_kst(o['completedAt'])}',
+                                style: const TextStyle(color: Color(0xFF27AE60), fontSize: 12, fontWeight: FontWeight.w600))
+                            : TextButton(
+                                onPressed: _busy.contains('${o['orderKey']}') ? null : () => _complete(o),
+                                child: const Text('결제 완료 (흉내)'),
+                              ),
+                      ),
                     ]),
                   ),
                 ),

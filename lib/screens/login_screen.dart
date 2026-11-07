@@ -92,6 +92,8 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       final session = result.session!;
       await AdminSession.savePrefs(storeId: id, room: room, autoLogin: _autoLogin);
+      // 81차: 로그인 때 고른 언어 = 이 패드의 기본 언어 (토스 결제가 끝나면 여기로 돌아감)
+      if (!session.isAdmin) await GuestLanguage.instance.rememberDefault();
       if (!mounted) return;
       _passwordController.clear();
       setState(() => _busy = false);
@@ -224,7 +226,7 @@ class _LoginScreenState extends State<LoginScreen> {
   InputDecoration _decoration(String label, IconData icon, {String? helper, Widget? suffix}) {
     return InputDecoration(
       labelText: guestTr(context, label),
-      helperText: helper,
+      helperText: helper == null ? null : guestTr(context, helper),
       prefixIcon: Icon(icon),
       suffixIcon: suffix,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),

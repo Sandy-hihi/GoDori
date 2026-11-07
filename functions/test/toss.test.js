@@ -221,6 +221,55 @@ test('웹훅: 서명·중복·앱 설치·주문 상태', async () => {
   assert.equal(o.tossPos.posReason, '재료 소진');
 });
 
+test('방 결제 끝 (81차): 포스로 보낸 그 방 주문이 다 완료되면 settledAt — 가짜 포스 결제 완료·웹훅', async () => {
+  const { call, data, tick } = make({ orders: { a: ORDER, b: { ...ORDER }, c: { ...ORDER, room: '#4' } } });
+  await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'fake' } });
+  for (const [tok, id] of [['pad3', 'a'], ['pad3', 'b'], ['pad4', 'c']]) {
+    assert.equal((await call('POST', '/api/toss/send-order', { token: tok, body: { orderId: id } })).body.ok, true);
+  }
+  assert.deepEqual(data.rooms.get('platform6/3').open, ['a', 'b']);
+  const fakes = Object.fromEntries(data.sandbox.get('fake-platform6').map((o) => [o.orderKey, o.id]));
+  const done = (orderId, extra = {}) => call('POST', '/api/ops/toss/fake-complete', {
+    token: 'ops', body: { storeId: 'platform6', orderKey: `godori-platform6-${orderId}`, id: fakes[`godori-platform6-${orderId}`], ...extra },
+  });
+  assert.equal((await call('POST', '/api/ops/toss/fake-complete', { token: 'admin', body: {} })).status, 403);
+  assert.equal((await done('a', { orderKey: 'godori-other-store-a' })).body.error, 'INVALID_ORDER_KEY');
+  // 한 건만 끝남 → 아직
+  const r1 = await done('a');
+  assert.equal(r1.body.settled, false);
+  assert.equal(r1.body.open, 1);
+  assert.equal(data.rooms.get('platform6/3').settledAt, undefined);
+  assert.equal(data.sandbox.get('fake-platform6').find((o) => o.orderKey === 'godori-platform6-a').posState, 'COMPLETED');
+  assert.equal((await data.getOrder('platform6', 'a')).tossPos.posState, 'COMPLETED');
+  // 남은 한 건 → 정산 끝, 다른 방은 그대로
+  tick(1000);
+  const r2 = await done('b');
+  assert.equal(r2.body.settled, true);
+  const room3 = data.rooms.get('platform6/3');
+  assert.deepEqual(room3.open, []);
+  assert.ok(room3.settledAt);
+  assert.equal(room3.paidInCycle, false);
+  assert.deepEqual(data.rooms.get('platform6/4').open, ['c']);
+  // 같은 주문을 또 눌러도 다시 정산하지 않음
+  assert.equal((await done('b')).body.settled, false);
+  assert.equal(data.rooms.get('platform6/3').settledAt, room3.settledAt);
+});
+
+test('방 결제 끝: 취소만 있으면 정산 아님, 완료가 섞이면 정산', async () => {
+  const { data } = make();
+  await data.openRoomOrder('platform6', 3, 'x');
+  await data.openRoomOrder('platform6', 3, 'y');
+  assert.equal((await data.closeRoomOrder('platform6', 3, 'x', { paid: false, atIso: 't1' })).settled, false);
+  assert.equal((await data.closeRoomOrder('platform6', 3, 'y', { paid: false, atIso: 't2' })).settled, false);
+  assert.equal(data.rooms.get('platform6/3').settledAt, undefined);
+  await data.openRoomOrder('platform6', 3, 'z');
+  await data.openRoomOrder('platform6', 3, 'w');
+  assert.equal((await data.closeRoomOrder('platform6', 3, 'z', { paid: true, atIso: 't3' })).settled, false);
+  assert.equal((await data.closeRoomOrder('platform6', 3, 'w', { paid: false, atIso: 't4' })).settled, true);
+  assert.equal(data.rooms.get('platform6/3').settledAt, 't4');
+  assert.equal((await data.closeRoomOrder('platform6', 3, 'nope', { paid: true, atIso: 't5' })).settled, false);
+});
+
 test('웹훅 비밀값이 없으면 503', async () => {
   const { call } = make({ webhookSecret: '' });
   assert.equal((await call('POST', '/api/toss/webhook', { body: {}, rawBody: Buffer.from('{}') })).status, 503);
