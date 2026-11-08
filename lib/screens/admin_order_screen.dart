@@ -99,279 +99,338 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
         .update({'isAcknowledged': true});
   }
 
+  // ── 화면 (82차: 손님 패드와 같은 크림 톤, 아이패드 가로는 2열 카드) ──
+  static const _bg = Color(0xFFF4F0E8);
+  static const _ink = Color(0xFF26211C);
+  static const _muted = Color(0xFF7A7266);
+  static const _line = Color(0xFFE6E1D7);
+  static const _orange = Color(0xFFE2711D);
+  static const _green = Color(0xFF1F9D63);
+  static const _navy = Color(0xFF1E2B3C);
+
+  Color _statusColor(String status) => switch (status) {
+        'pending' => _orange,
+        'preparing' => const Color(0xFFB85C1A),
+        'ready' => _green,
+        _ => _muted,
+      };
+
   @override
   Widget build(BuildContext context) {
+    final double width = MediaQuery.sizeOf(context).width;
+    final bool phone = width < 600;
+    final int columns = width >= 1100 ? 2 : 1;
+
     return Scaffold(
-      backgroundColor: const Color(0xFF1E2B3C),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1E2B3C),
-        title: const Text('주문현황', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        iconTheme: const IconThemeData(color: Colors.white),
-        actions: [
-          // 지금 매장의 음식 수령 방식 (관리자 웹 '매장 설정'에서 바꿈). 이미 들어온 주문은 주문할 때의 방식대로
+      backgroundColor: _bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _header(context),
+            Expanded(
+              child: StreamBuilder<QuerySnapshot>(
+                stream: StoreScope.col('orders').orderBy('timestamp', descending: true).snapshots().metered(),
+                builder: (context, orderSnap) {
+                  return StreamBuilder<QuerySnapshot>(
+                    stream: StoreScope.col('staff_calls').where('isAcknowledged', isEqualTo: false).snapshots().metered(),
+                    builder: (context, callSnap) {
+                      if (orderSnap.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator(color: _orange));
+                      }
+                      final calls = (callSnap.data?.docs ?? []).toList()
+                        ..sort((a, b) {
+                          final aTs = (a.data() as Map)['timestamp'];
+                          final bTs = (b.data() as Map)['timestamp'];
+                          if (aTs == null || bTs == null) return 0;
+                          return (bTs as Timestamp).compareTo(aTs as Timestamp);
+                        });
+                      final orders = orderSnap.data?.docs ?? [];
+                      final active = orders.where((d) => ((d.data() as Map)['status'] ?? 'pending') != 'completed').length;
+
+                      if (orders.isEmpty && calls.isEmpty) return _empty();
+
+                      return CustomScrollView(
+                        slivers: [
+                          if (calls.isNotEmpty) ...[
+                            _sectionTitle('직원 호출', calls.length, _orange),
+                            SliverPadding(
+                              padding: EdgeInsets.fromLTRB(phone ? 12 : 24, 0, phone ? 12 : 24, 8),
+                              sliver: SliverList.separated(
+                                itemCount: calls.length,
+                                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                                itemBuilder: (context, i) => _callCard(calls[i]),
+                              ),
+                            ),
+                          ],
+                          _sectionTitle('주문', active, _navy, suffix: active == orders.length ? null : '완료 ${orders.length - active}'),
+                          SliverPadding(
+                            padding: EdgeInsets.fromLTRB(phone ? 12 : 24, 0, phone ? 12 : 24, 32),
+                            sliver: phone
+                                ? SliverList.builder(
+                                    itemCount: orders.length,
+                                    itemBuilder: (context, i) => _orderTile(orders[i], phone: true),
+                                  )
+                                : SliverGrid(
+                                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: columns,
+                                      mainAxisSpacing: 14,
+                                      crossAxisSpacing: 14,
+                                      mainAxisExtent: 176,
+                                    ),
+                                    delegate: SliverChildBuilderDelegate(
+                                      (context, i) => _orderTile(orders[i], phone: false),
+                                      childCount: orders.length,
+                                    ),
+                                  ),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _header(BuildContext context) {
+    final now = DateTime.now();
+    final date = '${now.month}월 ${now.day}일';
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 20, 10),
+      decoration: const BoxDecoration(color: Colors.white, border: Border(bottom: BorderSide(color: _line))),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: () => Navigator.maybePop(context),
+            icon: const Icon(Icons.arrow_back_rounded, color: _ink),
+            tooltip: '나가기',
+          ),
+          const SizedBox(width: 4),
+          const Text('주문현황', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: _ink, letterSpacing: -0.3)),
+          const SizedBox(width: 10),
+          Text(date, style: const TextStyle(fontSize: 14, color: _muted)),
+          const Spacer(),
           StreamBuilder<OrderFlow>(
             stream: OrderFlowService.watch(),
             builder: (context, snap) {
               final flow = snap.data;
               if (flow == null) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text('수령 방식: ${flow.title}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
-                  ),
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(color: _bg, borderRadius: BorderRadius.circular(20), border: Border.all(color: _line)),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.room_service_outlined, size: 16, color: _muted),
+                    const SizedBox(width: 6),
+                    Text('수령 방식 · ${flow.title}', style: const TextStyle(color: _ink, fontSize: 13, fontWeight: FontWeight.w600)),
+                  ],
                 ),
               );
             },
           ),
         ],
       ),
-      body: Column(
+    );
+  }
+
+  Widget _sectionTitle(String title, int count, Color color, {String? suffix}) {
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(24, 18, 24, 10),
+      sliver: SliverToBoxAdapter(
+        child: Row(
+          children: [
+            Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: _ink)),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
+              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(12)),
+              child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
+            ),
+            if (suffix != null) ...[
+              const SizedBox(width: 10),
+              Text(suffix, style: const TextStyle(fontSize: 13, color: _muted)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _empty() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // ── 직원 호출 섹션 ──
-          StreamBuilder<QuerySnapshot>(
-            stream: StoreScope.col('staff_calls')
-                .where('isAcknowledged', isEqualTo: false)
-                .snapshots()
-                .metered(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return const SizedBox.shrink();
-              }
-              final calls = snapshot.data!.docs.toList()
-                ..sort((a, b) {
-                  final aTs = (a.data() as Map)['timestamp'];
-                  final bTs = (b.data() as Map)['timestamp'];
-                  if (aTs == null || bTs == null) return 0;
-                  return (bTs as Timestamp).compareTo(aTs as Timestamp);
-                });
-              return Column(
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: _line)),
+            child: const Icon(Icons.inbox_outlined, color: _muted, size: 34),
+          ),
+          const SizedBox(height: 14),
+          const Text('대기 중인 주문이 없어요', style: TextStyle(color: _ink, fontSize: 17, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 4),
+          const Text('손님이 주문하면 소리와 함께 여기에 떠요', style: TextStyle(color: _muted, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+
+  Widget _callCard(QueryDocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final room = data['roomNumber']?.toString() ?? '?';
+    String timeStr = '';
+    final ts = data['timestamp'];
+    if (ts is Timestamp) {
+      final dt = ts.toDate().toLocal();
+      timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    }
+    return Container(
+      height: 72,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _orange.withValues(alpha: 0.5), width: 1.5),
+        boxShadow: [BoxShadow(color: _orange.withValues(alpha: 0.12), blurRadius: 10, offset: const Offset(0, 3))],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 84,
+            color: _orange,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text('$room번', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
+                if (timeStr.isNotEmpty) Text(timeStr, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          const Icon(Icons.notifications_active_rounded, color: _orange, size: 22),
+          const SizedBox(width: 8),
+          const Expanded(child: Text('직원을 불렀어요', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: _ink))),
+          Padding(
+            padding: const EdgeInsets.all(10),
+            child: FilledButton(
+              onPressed: () => _acknowledgeCall(doc.id),
+              style: FilledButton.styleFrom(
+                backgroundColor: _orange,
+                minimumSize: const Size(96, 48),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('확인', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _orderTile(QueryDocumentSnapshot doc, {required bool phone}) {
+    final data = doc.data() as Map<String, dynamic>;
+    final docId = doc.id;
+    final String statusStr = (data['status'] ?? 'pending').toString();
+    final flow = OrderFlow.parse(data['flow']);
+    final isCompleted = statusStr == 'completed';
+    final isReady = statusStr == 'ready';
+    final items = data['items'] as List<dynamic>? ?? [];
+
+    if (phone) {
+      return _compactOrderCard(
+        docId: docId, data: data, statusStr: statusStr, flow: flow,
+        isCompleted: isCompleted, isReady: isReady, items: items,
+      );
+    }
+
+    final Color roomColor = isCompleted ? const Color(0xFF9A948B) : Color((data['roomColor'] as int?) ?? 0xFFC2365A);
+    final Color ink = isCompleted ? _muted : _ink;
+    final String notes = (data['notes'] ?? '').toString().trim();
+    final Color sc = _statusColor(statusStr);
+
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isReady ? _green : _line, width: isReady ? 2 : 1),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 3))],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 방 번호 띠
+          Container(
+            width: 96,
+            color: roomColor,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text((data['room'] ?? '#?').toString(),
+                    style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: Colors.white, height: 1)),
+                const SizedBox(height: 6),
+                Text((data['time'] ?? '').toString(), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              ],
+            ),
+          ),
+          // 본문
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
-                    child: Text('직원 호출', style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 14)),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                        decoration: BoxDecoration(color: sc.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
+                        child: Text(flow.statusText(statusStr),
+                            style: TextStyle(color: sc, fontSize: 12, fontWeight: FontWeight.w800)),
+                      ),
+                      if (flow.isPickup) ...[
+                        const SizedBox(width: 6),
+                        Text(flow.badge, style: const TextStyle(color: _muted, fontSize: 12)),
+                      ],
+                      const Spacer(),
+                      Text("${data['price']}원", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: ink)),
+                    ],
                   ),
-                  ...calls.map((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    final room = data['roomNumber']?.toString() ?? '?';
-                    final ts = data['timestamp'];
-                    String timeStr = '';
-                    if (ts != null && ts is Timestamp) {
-                      final dt = ts.toDate().toLocal();
-                      final h = dt.hour.toString().padLeft(2, '0');
-                      final m = dt.minute.toString().padLeft(2, '0');
-                      timeStr = '$h:$m';
-                    }
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      height: 80,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8.0),
-                        border: Border.all(color: Colors.orangeAccent, width: 1.5),
-                        boxShadow: [
-                          BoxShadow(color: Colors.orange.withValues(alpha: 0.15), blurRadius: 6, offset: const Offset(0, 2)),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          // 왼쪽: 방 번호
-                          Container(
-                            width: 80,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFE67E22),
-                              borderRadius: BorderRadius.horizontal(left: Radius.circular(6.5)),
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(room, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white)),
-                                if (timeStr.isNotEmpty)
-                                  Text(timeStr, style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                              ],
-                            ),
-                          ),
-                          // 중앙: 안내 문구
-                          const Expanded(
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 16),
-                              child: Row(
-                                children: [
-                                  Icon(Icons.notifications_active, color: Color(0xFFE67E22), size: 22),
-                                  SizedBox(width: 8),
-                                  Text('직원 호출', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black87)),
-                                ],
-                              ),
-                            ),
-                          ),
-                          // 오른쪽: 확인 버튼
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ListView(
+                      padding: EdgeInsets.zero,
+                      physics: const ClampingScrollPhysics(),
+                      children: [
+                        for (final it in items)
+                          Text(it.toString(), style: TextStyle(fontSize: 15, color: ink, height: 1.35)),
+                        if (notes.isNotEmpty)
                           Padding(
-                            padding: const EdgeInsets.all(12.0),
-                            child: ElevatedButton(
-                              onPressed: () => _acknowledgeCall(doc.id),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFE67E22),
-                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                              ),
-                              child: const Text('확인', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                            ),
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text('메모 · $notes', style: const TextStyle(fontSize: 12.5, color: _muted)),
                           ),
-                        ],
-                      ),
-                    );
-                  }),
-                  const Divider(color: Colors.white24, height: 1),
+                      ],
+                    ),
+                  ),
+                  TossSendBadge(
+                    orderId: docId,
+                    tossPos: data['tossPos'] is Map ? Map<String, dynamic>.from(data['tossPos'] as Map) : null,
+                  ),
                 ],
-              );
-            },
-          ),
-
-          // ── 주문 목록 섹션 ──
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: StoreScope.col('orders')
-                  .orderBy('timestamp', descending: true)
-                  .snapshots()
-                  .metered(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return const Center(child: Text('대기 중인 주문이 없습니다.', style: TextStyle(color: Colors.white, fontSize: 18)));
-                }
-
-                final orders = snapshot.data!.docs;
-
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16.0),
-                  itemCount: orders.length,
-                  itemBuilder: (context, index) {
-                    final doc = orders[index];
-                    final data = doc.data() as Map<String, dynamic>;
-                    final docId = doc.id;
-
-                    final String statusStr = (data['status'] ?? 'pending').toString();
-                    final flow = OrderFlow.parse(data['flow']); // 없으면(예전 주문) 서빙
-                    final isCompleted = statusStr == 'completed';
-                    final isReady = statusStr == 'ready';
-
-                    final items = data['items'] as List<dynamic>? ?? [];
-
-                    // 폰 세로(폭 600 미만): 위아래로 쌓는 카드 — 가로 고정폭(방 100·가격 120·버튼 132)이 375px에 안 들어가서 (80차)
-                    if (MediaQuery.sizeOf(context).width < 600) {
-                      return _compactOrderCard(
-                        docId: docId,
-                        data: data,
-                        statusStr: statusStr,
-                        flow: flow,
-                        isCompleted: isCompleted,
-                        isReady: isReady,
-                        items: items,
-                      );
-                    }
-
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 16.0),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8.0),
-                        // 준비 완료(손님이 받으러 오는 중)는 초록 테두리
-                        border: isReady ? Border.all(color: const Color(0xFF27AE60), width: 2.5) : null,
-                        boxShadow: [
-                          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 5, offset: const Offset(0, 2))
-                        ],
-                      ),
-                      height: 140,
-                      child: Row(
-                        children: [
-                          // 왼쪽: 방 번호
-                          Container(
-                            width: 100,
-                            decoration: BoxDecoration(
-                              color: isCompleted ? Colors.black87 : Color((data['roomColor'] as int?) ?? 0xFFC2365A),
-                              borderRadius: const BorderRadius.horizontal(left: Radius.circular(8.0)),
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(data['room'] ?? '#?', style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
-                                const SizedBox(height: 4),
-                                Text(data['time'] ?? '', style: const TextStyle(color: Colors.white70)),
-                                const SizedBox(height: 6),
-                                Text(flow.statusText(statusStr),
-                                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                                if (flow.isPickup)
-                                  Text(flow.badge, style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                              ],
-                            ),
-                          ),
-                          // 중앙: 가격 및 메뉴
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16.0),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  SizedBox(
-                                    width: 120,
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text("${data['price']} 원", style: TextStyle(fontSize: 22, color: isCompleted ? Colors.grey : Colors.black87, fontWeight: FontWeight.bold)),
-                                        const SizedBox(height: 6),
-                                        // 토스 POS로 보냈는지 (64차, 연동 안 쓰는 매장은 안 보임)
-                                        TossSendBadge(
-                                          orderId: docId,
-                                          tossPos: data['tossPos'] is Map ? Map<String, dynamic>.from(data['tossPos'] as Map) : null,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: ListView.builder(
-                                            physics: const NeverScrollableScrollPhysics(),
-                                            itemCount: items.length,
-                                            itemBuilder: (context, i) {
-                                              return Text(items[i].toString(), style: TextStyle(fontSize: 16, color: isCompleted ? Colors.grey : Colors.black87));
-                                            },
-                                          ),
-                                        ),
-                                        Divider(color: Colors.grey[300]),
-                                        Text(data['notes'] ?? '', style: TextStyle(fontSize: 12, color: isCompleted ? Colors.grey : Colors.grey[600])),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          // 오른쪽: 상태 변경 버튼
-                          Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Center(
-                              child: _buildStatusButton(docId, statusStr, flow),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
+              ),
             ),
+          ),
+          // 버튼
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 12, 12, 12),
+            child: Center(child: _buildStatusButton(docId, statusStr, flow)),
           ),
         ],
       ),
@@ -477,38 +536,41 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
   // 3. 상태 버튼 위젯 (글자·다음 상태는 수령 방식에 따라 — models/order_flow.dart)
   // compact: 폰 세로 카드에서 가로 꽉 찬 52px 버튼
   Widget _buildStatusButton(String docId, String currentStatus, OrderFlow flow, {bool compact = false}) {
-    final Size? fixed = compact ? null : const Size(132, 72);
-    final Size minimum = compact ? const Size.fromHeight(52) : const Size(132, 72);
+    final Size? fixed = compact ? null : const Size(128, 64);
+    final Size minimum = compact ? const Size.fromHeight(52) : const Size(128, 64);
+    final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(12));
     if (currentStatus == 'completed') {
-      return ElevatedButton(
+      // 완료된 주문: 눈에 덜 띄는 테두리 버튼 (실수로 지우지 않게)
+      return OutlinedButton.icon(
         onPressed: () => _deleteOrder(docId),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.redAccent,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFFC0392B),
+          side: const BorderSide(color: Color(0xFFE6B0AA)),
           fixedSize: fixed,
           minimumSize: minimum,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+          shape: shape,
         ),
-        child: const Text('삭제', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+        icon: const Icon(Icons.delete_outline, size: 18),
+        label: const Text('삭제', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
       );
     }
-
     final Color color = switch (currentStatus) {
-      'pending' => const Color(0xFFE67E22),
-      'ready' => const Color(0xFF27AE60),
-      _ => const Color(0xFFD35400),
+      'pending' => _orange,
+      'ready' => _green,
+      _ => _navy,
     };
-    return ElevatedButton(
+    return FilledButton(
       onPressed: () => _toggleOrderStatus(docId, currentStatus, flow),
-      style: ElevatedButton.styleFrom(
+      style: FilledButton.styleFrom(
         backgroundColor: color,
         fixedSize: fixed,
         minimumSize: minimum,
         padding: const EdgeInsets.symmetric(horizontal: 8),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+        shape: shape,
       ),
       child: Text(flow.buttonLabel(currentStatus),
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white, height: 1.25)),
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white, height: 1.25)),
     );
   }
 }
