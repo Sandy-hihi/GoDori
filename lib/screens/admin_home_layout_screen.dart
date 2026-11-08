@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -10,6 +11,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:boardpad/models/home_layout.dart';
 import 'package:boardpad/services/home_layout_service.dart';
 import 'package:boardpad/utils/image_helper.dart';
+import 'package:boardpad/widgets/admin_dialog_width.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/home/grid_edit_overlay.dart';
@@ -48,10 +50,23 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
   bool _parkingHover = false;
   bool _movingWidget = false; // 미리보기에서 위젯을 끄는 중 → 보관함을 크게 펼침
 
+  /// 좁은 화면(폰·아이패드 세로): 미리보기 아래 스크롤 영역 (보관함·목록이 여기 들어감)
+  final GlobalKey _narrowScrollKey = GlobalKey();
+  final ScrollController _narrowScroll = ScrollController();
+
+  /// 이보다 좁으면(사이드바 뺀 폭) 미리보기 위·목록 아래로 쌓음 — 오른쪽 패널 420px가 안 들어감
+  static const double _stackBelow = 860;
+
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _narrowScroll.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -159,12 +174,15 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
 
   // 예시 배치 고르기 — 미리보기를 보고 하나를 고르면 편집 화면에 불러옴 (저장해야 매장에 적용)
   Future<void> _pickPreset() async {
+    // 좁은 화면에서는 한 줄에 하나씩 (팝업 폭에 맞춤)
+    final dialogWidth = adminDialogWidth(context, 920);
+    final cardWidth = math.min(444.0, dialogWidth);
     final picked = await showDialog<HomeLayoutPreset>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('예시 배치 고르기', style: TextStyle(fontWeight: FontWeight.bold)),
         content: SizedBox(
-          width: 920,
+          width: dialogWidth,
           child: SingleChildScrollView(
             child: Wrap(
               spacing: 16,
@@ -172,7 +190,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
               children: [
                 for (final p in homeLayoutPresets)
                   SizedBox(
-                    width: 444,
+                    width: cardWidth,
                     child: Material(
                       color: const Color(0xFFF6F4F0),
                       borderRadius: BorderRadius.circular(14),
@@ -309,7 +327,23 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
     if (box == null || !box.hasSize) return false;
     // 띠 테두리에 딱 맞추지 않아도 되게 위·옆으로 넉넉히 (아래는 화면 끝까지)
     final r = box.localToGlobal(Offset.zero) & box.size;
-    return Rect.fromLTRB(r.left - 32, r.top - 24, r.right + 32, double.infinity).contains(global);
+    var top = r.top - 24;
+    // 좁은 화면: 보관함이 스크롤 영역 안에 있음 → 화면에 보일 때만, 스크롤 영역 위(미리보기)로는 안 넘어가게
+    final scrollBox = _narrowScrollKey.currentContext?.findRenderObject() as RenderBox?;
+    if (scrollBox != null && scrollBox.hasSize) {
+      final view = scrollBox.localToGlobal(Offset.zero) & scrollBox.size;
+      if (r.bottom <= view.top || r.top >= view.bottom) return false;
+      top = math.max(top, view.top);
+    }
+    return Rect.fromLTRB(r.left - 32, top, r.right + 32, double.infinity).contains(global);
+  }
+
+  /// 미리보기에서 위젯을 끌기 시작/끝. 좁은 화면에서는 보관함이 보이게 스크롤을 맨 위로
+  void _onMoveDragChanged(bool moving) {
+    setState(() => _movingWidget = moving);
+    if (moving && _narrowScroll.hasClients && _narrowScroll.offset > 0) {
+      _narrowScroll.animateTo(0, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+    }
   }
 
   /// 격자에서 보관함으로 (설정은 그대로). 직원 호출처럼 꼭 있어야 하는 위젯도 잠깐은 뺄 수 있고, 저장할 때 검사함
@@ -450,30 +484,33 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
         children: [
           AdminSidebar(currentScreen: 'home', onNavigate: _navigate),
           Expanded(
-            child: MediaQuery.sizeOf(context).width < 900
-                ? const _WideScreenOnly()
-                : _layout == null
+            child: _layout == null
                 ? const Center(child: CircularProgressIndicator())
-                : Padding(
-                    padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _buildHeader(),
-                        const SizedBox(height: 12),
-                        _buildErrors(),
-                        Expanded(
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(child: _buildPreview()),
-                              const SizedBox(width: 24),
-                              SizedBox(width: 420, child: _buildPanel()),
-                            ],
-                          ),
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      if (constraints.maxWidth < _stackBelow) return _buildNarrowBody(constraints);
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildHeader(),
+                            const SizedBox(height: 12),
+                            _buildErrors(),
+                            Expanded(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: _buildPreview()),
+                                  const SizedBox(width: 24),
+                                  SizedBox(width: 420, child: _buildPanel()),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
           ),
         ],
@@ -481,60 +518,116 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
     );
   }
 
-  Widget _buildHeader() {
+  /// 좁은 화면(폰·아이패드 세로): 머리줄·미리보기는 위에 고정, 보관함·위젯 목록은 아래에서 스크롤.
+  /// 미리보기를 스크롤 밖에 둬야 위젯을 위아래로 끌 때 화면이 같이 스크롤되지 않음
+  Widget _buildNarrowBody(BoxConstraints constraints) {
+    final previewMaxHeight = (constraints.maxHeight * 0.38).clamp(120.0, 460.0).toDouble();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildHeader(compact: true),
+          const SizedBox(height: 12),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: previewMaxHeight),
+            child: Center(heightFactor: 1, child: _previewFrame(bezel: 8)),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              key: _narrowScrollKey,
+              controller: _narrowScroll,
+              padding: const EdgeInsets.only(top: 12, bottom: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildErrors(),
+                  if (_tab == 0) ...[
+                    _buildParkingTray(),
+                    const SizedBox(height: 12),
+                  ],
+                  _previewHint(below: true),
+                  const SizedBox(height: 12),
+                  _buildPanel(compact: true),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader({bool compact = false}) {
     final errors = _layout!.validate();
-    return Row(
+    // 한 줄에 다 들어가면 제목 왼쪽·버튼 오른쪽, 좁으면 버튼이 아래 줄로 내려감
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 16,
+      runSpacing: 12,
       children: [
-        const Column(
+        Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('홈 화면 꾸미기', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-            SizedBox(height: 2),
-            Text('저장하면 매장의 모든 손님 패드에 바로 적용돼요', style: TextStyle(color: Colors.black54)),
+            Text('홈 화면 꾸미기', style: TextStyle(fontSize: compact ? 24 : 28, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 2),
+            const Text('저장하면 매장의 모든 손님 패드에 바로 적용돼요', style: TextStyle(color: Colors.black54)),
           ],
         ),
-        const Spacer(),
-        if (_dirty)
-          const Padding(
-            padding: EdgeInsets.only(right: 12),
-            child: Text('저장하지 않은 변경 사항이 있어요', style: TextStyle(color: _accent, fontWeight: FontWeight.w600)),
-          ),
-        Tooltip(
-          message: '방금 한 변경 되돌리기 (Ctrl+Z)',
-          // 아이콘 없이 글자만 가운데 (아이콘 자리가 비어 보여서 글자가 한쪽으로 쏠려 보였음)
-          child: OutlinedButton(
-            onPressed: _history.isEmpty ? null : _undo,
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size(0, 46),
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              alignment: Alignment.center,
-              foregroundColor: _adminNavy,
-              disabledForegroundColor: Colors.black38,
-              side: BorderSide(color: _history.isEmpty ? const Color(0xFFDDDDDD) : const Color(0xFF8A94A3)),
-            ),
-            child: const Text('실행 취소', textAlign: TextAlign.center),
-          ),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton.icon(
-          onPressed: _pickPreset,
-          icon: const Icon(Icons.dashboard_customize_outlined, size: 18),
-          label: const Text('예시 배치 고르기'),
-          style: OutlinedButton.styleFrom(minimumSize: const Size(0, 46)),
-        ),
-        const SizedBox(width: 4),
-        TextButton(onPressed: _resetToDefault, child: const Text('기본 배치로 되돌리기')),
-        const SizedBox(width: 8),
-        FilledButton.icon(
-          onPressed: (_saving || errors.isNotEmpty || !_dirty) ? null : _save,
-          icon: _saving
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : const Icon(Icons.save_outlined),
-          label: const Text('저장하고 매장에 적용', style: TextStyle(fontWeight: FontWeight.bold)),
-          style: FilledButton.styleFrom(backgroundColor: _accent, minimumSize: const Size(0, 46)),
+        Wrap(
+          alignment: compact ? WrapAlignment.start : WrapAlignment.end,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            if (_dirty)
+              const Padding(
+                padding: EdgeInsets.only(right: 4),
+                child: Text('저장하지 않은 변경 사항이 있어요', style: TextStyle(color: _accent, fontWeight: FontWeight.w600)),
+              ),
+            ..._headerButtons(errors),
+          ],
         ),
       ],
     );
+  }
+
+  List<Widget> _headerButtons(List<String> errors) {
+    return [
+      Tooltip(
+        message: '방금 한 변경 되돌리기 (Ctrl+Z)',
+        // 아이콘 없이 글자만 가운데 (아이콘 자리가 비어 보여서 글자가 한쪽으로 쏠려 보였음)
+        child: OutlinedButton(
+          onPressed: _history.isEmpty ? null : _undo,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(0, 46),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            alignment: Alignment.center,
+            foregroundColor: _adminNavy,
+            disabledForegroundColor: Colors.black38,
+            side: BorderSide(color: _history.isEmpty ? const Color(0xFFDDDDDD) : const Color(0xFF8A94A3)),
+          ),
+          child: const Text('실행 취소', textAlign: TextAlign.center),
+        ),
+      ),
+      OutlinedButton.icon(
+        onPressed: _pickPreset,
+        icon: const Icon(Icons.dashboard_customize_outlined, size: 18),
+        label: const Text('예시 배치 고르기'),
+        style: OutlinedButton.styleFrom(minimumSize: const Size(0, 46)),
+      ),
+      TextButton(onPressed: _resetToDefault, child: const Text('기본 배치로 되돌리기')),
+      FilledButton.icon(
+        onPressed: (_saving || errors.isNotEmpty || !_dirty) ? null : _save,
+        icon: _saving
+            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            : const Icon(Icons.save_outlined),
+        label: const Text('저장하고 매장에 적용', style: TextStyle(fontWeight: FontWeight.bold)),
+        style: FilledButton.styleFrom(backgroundColor: _accent, minimumSize: const Size(0, 46)),
+      ),
+    ];
   }
 
   Widget _buildErrors() {
@@ -567,69 +660,77 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
     // 스크롤 안에 두면 위아래로 끌 때 화면이 스크롤돼서, 남는 공간에 맞춰 줄여서 보여 줌
     return Column(
       children: [
-        Flexible(
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E1B18),
-                borderRadius: BorderRadius.circular(30),
-                boxShadow: const [BoxShadow(color: Color(0x40281E14), blurRadius: 30, offset: Offset(0, 14))],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: AspectRatio(
-                  aspectRatio: HomeLayout.designWidth / HomeLayout.designHeight,
-                  child: FittedBox(
-                    child: SizedBox(
-                      width: HomeLayout.designWidth,
-                      height: HomeLayout.designHeight,
-                      child: Stack(
-                        children: [
-                          AbsorbPointer(
-                            child: HomeView(
-                              layout: _layout!,
-                              roomNumber: 7,
-                              highlightSidebar: _tab == 1,
-                            ),
-                          ),
-                          if (_tab == 0)
-                            Positioned.fill(
-                              child: GridEditOverlay(
-                                layout: _layout!,
-                                selectedId: _selectedId,
-                                onSelect: (id) => setState(() => _selectedId = id),
-                                onCommit: _replaceItem,
-                                onSwap: _swapWidgets,
-                                onReject: _warn,
-                                isOverParking: _isOverParking,
-                                onParkingHover: (over) => setState(() => _parkingHover = over),
-                                onPark: _park,
-                                onUnpark: _unpark,
-                                onMoveDragChanged: (moving) => setState(() => _movingWidget = moving),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
+        Flexible(child: Center(child: _previewFrame())),
         if (_tab == 0) ...[
           const SizedBox(height: 12),
           _buildParkingTray(),
         ],
         const SizedBox(height: 12),
-        Text(
-          _tab == 0
-              ? '위젯을 끌어서 옮기고, 다른 위젯 위에 놓으면 자리가 바뀌어요. 선택한 위젯의 오른쪽 아래 손잡이로 크기를 바꿔요. 미리보기는 7번 룸 기준이에요.'
-              : '왼쪽 영역은 오른쪽 목록에서 순서를 바꾸고, 로고 설정에서 사진과 매장 이름을 바꿔요.',
-          style: TextStyle(color: Colors.black.withValues(alpha: 0.5), fontSize: 13),
-        ),
+        _previewHint(),
       ],
+    );
+  }
+
+  /// 손님 패드 모양 테두리 + 실제 홈 화면 + 끌어 옮기기 층 (넓은·좁은 화면 공용)
+  Widget _previewFrame({double bezel = 14}) {
+    return Container(
+      padding: EdgeInsets.all(bezel),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1B18),
+        borderRadius: BorderRadius.circular(bezel + 16),
+        boxShadow: const [BoxShadow(color: Color(0x40281E14), blurRadius: 30, offset: Offset(0, 14))],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: AspectRatio(
+          aspectRatio: HomeLayout.designWidth / HomeLayout.designHeight,
+          child: FittedBox(
+            child: SizedBox(
+              width: HomeLayout.designWidth,
+              height: HomeLayout.designHeight,
+              child: Stack(
+                children: [
+                  AbsorbPointer(
+                    child: HomeView(
+                      layout: _layout!,
+                      roomNumber: 7,
+                      highlightSidebar: _tab == 1,
+                    ),
+                  ),
+                  if (_tab == 0)
+                    Positioned.fill(
+                      child: GridEditOverlay(
+                        layout: _layout!,
+                        selectedId: _selectedId,
+                        onSelect: (id) => setState(() => _selectedId = id),
+                        onCommit: _replaceItem,
+                        onSwap: _swapWidgets,
+                        onReject: _warn,
+                        isOverParking: _isOverParking,
+                        onParkingHover: (over) => setState(() => _parkingHover = over),
+                        onPark: _park,
+                        onUnpark: _unpark,
+                        onMoveDragChanged: _onMoveDragChanged,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// below: 좁은 화면 (목록이 미리보기 아래에 있음)
+  Widget _previewHint({bool below = false}) {
+    return Text(
+      _tab == 0
+          ? below
+              ? '위젯을 끌어서 옮기고, 다른 위젯 위에 놓으면 자리가 바뀌어요. 미리보기가 작을 때는 아래 목록의 크기·열·행으로 바꾸면 편해요. 미리보기는 7번 룸 기준이에요.'
+              : '위젯을 끌어서 옮기고, 다른 위젯 위에 놓으면 자리가 바뀌어요. 선택한 위젯의 오른쪽 아래 손잡이로 크기를 바꿔요. 미리보기는 7번 룸 기준이에요.'
+          : '왼쪽 영역은 ${below ? '아래' : '오른쪽'} 목록에서 순서를 바꾸고, 로고 설정에서 사진과 매장 이름을 바꿔요.',
+      style: TextStyle(color: Colors.black.withValues(alpha: 0.5), fontSize: 13),
     );
   }
 
@@ -666,9 +767,11 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                 parked.isEmpty ? '보관함' : '보관함 · ${parked.length}개',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: active ? _accent : null),
               ),
-              const Spacer(),
-              const Text('손님 화면에는 안 보이고, 설정은 그대로 남아요',
-                  style: TextStyle(fontSize: 12, color: Colors.black45)),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text('손님 화면에는 안 보이고, 설정은 그대로 남아요',
+                    textAlign: TextAlign.end, style: TextStyle(fontSize: 12, color: Colors.black45)),
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -685,8 +788,10 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                           color: const Color(0xFFF7F7F8),
                           borderRadius: BorderRadius.circular(10),
                         ),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
                         child: const Text(
                           '미리보기의 위젯을 여기로 끌어 놓으면 빈 칸을 만들 수 있어요',
+                          textAlign: TextAlign.center,
                           style: TextStyle(fontSize: 13, color: Colors.black45),
                         ),
                       )
@@ -723,9 +828,12 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
           children: [
             Icon(hover ? Icons.check_circle : Icons.move_to_inbox, color: _accent),
             const SizedBox(width: 8),
-            Text(
-              hover ? '놓으면 보관함에 들어가요' : '여기로 끌어 놓으면 잠깐 빼 둘 수 있어요',
-              style: const TextStyle(color: _accent, fontWeight: FontWeight.w700, fontSize: 15),
+            Flexible(
+              child: Text(
+                hover ? '놓으면 보관함에 들어가요' : '여기로 끌어 놓으면 잠깐 빼 둘 수 있어요',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: _accent, fontWeight: FontWeight.w700, fontSize: 15),
+              ),
             ),
           ],
         ),
@@ -750,7 +858,9 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
           const SizedBox(width: 2),
           Icon(spec?.icon ?? Icons.widgets_outlined, size: 18, color: _adminNavy),
           const SizedBox(width: 6),
-          Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Flexible(
+            child: Text(name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
           const SizedBox(width: 4),
           Text(WidgetSize(item.w, item.h).label, style: const TextStyle(fontSize: 12, color: Colors.black45)),
           const SizedBox(width: 4),
@@ -796,11 +906,14 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
     );
   }
 
-  Widget _buildPanel() {
+  /// compact: 좁은 화면 스크롤 안에 넣을 때 (목록을 다 펼쳐서 바깥 스크롤 하나로)
+  Widget _buildPanel({bool compact = false}) {
+    final body = _tab == 0 ? _buildGridPanel(compact: compact) : _buildSidebarPanel(compact: compact);
     return Container(
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
       padding: const EdgeInsets.all(18),
       child: Column(
+        mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SegmentedButton<int>(
@@ -812,16 +925,17 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
             onSelectionChanged: (s) => setState(() => _tab = s.first),
           ),
           const SizedBox(height: 16),
-          Expanded(child: _tab == 0 ? _buildGridPanel() : _buildSidebarPanel()),
+          if (compact) body else Expanded(child: body),
         ],
       ),
     );
   }
 
-  Widget _buildGridPanel() {
+  Widget _buildGridPanel({bool compact = false}) {
     final layout = _layout!;
     final items = [...layout.widgets]..sort((a, b) => a.y != b.y ? a.y.compareTo(b.y) : a.x.compareTo(b.x));
     return Column(
+      mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
@@ -842,13 +956,21 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
         const Text('미리보기에서 위젯을 끌어 옮기고, 오른쪽 아래 손잡이로 크기를 바꿀 수 있어요.',
             style: TextStyle(fontSize: 12, color: Colors.black54)),
         const SizedBox(height: 12),
-        Expanded(
-          child: ListView.separated(
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (context, i) => _gridItemTile(items[i]),
+        if (compact)
+          ...[
+            for (var i = 0; i < items.length; i++) ...[
+              if (i > 0) const SizedBox(height: 8),
+              _gridItemTile(items[i]),
+            ],
+          ]
+        else
+          Expanded(
+            child: ListView.separated(
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 8),
+              itemBuilder: (context, i) => _gridItemTile(items[i]),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -905,7 +1027,11 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                   ),
                 ],
               ),
-              Row(
+              // 좁으면 크기·열·행이 다음 줄로 내려감
+              Wrap(
+                spacing: 10,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   _miniDropdown<WidgetSize>(
                     label: '크기',
@@ -915,7 +1041,6 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                     enabled: (s) => spec.sizes.contains(s),
                     onChanged: (s) => _resize(item, s),
                   ),
-                  const SizedBox(width: 10),
                   _miniDropdown<int>(
                     label: '열',
                     value: item.x.clamp(0, maxX < 0 ? 0 : maxX).toInt(),
@@ -923,7 +1048,6 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                     text: (x) => '${x + 1}',
                     onChanged: (x) => _replaceItem(item.copyWith(x: x)),
                   ),
-                  const SizedBox(width: 10),
                   _miniDropdown<int>(
                     label: '행',
                     value: item.y.clamp(0, maxY < 0 ? 0 : maxY).toInt(),
@@ -978,11 +1102,12 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
     );
   }
 
-  Widget _buildSidebarPanel() {
+  Widget _buildSidebarPanel({bool compact = false}) {
     final layout = _layout!;
     final present = layout.sidebarItems.map((e) => e.type).toSet();
     final addable = sidebarCatalog.where((s) => s.type == 'spacer' || !present.contains(s.type)).toList();
     return Column(
+      mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SwitchListTile(
@@ -1041,9 +1166,13 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          Expanded(
-            child: ReorderableListView.builder(
+          _expandUnless(
+            compact,
+            ReorderableListView.builder(
               buildDefaultDragHandles: false,
+              // 좁은 화면: 바깥 스크롤 하나로 (목록은 다 펼침)
+              shrinkWrap: compact,
+              physics: compact ? const NeverScrollableScrollPhysics() : null,
               itemCount: layout.sidebarItems.length,
               onReorder: _reorderSidebar,
               itemBuilder: (context, i) {
@@ -1057,6 +1186,9 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                     borderRadius: BorderRadius.circular(12),
                     child: ListTile(
                       dense: true,
+                      // 좁은 화면: 양옆 여백·간격을 줄여서 이름 자리를 넓힘
+                      contentPadding: compact ? const EdgeInsets.only(left: 8, right: 4) : null,
+                      horizontalTitleGap: compact ? 8 : null,
                       leading: ReorderableDragStartListener(
                         index: i,
                         child: const Icon(Icons.drag_indicator, color: Colors.black38),
@@ -1065,7 +1197,9 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                         children: [
                           Icon(spec.icon, size: 18, color: _adminNavy),
                           const SizedBox(width: 8),
-                          Text(spec.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          Flexible(
+                            child: Text(spec.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          ),
                         ],
                       ),
                       subtitle: spec.locked
@@ -1079,6 +1213,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                           if (spec.hasOptions)
                             IconButton(
                               tooltip: '설정',
+                              visualDensity: compact ? VisualDensity.compact : null,
                               icon: const Icon(Icons.tune, size: 20),
                               onPressed: () => _editSidebarOptions(i),
                             ),
@@ -1090,6 +1225,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                           else
                             IconButton(
                               tooltip: '빼기',
+                              visualDensity: compact ? VisualDensity.compact : null,
                               icon: const Icon(Icons.close, size: 20),
                               onPressed: () => _removeSidebarItem(i),
                             ),
@@ -1102,15 +1238,22 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
             ),
           ),
         ] else
-          const Expanded(
-            child: Center(
-              child: Text('왼쪽 영역이 꺼져 있어요.\n로그아웃은 화면 왼쪽 위 구석을 빠르게 10번 누른 뒤 패드 비밀번호(또는 PIN)를 넣으면 돼요.',
-                  textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
+          _expandUnless(
+            compact,
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text('왼쪽 영역이 꺼져 있어요.\n로그아웃은 화면 왼쪽 위 구석을 빠르게 10번 누른 뒤 패드 비밀번호(또는 PIN)를 넣으면 돼요.',
+                    textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
+              ),
             ),
           ),
       ],
     );
   }
+
+  /// 넓은 화면은 남는 높이를 채우고(Expanded), 좁은 화면(스크롤 안)은 내용 높이만큼
+  Widget _expandUnless(bool compact, Widget child) => compact ? child : Expanded(child: child);
 
   // ── 위젯·요소 설정 창 ──
 
@@ -1336,7 +1479,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
 
           return AlertDialog(
             title: Text('$title 설정', style: const TextStyle(fontWeight: FontWeight.bold)),
-            content: SizedBox(width: 460, child: SingleChildScrollView(child: body)),
+            content: SizedBox(width: adminDialogWidth(ctx, 460), child: SingleChildScrollView(child: body)),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
               FilledButton(
@@ -1400,8 +1543,9 @@ class _WidgetPickerDialog extends StatelessWidget {
     return AlertDialog(
       title: const Text('위젯 추가', style: TextStyle(fontWeight: FontWeight.bold)),
       content: SizedBox(
-        width: 560,
-        height: 560,
+        width: adminDialogWidth(context, 560),
+        // 낮은 화면(폰 가로 등)에서는 제목·버튼 자리를 빼고 남는 만큼만
+        height: math.max(200.0, math.min(560.0, MediaQuery.sizeOf(context).height - 240)),
         child: ListView(
           children: [
             for (final cat in WidgetCategory.values) ...[
@@ -1633,32 +1777,6 @@ class _BannerOptions extends StatelessWidget {
           onChanged: (v) => onLink(v ?? 'none'),
         ),
       ],
-    );
-  }
-}
-
-/// 좁은 화면(폰·아이패드 세로)용 안내 — 미리보기 920px + 패널 420px라 넓은 화면에서만 편집 (82차)
-class _WideScreenOnly extends StatelessWidget {
-  const _WideScreenOnly();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.desktop_windows_outlined, size: 48, color: Colors.grey.shade500),
-            const SizedBox(height: 16),
-            const Text('홈 화면 꾸미기는 PC에서 해 주세요',
-                textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Text('손님 패드 화면을 실제 크기로 미리 보면서 옮겨야 해서\n넓은 화면(PC·태블릿 가로)에서만 열려요.',
-                textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600, height: 1.5)),
-          ],
-        ),
-      ),
     );
   }
 }
