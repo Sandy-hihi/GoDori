@@ -280,28 +280,48 @@ class GeekIdRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: TextField(
-            controller: form.geekId,
-            keyboardType: TextInputType.number,
-            decoration: adminInput('BGG geek ID', hint: '예: 13'),
-            onSubmitted: (_) {
-              if (!busy) onLookup();
-            },
-          ),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton(onPressed: busy ? null : onLookup, child: const Text('조회')),
-        const SizedBox(width: 8),
-        OutlinedButton.icon(
-          onPressed: busy ? null : onSearch,
-          icon: const Icon(Icons.search, size: 18),
-          label: const Text('이름으로 검색'),
-        ),
-      ],
+    final field = TextField(
+      controller: form.geekId,
+      keyboardType: TextInputType.number,
+      decoration: adminInput('BGG geek ID', hint: '예: 13'),
+      onSubmitted: (_) {
+        if (!busy) onLookup();
+      },
     );
+    final lookup = OutlinedButton(onPressed: busy ? null : onLookup, child: const Text('조회'));
+    final search = OutlinedButton.icon(
+      onPressed: busy ? null : onSearch,
+      icon: const Icon(Icons.search, size: 18),
+      label: const Text('이름으로 검색'),
+    );
+    // 좁으면(폰) 입력칸은 한 줄 전체, 버튼 두 개는 아래 줄 (_fieldRow와 같은 기준)
+    return LayoutBuilder(builder: (context, c) {
+      if (c.maxWidth >= 420) {
+        return Row(
+          children: [
+            Expanded(child: field),
+            const SizedBox(width: 8),
+            lookup,
+            const SizedBox(width: 8),
+            search,
+          ],
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          field,
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: lookup),
+              const SizedBox(width: 8),
+              Expanded(flex: 2, child: search),
+            ],
+          ),
+        ],
+      );
+    });
   }
 }
 
