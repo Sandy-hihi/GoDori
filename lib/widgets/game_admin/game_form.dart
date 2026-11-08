@@ -399,15 +399,11 @@ class _GameFormFieldsState extends State<GameFormFields> {
         const SizedBox(height: 16),
         TextField(controller: f.name, maxLength: 40, decoration: adminInput('게임 이름')),
         const SizedBox(height: 4),
-        Row(
-          children: [
-            Expanded(child: TextField(controller: f.minPlayers, keyboardType: TextInputType.number, decoration: adminInput('최소 인원'))),
-            const SizedBox(width: 8),
-            Expanded(child: TextField(controller: f.maxPlayers, keyboardType: TextInputType.number, decoration: adminInput('최대 인원'))),
-            const SizedBox(width: 8),
-            Expanded(child: TextField(controller: f.recommended, decoration: adminInput('추천 인원', hint: '예: 3, 4'))),
-          ],
-        ),
+        _fieldRow([
+          TextField(controller: f.minPlayers, keyboardType: TextInputType.number, decoration: adminInput('최소 인원')),
+          TextField(controller: f.maxPlayers, keyboardType: TextInputType.number, decoration: adminInput('최대 인원')),
+          TextField(controller: f.recommended, decoration: adminInput('추천 인원', hint: '예: 3, 4')),
+        ]),
         if (f.existingPlayersText != null && f.existingPlayersText!.isNotEmpty && f.minPlayers.text.trim().isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 4),
@@ -415,20 +411,15 @@ class _GameFormFieldsState extends State<GameFormFields> {
                 style: const TextStyle(color: Colors.black54, fontSize: 12)),
           ),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
+        _fieldRow([
+            TextField(
                 controller: f.weight,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 decoration: adminInput('geek weight (0~5)'),
                 onChanged: (_) => setState(() {}),
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(child: TextField(controller: f.rank, keyboardType: TextInputType.number, decoration: adminInput('긱 순위'))),
-            const SizedBox(width: 8),
-            Expanded(
+            TextField(controller: f.rank, keyboardType: TextInputType.number, decoration: adminInput('긱 순위')),
+            SizedBox(
               child: auto != null
                   ? InputDecorator(
                       decoration: adminInput('난이도 (weight 기준 자동)'),
@@ -436,13 +427,13 @@ class _GameFormFieldsState extends State<GameFormFields> {
                     )
                   : DropdownButtonFormField<String>(
                       value: f.manualDifficulty,
+                      isExpanded: true,
                       decoration: adminInput('난이도 (직접 선택)'),
                       items: difficultyLabels.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
                       onChanged: (v) => setState(() => f.manualDifficulty = v),
                     ),
             ),
-          ],
-        ),
+        ]),
         const SizedBox(height: 12),
         const Text('장르 (여러 개 선택 가능)', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
@@ -649,3 +640,21 @@ Future<String?> fillFormFromBgg(GameForm form, String geekId, {bool keepName = f
     return '게임 정보는 가져왔지만 사진은 못 가져왔어요. ($e)';
   }
 }
+
+/// 입력칸 여러 개: 넓으면 가로로 나란히, 좁으면(420 미만) 세로로 쌓음 (82차)
+Widget _fieldRow(List<Widget> fields) => LayoutBuilder(builder: (context, c) {
+      if (c.maxWidth >= 420) {
+        return Row(children: [
+          for (var i = 0; i < fields.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Expanded(child: fields[i]),
+          ],
+        ]);
+      }
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        for (var i = 0; i < fields.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          fields[i],
+        ],
+      ]);
+    });

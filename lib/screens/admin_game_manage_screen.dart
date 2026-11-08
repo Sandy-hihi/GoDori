@@ -1446,10 +1446,17 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(
+                  // 넓으면 제목 왼쪽·버튼 오른쪽, 좁으면 버튼이 다음 줄로 (82차)
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    runSpacing: 8,
                     children: [
                       const Text('보드게임 관리', style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
-                      const Spacer(),
+                      Wrap(
+                        spacing: 0,
+                        runSpacing: 8,
+                        children: [
                       OutlinedButton.icon(
                         onPressed: _showGenreManageDialog,
                         icon: const Icon(Icons.settings, size: 18),
@@ -1475,6 +1482,8 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                         ),
+                      ),
+                        ],
                       ),
                     ],
                   ),

@@ -147,7 +147,7 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
                                   _stepButton(Icons.remove, '하나 줄이기',
                                       _count > RoomSettingsService.minCount ? () => setState(() => _count--) : null),
                                   SizedBox(
-                                    width: 120,
+                                    width: MediaQuery.sizeOf(context).width < 700 ? 88 : 120,
                                     child: Text('$_count개',
                                         textAlign: TextAlign.center,
                                         style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold)),

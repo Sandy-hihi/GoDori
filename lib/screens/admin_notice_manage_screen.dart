@@ -369,12 +369,14 @@ class _AdminNoticeManageScreenState extends State<AdminNoticeManageScreen> {
           // 메인 영역
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(32.0),
+              padding: EdgeInsets.all(MediaQuery.sizeOf(context).width < 700 ? 16.0 : 32.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    runSpacing: 8,
                     children: [
                       const Text(
                         '공지 관리',
@@ -462,8 +464,8 @@ class _AdminNoticeManageScreenState extends State<AdminNoticeManageScreen> {
                               final item = items[index] as Map<String, dynamic>;
                               final isImage = item['type'] == 'image';
                               return ListTile(
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 24,
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: MediaQuery.sizeOf(context).width < 700 ? 8 : 24,
                                   vertical: 12,
                                 ),
                                 leading: CircleAvatar(

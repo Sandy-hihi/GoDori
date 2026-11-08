@@ -450,7 +450,9 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
         children: [
           AdminSidebar(currentScreen: 'home', onNavigate: _navigate),
           Expanded(
-            child: _layout == null
+            child: MediaQuery.sizeOf(context).width < 900
+                ? const _WideScreenOnly()
+                : _layout == null
                 ? const Center(child: CircularProgressIndicator())
                 : Padding(
                     padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
@@ -1629,6 +1631,32 @@ class _BannerOptions extends StatelessWidget {
           onChanged: (v) => onLink(v ?? 'none'),
         ),
       ],
+    );
+  }
+}
+
+/// 좁은 화면(폰·아이패드 세로)용 안내 — 미리보기 920px + 패널 420px라 넓은 화면에서만 편집 (82차)
+class _WideScreenOnly extends StatelessWidget {
+  const _WideScreenOnly();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.desktop_windows_outlined, size: 48, color: Colors.grey.shade500),
+            const SizedBox(height: 16),
+            const Text('홈 화면 꾸미기는 PC에서 해 주세요',
+                textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('손님 패드 화면을 실제 크기로 미리 보면서 옮겨야 해서\n넓은 화면(PC·태블릿 가로)에서만 열려요.',
+                textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600, height: 1.5)),
+          ],
+        ),
+      ),
     );
   }
 }
