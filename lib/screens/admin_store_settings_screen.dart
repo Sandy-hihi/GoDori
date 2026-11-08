@@ -139,7 +139,10 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
                                 style: TextStyle(color: Colors.black54),
                               ),
                               const SizedBox(height: 24),
-                              Row(
+                              // 좁은 화면이면 '(최대 30개)'가 다음 줄로 (82차)
+                              Wrap(
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                runSpacing: 8,
                                 children: [
                                   _stepButton(Icons.remove, '하나 줄이기',
                                       _count > RoomSettingsService.minCount ? () => setState(() => _count--) : null),
@@ -404,7 +407,8 @@ class _LoginCardState extends State<_LoginCard> {
             style: TextStyle(color: Colors.black54, height: 1.5),
           ),
           const SizedBox(height: 20),
-          Row(
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Text('매장 아이디', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(width: 16),
