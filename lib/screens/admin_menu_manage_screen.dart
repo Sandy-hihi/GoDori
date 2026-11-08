@@ -700,6 +700,8 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 폰 세로처럼 좁으면 여백·머리줄·메뉴 줄을 줄임 (81차)
+    final bool narrow = MediaQuery.sizeOf(context).width < 700;
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6F8),
       body: Row(
@@ -729,24 +731,30 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
           ),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(32.0),
+              padding: EdgeInsets.all(narrow ? 16.0 : 32.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  // 넓으면 한 줄, 좁으면 자동 줄바꿈 (Wrap)
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    runSpacing: 12,
                     children: [
-                      const Text(
+                      Text(
                         '음식 메뉴 관리',
                         style: TextStyle(
-                          fontSize: 32,
+                          fontSize: narrow ? 24 : 32,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      Row(
+                      Wrap(
+                        spacing: 0,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           SizedBox(
-                            width: 260,
+                            width: narrow ? 240 : 260,
                             height: 44,
                             child: TextField(
                               controller: _searchController,
@@ -941,11 +949,12 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                   menu['optionGroups'] as List<dynamic>? ?? [];
 
                               return ListTile(
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 24,
-                                  vertical: 12,
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: narrow ? 12 : 24,
+                                  vertical: narrow ? 4 : 12,
                                 ),
-                                leading: ClipRRect(
+                                // 좁은 화면: 사진·"판매중" 글자 빼고 이름·가격·스위치·버튼만
+                                leading: narrow ? null : ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
                                   child: Container(
                                     width: 56,
@@ -973,14 +982,18 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                 ),
                                 title: Row(
                                   children: [
-                                    Text(
-                                      menu['name'] ?? '',
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
+                                    Flexible(
+                                      child: Text(
+                                        menu['name'] ?? '',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: narrow ? 16 : 18,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
                                     ),
-                                    if (options.isNotEmpty) ...[
+                                    if (options.isNotEmpty && !narrow) ...[
                                       const SizedBox(width: 8),
                                       Container(
                                         padding: const EdgeInsets.symmetric(
@@ -1025,18 +1038,20 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                       }),
                                       activeTrackColor: kAdminAccent,
                                     ),
-                                    Text(
-                                      (menu['isSoldOut'] ?? false)
-                                          ? '품절'
-                                          : '판매중',
-                                      style: TextStyle(
-                                        color: (menu['isSoldOut'] ?? false)
-                                            ? Colors.red
-                                            : Colors.black87,
-                                        fontWeight: FontWeight.bold,
+                                    if (!narrow) ...[
+                                      Text(
+                                        (menu['isSoldOut'] ?? false)
+                                            ? '품절'
+                                            : '판매중',
+                                        style: TextStyle(
+                                          color: (menu['isSoldOut'] ?? false)
+                                              ? Colors.red
+                                              : Colors.black87,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 24),
+                                      const SizedBox(width: 24),
+                                    ],
                                     IconButton(
                                       icon: const Icon(
                                         Icons.edit,
