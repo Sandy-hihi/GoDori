@@ -63,7 +63,7 @@ class HomeView extends StatelessWidget {
             ),
             // 왼쪽 영역을 껐을 때도 직원이 패드를 끌 수 있게 왼쪽 위 구석에 숨은 영역
             if (!layout.sidebarVisible)
-              const Positioned(right: 12, top: 12, child: Material(child: GuestLanguageButton())),
+              const Positioned(right: 16, top: 16, child: GuestLanguageButton()),
             if (!layout.sidebarVisible)
               const Positioned(
                 left: 0,
@@ -158,14 +158,8 @@ class HomeSidebar extends StatelessWidget {
     final light = layout.sidebarIsLight;
     final fg = light ? kInk : const Color(0xFFEFE8DC);
     // 82차: 언어 버튼은 홈·내부 화면 모두 사이드바의 '직원 호출' 바로 위 (직원 호출이 없으면 맨 아래).
-    // 어두운 사이드바에서도 보이게 사이드바 글자색 + 다른 항목처럼 옅은 상자
-    final language = Container(
-      decoration: BoxDecoration(
-        color: fg.withValues(alpha: light ? 0.07 : 0.09),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: GuestLanguageButton(color: fg),
-    );
+    // 사이드바 메뉴 줄과 같은 모양(사이드바 글자색), 누르면 큰 언어 선택 창
+    final language = GuestLanguageButton.sidebar(color: fg);
     final children = <Widget>[];
     var languageAdded = false;
     void addGap() {

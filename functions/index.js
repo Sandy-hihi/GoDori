@@ -45,6 +45,12 @@ const TOSS_ACCESS_KEY = TOSS_ENABLED ? defineSecret('TOSS_ACCESS_KEY') : null;
 const TOSS_SECRET_KEY = TOSS_ENABLED ? defineSecret('TOSS_SECRET_KEY') : null;
 const TOSS_WEBHOOK_SECRET = TOSS_ENABLED ? defineSecret('TOSS_WEBHOOK_SECRET') : null;
 
+// ── 자동 번역 (83차, Google Cloud Translation 기본 v2) ──
+// 메뉴·공지·이벤트 글을 영어·중국어·일본어로 (src/translate.js). 비밀값 없이 함수 서비스 계정 권한으로 부름.
+// 켜기 전에 Google Cloud 콘솔에서 'Cloud Translation API'를 사용 설정해야 함(꺼져 있으면 관리자 웹 저장은 되고 번역만 실패).
+// 월 50만 자 무료. ★서비스가 커지면 Claude 번역으로 바꿀 후보 (프로젝트 문서 claude/고도리-서비스-커지면-바꿀-것.md)
+const TRANSLATE_ENABLED = true;
+
 const REGION = 'asia-northeast3'; // 서울
 
 let db = null;
@@ -77,6 +83,7 @@ function getHandle() {
   const { createTossRoutes } = require('./src/toss-routes');
   const { createFirestoreTossData } = require('./src/toss-data');
   const { createFirestoreInsights, createInsightRoutes } = require('./src/insights');
+  const { createTranslateRoutes, createGoogleTranslator, createFirestoreTranslateData } = require('./src/translate');
 
   const db = getDb();
   const storesData = createFirestoreStores(db);
@@ -104,6 +111,19 @@ function getHandle() {
     insights: createInsightRoutes({
       data: createFirestoreInsights(db),
       stores: storesData,
+      httpError: (status, code, message) => Object.assign(new Error(message), { status, code }),
+    }),
+    // 자동 번역 (83차): 관리자 웹이 저장한 뒤 /api/translate/sync
+    translate: createTranslateRoutes({
+      data: createFirestoreTranslateData(db),
+      translator: TRANSLATE_ENABLED
+        ? createGoogleTranslator({
+            getAccessToken: async () => {
+              const { applicationDefault } = require('firebase-admin/app');
+              return (await applicationDefault().getAccessToken()).access_token;
+            },
+          })
+        : null,
       httpError: (status, code, message) => Object.assign(new Error(message), { status, code }),
     }),
     // 운영자 페이지 (48차): _ops/account, 프로젝트 전체 사용량(Cloud Monitoring)

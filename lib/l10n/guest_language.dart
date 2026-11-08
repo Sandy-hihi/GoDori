@@ -250,43 +250,234 @@ class GuestText extends StatelessWidget {
   );
 }
 
-class GuestLanguageButton extends StatelessWidget {
-  const GuestLanguageButton({super.key, this.color});
+// ── 언어 고르기 (82차 다시 만듦) ──
+// 예전엔 Flutter 기본 팝업 메뉴(작은 분홍빛 목록)라 패드 디자인과 따로 놀았음
+// → 사이드바 메뉴와 같은 모양의 줄 + 누르면 패드 색감의 큰 선택 창(버튼 4개)
+// 색은 홈 화면(home_theme.dart)과 같은 값 — l10n이 화면 파일들을 불러오지 않게 여기 따로 둠
+const _ink = Color(0xFF26211C);
+const _bg = Color(0xFFF4F0E8);
+const _orange = Color(0xFFE2711D);
+const _muted = Color(0xFF7A7266);
+const _line = Color(0xFFE6E1D7);
+const _langSub = ['Korean', 'English', 'Chinese', 'Japanese'];
 
-  /// 글자·아이콘 색 (82차: 어두운 사이드바에선 밝은 색을 넘김 — 없으면 테마 기본색)
+String get _currentName =>
+    GuestLanguage.names[GuestLanguage.codes.indexOf(GuestLanguage.instance.code)];
+
+/// 언어 선택 창 — 손님이 어느 언어를 쓰고 있든 알아보게 제목은 여러 언어로 고정
+Future<void> showGuestLanguagePicker(BuildContext context) => showDialog<void>(
+  context: context,
+  barrierColor: Colors.black.withValues(alpha: 0.45),
+  builder: (_) => const _GuestLanguageDialog(),
+);
+
+class _GuestLanguageDialog extends StatelessWidget {
+  const _GuestLanguageDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    final current = GuestLanguage.instance.code;
+    return Dialog(
+      backgroundColor: _bg,
+      surfaceTintColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 540),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(28, 24, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: _orange.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(Icons.translate_rounded, color: _orange),
+                  ),
+                  const SizedBox(width: 14),
+                  const Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '언어 / Language',
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: _ink),
+                        ),
+                        SizedBox(height: 2),
+                        Text('语言 · 言語', style: TextStyle(fontSize: 14, color: _muted)),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded, color: _muted),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  childAspectRatio: 2.4,
+                  children: [
+                    for (var i = 0; i < GuestLanguage.codes.length; i++)
+                      _LanguageTile(
+                        name: GuestLanguage.names[i],
+                        sub: _langSub[i],
+                        selected: GuestLanguage.codes[i] == current,
+                        onTap: () {
+                          GuestLanguage.instance.select(GuestLanguage.codes[i]);
+                          Navigator.pop(context);
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LanguageTile extends StatelessWidget {
+  const _LanguageTile({required this.name, required this.sub, required this.selected, required this.onTap});
+  final String name;
+  final String sub;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(18);
+    return Material(
+      color: selected ? _orange : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: selected ? BorderSide.none : const BorderSide(color: _line),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: selected ? Colors.white : _ink),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      sub,
+                      style: TextStyle(fontSize: 13, color: selected ? Colors.white.withValues(alpha: 0.85) : _muted),
+                    ),
+                  ],
+                ),
+              ),
+              if (selected) const Icon(Icons.check_circle_rounded, color: Colors.white),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 언어 버튼. 기본 = 작은 알약(패드 로그인 화면·사이드바를 끈 홈 오른쪽 위),
+/// GuestLanguageButton.sidebar = 사이드바 메뉴 줄과 같은 모양(직원 호출 위)
+class GuestLanguageButton extends StatelessWidget {
+  const GuestLanguageButton({super.key}) : color = null, _sidebar = false;
+
+  /// 사이드바용 — color: 사이드바 글자색
+  const GuestLanguageButton.sidebar({super.key, required Color this.color}) : _sidebar = true;
+
   final Color? color;
+  final bool _sidebar;
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: GuestLanguage.instance,
-    builder: (context, _) => PopupMenuButton<String>(
-      tooltip: '언어 / Language / 语言 / 言語',
-      initialValue: GuestLanguage.instance.code,
-      onSelected: GuestLanguage.instance.select,
-      itemBuilder: (_) => [
-        for (var i = 0; i < GuestLanguage.codes.length; i++)
-          CheckedPopupMenuItem(
-            value: GuestLanguage.codes[i],
-            checked: GuestLanguage.instance.code == GuestLanguage.codes[i],
-            child: Text(GuestLanguage.names[i]),
-          ),
-      ],
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.language, color: color),
-            const SizedBox(width: 6),
-            Text(
-              GuestLanguage.names[GuestLanguage.codes.indexOf(
-                GuestLanguage.instance.code,
-              )],
-              style: TextStyle(color: color, fontWeight: FontWeight.w600),
+    builder: (context, _) => _sidebar ? _buildSidebar(context) : _buildPill(context),
+  );
+
+  Widget _buildSidebar(BuildContext context) {
+    final fg = color ?? _ink;
+    return Material(
+      color: fg.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => showGuestLanguagePicker(context),
+        child: SizedBox(
+          height: 56,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              children: [
+                Icon(Icons.translate_rounded, size: 22, color: fg),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _currentName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: fg),
+                  ),
+                ),
+                Icon(Icons.unfold_more_rounded, size: 20, color: fg.withValues(alpha: 0.6)),
+              ],
             ),
-            Icon(Icons.arrow_drop_down, color: color),
-          ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
+
+  Widget _buildPill(BuildContext context) {
+    final radius = BorderRadius.circular(22);
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: radius, side: const BorderSide(color: _line)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => showGuestLanguagePicker(context),
+        child: SizedBox(
+          height: 42,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.translate_rounded, size: 18, color: _ink),
+                const SizedBox(width: 8),
+                Text(_currentName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: _ink)),
+                const SizedBox(width: 2),
+                const Icon(Icons.expand_more_rounded, size: 18, color: _muted),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:boardpad/services/translate_sync.dart';
 import 'package:flutter/material.dart';
 import 'admin_store_settings_screen.dart';
 import 'admin_home_layout_screen.dart';
@@ -256,6 +257,7 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                             items.add(newItem);
                           }
                           await docRef.set({'items': items});
+                          TranslateSync.kick(); // 83차: 손님 패드 자동 번역
 
                           if (context.mounted) {
                             Navigator.pop(context);

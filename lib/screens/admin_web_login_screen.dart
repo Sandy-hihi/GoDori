@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/services/translate_sync.dart';
 import 'package:boardpad/widgets/store_brand.dart';
 
 import 'admin_menu_manage_screen.dart';
@@ -82,6 +83,7 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
 
     try {
       await AdminSession.webLogin(storeId: storeId, password: input);
+      TranslateSync.kick(); // 83차: 번역이 빠진 메뉴·공지·이벤트 채우기 (처음 배포 뒤 이미 있던 글도)
       await AdminSession.savePrefs(storeId: storeId, prefix: 'web.');
     } on AdminLoginException catch (e) {
       if (!mounted) return;

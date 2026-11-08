@@ -349,7 +349,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                                 children: [
                                   Row(
                                     children: [
-                                      GuestText('${group['groupName']}',
+                                      GuestText(guestField(context, group as Map, 'groupName'), // 83차: 자동 번역
                                           style: const TextStyle(
                                               fontSize: 16, fontWeight: FontWeight.w800, color: kInk)),
                                       const SizedBox(width: 8),

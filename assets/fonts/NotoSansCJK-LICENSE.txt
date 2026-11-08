@@ -1,5 +1,5 @@
 Noto Sans SC / Noto Sans JP (Google Fonts, google/fonts ofl/notosanssc, ofl/notosansjp)
-SIL Open Font License 1.1. 손님 패드 번역(lib/l10n)에 쓰는 글자만 남긴 부분 글꼴(81차, wght 400/700 고정).
+SIL Open Font License 1.1. 부분 글꼴(wght 400/700 고정). 81차: 손님 패드 번역 문구 글자 → 83차: 자동 번역을 위해 중국어 상용 한자 3755자(GB2312 1급)·일본어 JIS 1수준 한자 2965자 + 가나·전각 기호·번역 문구 글자로 키움.
 
 Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'
 
