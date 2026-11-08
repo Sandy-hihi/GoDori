@@ -31,6 +31,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _roomController = TextEditingController();
   // 85차: 로그인 실패 뒤 비밀번호 칸에 커서를 다시 넣음
   final _passwordFocus = FocusNode();
+  // 88차: 로그인 실패마다 1씩 올려 입력칸들을 새로 만듦 (웹 입력 상자를 새로 붙이기)
+  int _formEpoch = 0;
   bool _autoLogin = true;
   bool _autoTouched = false; // 직접 바꿨으면 방 번호에 따라 자동으로 바꾸지 않음
   bool _showPassword = false;
@@ -119,8 +121,12 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _busy = false;
         _error = e.message;
+        _formEpoch++; // 88차: 입력칸을 새로 만들어 끼움
       });
-      _passwordFocus.requestFocus(); // 85차: 바로 다시 입력할 수 있게
+      // 85차: 바로 다시 입력할 수 있게 — 88차: 새로 만든 칸이 화면에 붙은 뒤에
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _passwordFocus.requestFocus();
+      });
     }
   }
 
@@ -254,7 +260,12 @@ class _LoginScreenState extends State<LoginScreen> {
             width: 440,
             padding: const EdgeInsets.fromLTRB(32, 32, 32, 24),
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
-            child: AutofillGroup(
+            // 88차: AutofillGroup(크롬 자동 완성 묶음)을 뺌 — 웹에서 묶음 전체가 로그인 <form> 하나가 되는데,
+            //       방 번호 칸에서 Enter로 로그인하면 브라우저가 폼을 정리하면서 비밀번호 칸의 웹 입력 상자가 사라져
+            //       "The DOM element of this text editing strategy is not currently active" 뒤로 비밀번호 입력이 안 됨.
+            //       직원이 처음 한 번만 하는 화면이라 자동 완성은 없어도 됨. 실패하면 _formEpoch로 칸을 새로 만듦
+            child: KeyedSubtree(
+              key: ValueKey(_formEpoch),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -270,13 +281,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 24),
                   TextField(
                     controller: _idController,
-                    // 85차: enabled로 껐다 켜면 웹(크롬)에서 AutofillGroup 안의 칸이 입력을 못 받게 됨
-                    //       → 끄지 않고 readOnly로만 막음 (세 칸 모두)
+                    // 85차: 기다리는 동안 끄지(enabled) 않고 readOnly로만 막음 (세 칸 모두)
                     readOnly: _busy,
                     autocorrect: false,
                     enableSuggestions: false,
                     textInputAction: TextInputAction.next,
-                    autofillHints: const [AutofillHints.username],
                     decoration: _decoration('매장 아이디', Icons.storefront_outlined),
                   ),
                   const SizedBox(height: 14),
@@ -286,7 +295,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     readOnly: _busy,
                     obscureText: !_showPassword,
                     textInputAction: TextInputAction.next,
-                    autofillHints: const [AutofillHints.password],
                     decoration: _decoration(
                       '비밀번호',
                       Icons.lock_outline,
