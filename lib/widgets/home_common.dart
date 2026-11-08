@@ -250,7 +250,7 @@ class _ExitDialogState extends State<_ExitDialog> {
               controller: _controller,
               autofocus: true,
               obscureText: true,
-              enabled: !_checking,
+              readOnly: _checking, // 85차: 끄지 않음 — 틀려도 커서가 남아 바로 다시 입력 (웹에서 껐다 켜면 입력이 막힐 수 있음)
               onChanged: (_) => _resetIdle(),
               onSubmitted: (_) => _submit(),
               decoration: InputDecoration(

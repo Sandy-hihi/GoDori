@@ -29,6 +29,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _idController = TextEditingController();
   final _passwordController = TextEditingController();
   final _roomController = TextEditingController();
+  // 85차: 로그인 실패 뒤 비밀번호 칸에 커서를 다시 넣음
+  final _passwordFocus = FocusNode();
   bool _autoLogin = true;
   bool _autoTouched = false; // 직접 바꿨으면 방 번호에 따라 자동으로 바꾸지 않음
   bool _showPassword = false;
@@ -50,6 +52,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _idController.dispose();
     _passwordController.dispose();
     _roomController.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
@@ -77,6 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _error = '매장 아이디, 비밀번호, 방 번호를 모두 입력해 주세요.');
       return;
     }
+    FocusScope.of(context).unfocus(); // 85차: 기다리는 동안 커서를 빼 둠
     setState(() {
       _busy = true;
       _error = null;
@@ -116,6 +120,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _busy = false;
         _error = e.message;
       });
+      _passwordFocus.requestFocus(); // 85차: 바로 다시 입력할 수 있게
     }
   }
 
@@ -183,7 +188,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   controller: pinController,
                   autofocus: true,
                   obscureText: true,
-                  enabled: !checking,
+                  readOnly: checking, // 85차: 끄지 않음 — 틀려도 커서가 남아 바로 다시 입력
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   maxLength: 10,
@@ -265,7 +270,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 24),
                   TextField(
                     controller: _idController,
-                    enabled: !_busy,
+                    // 85차: enabled로 껐다 켜면 웹(크롬)에서 AutofillGroup 안의 칸이 입력을 못 받게 됨
+                    //       → 끄지 않고 readOnly로만 막음 (세 칸 모두)
+                    readOnly: _busy,
                     autocorrect: false,
                     enableSuggestions: false,
                     textInputAction: TextInputAction.next,
@@ -275,7 +282,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 14),
                   TextField(
                     controller: _passwordController,
-                    enabled: !_busy,
+                    focusNode: _passwordFocus,
+                    readOnly: _busy,
                     obscureText: !_showPassword,
                     textInputAction: TextInputAction.next,
                     autofillHints: const [AutofillHints.password],
@@ -292,7 +300,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 14),
                   TextField(
                     controller: _roomController,
-                    enabled: !_busy,
+                    readOnly: _busy,
                     keyboardType: TextInputType.number,
                     inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(2)],
                     textInputAction: TextInputAction.done,
