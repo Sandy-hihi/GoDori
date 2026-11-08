@@ -1230,6 +1230,8 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                   CheckboxListTile(
                     value: selected.contains(e.key),
                     title: Text(e.value),
+                    // 84차: 결제가 끝나면 비워지는 목록이라 토스 POS 연동 매장에서만 손님 화면에 보임
+                    subtitle: e.key == 'orders' ? const Text('토스 POS 연동 매장에서만 손님 화면에 보여요') : null,
                     onChanged: (v) => setDlg(() {
                       if (v == true) {
                         if (selected.length < 5) selected.add(e.key);

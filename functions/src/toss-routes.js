@@ -23,6 +23,7 @@
 const {
   TossError, createFakeToss, fakeCatalogFromMenus, buildTossOrder, parseOrderKey, verifyWebhook, catalogView,
 } = require('./toss');
+const { cycleEntry } = require('./toss-data');
 
 const FAKE_PREFIX = 'fake-';
 const CATALOG_CACHE_MS = 60 * 1000;
@@ -86,11 +87,12 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
   }
 
   // 81차: 포스로 들어간 주문을 그 방 결제 대기 목록에 (실패해도 주문 보내기는 성공으로)
+  // 84차: 손님 패드 '주문 내역'용 요약도 같이 (roomStatus.cycle)
   async function trackOpen(storeId, order, orderId) {
     const room = roomOf(order);
     if (room == null) return;
     try {
-      await data.openRoomOrder(storeId, room, orderId);
+      await data.openRoomOrder(storeId, room, orderId, cycleEntry(orderId, order, new Date(now()).toISOString()));
     } catch (e) {
       console.error('[토스] 방 결제 목록', storeId, orderId, e);
     }

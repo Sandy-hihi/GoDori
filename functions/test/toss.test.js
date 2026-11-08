@@ -255,6 +255,49 @@ test('방 결제 끝 (81차): 포스로 보낸 그 방 주문이 다 완료되�
   assert.equal(data.rooms.get('platform6/3').settledAt, room3.settledAt);
 });
 
+test('주문 내역 (84차): 포스로 들어간 주문은 cycle에, 결제되면 paid, 정산 끝이면 비움', async () => {
+  const { call, data } = make({ orders: { a: ORDER, b: { ...ORDER, price: '5000' } } });
+  await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'fake' } });
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'b' } });
+  // 같은 주문을 다시 보내도 cycle에 한 번만
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
+  let cycle = data.rooms.get('platform6/3').cycle;
+  assert.deepEqual(cycle.map((e) => [e.id, e.state]), [['a', 'open'], ['b', 'open']]);
+  assert.equal(cycle[1].price, '5000');
+  assert.ok(cycle[0].at);
+  assert.ok(cycle[0].lines.length > 0);
+  assert.equal(typeof cycle[0].lines[0].name, 'string');
+  assert.ok(cycle[0].lines[0].options.every((x) => typeof x === 'string'));
+  const fakes = Object.fromEntries(data.sandbox.get('fake-platform6').map((o) => [o.orderKey, o.id]));
+  const done = (id) => call('POST', '/api/ops/toss/fake-complete', {
+    token: 'ops', body: { storeId: 'platform6', orderKey: `godori-platform6-${id}`, id: fakes[`godori-platform6-${id}`] },
+  });
+  await done('a'); // 일행 한 명이 먼저 결제 → 결제됨으로 남김
+  cycle = data.rooms.get('platform6/3').cycle;
+  assert.deepEqual(cycle.map((e) => [e.id, e.state]), [['a', 'paid'], ['b', 'open']]);
+  await done('b'); // 다 결제 → 정산 끝, 비움
+  assert.deepEqual(data.rooms.get('platform6/3').cycle, []);
+});
+
+test('주문 내역: 취소는 cancelled, 요약은 옛 주문(lines 없음)·옵션 객체도 처리', async () => {
+  const { cycleEntry, CYCLE_MAX } = require('../src/toss-data');
+  const { data } = make();
+  const e = (id) => cycleEntry(id, { price: 3000, items: ['아메리카노 x 1'], lines: [{ menuId: 'm1', name: '아메리카노', quantity: '2', options: [{ group: '온도', name: 'ICE', price: 500 }] }] }, 't');
+  assert.deepEqual(e('x').lines[0], { menuId: 'm1', name: '아메리카노', quantity: 2, options: ['ICE'] });
+  assert.equal(e('x').price, '3000');
+  assert.deepEqual(cycleEntry('y', { items: ['라면 x 1'] }, 't').lines, []);
+  await data.openRoomOrder('platform6', 3, 'x', e('x'));
+  await data.openRoomOrder('platform6', 3, 'y', e('y'));
+  await data.closeRoomOrder('platform6', 3, 'x', { paid: false, atIso: 't1' });
+  assert.deepEqual(data.rooms.get('platform6/3').cycle.map((c) => c.state), ['cancelled', 'open']);
+  // 최대 개수
+  for (let i = 0; i < CYCLE_MAX + 5; i++) await data.openRoomOrder('platform6', 5, `o${i}`, e(`o${i}`));
+  const c5 = data.rooms.get('platform6/5').cycle;
+  assert.equal(c5.length, CYCLE_MAX);
+  assert.equal(c5[c5.length - 1].id, `o${CYCLE_MAX + 4}`);
+});
+
 test('방 결제 끝: 취소만 있으면 정산 아님, 완료가 섞이면 정산', async () => {
   const { data } = make();
   await data.openRoomOrder('platform6', 3, 'x');

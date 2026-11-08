@@ -1348,5 +1348,70 @@ const guestMessages = <String, List<String>> {
     "New event",
     "新活动",
     "新しいイベント"
+  ],
+  "주문 내역": [
+    "Order history",
+    "订单记录",
+    "注文履歴"
+  ],
+  "이번에 주문한 메뉴예요 · 결제가 모두 끝나면 비워져요": [
+    "Items you ordered this visit · cleared once everything is paid",
+    "本次点的菜单 · 全部结账后会清空",
+    "今回ご注文のメニューです・お会計がすべて済むと消えます"
+  ],
+  "이 매장에서는 주문 내역을 볼 수 없어요.": [
+    "Order history isn't available at this store.",
+    "本店无法查看订单记录。",
+    "この店舗では注文履歴を表示できません。"
+  ],
+  "주문 내역을 불러오지 못했어요.": [
+    "Couldn't load your order history.",
+    "无法加载订单记录。",
+    "注文履歴を読み込めませんでした。"
+  ],
+  "아직 주문한 메뉴가 없어요.": [
+    "You haven't ordered anything yet.",
+    "还没有点餐。",
+    "まだ注文はありません。"
+  ],
+  "주문 합계": [
+    "Order total",
+    "订单合计",
+    "注文合計"
+  ],
+  "결제 전": [
+    "Unpaid",
+    "未结账",
+    "未会計"
+  ],
+  "주문 접수": [
+    "Received",
+    "已接单",
+    "受付済み"
+  ],
+  "준비 중": [
+    "Preparing",
+    "准备中",
+    "準備中"
+  ],
+  "준비 완료": [
+    "Ready",
+    "已备好",
+    "準備完了"
+  ],
+  "전달 완료": [
+    "Served",
+    "已送达",
+    "お渡し済み"
+  ],
+  "취소됨": [
+    "Cancelled",
+    "已取消",
+    "キャンセル済み"
+  ],
+  "결제됨": [
+    "Paid",
+    "已结账",
+    "会計済み"
   ]
 };

@@ -180,6 +180,7 @@ const Map<String, String> linkTargets = {
   'event': '이벤트',
   'notice': '이용안내',
   'tools': '게임도구',
+  'orders': '주문 내역', // 84차 — 토스 POS 연동 매장에서만 손님 화면에 보임
 };
 
 /// 왼쪽 영역 배경색 후보

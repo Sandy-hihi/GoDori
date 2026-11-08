@@ -24,10 +24,13 @@ class StoreFeatures {
 }
 
 class StoreFeaturesService {
+  /// 마지막으로 받은 값 (84차 — 사이드바가 화면을 옮길 때 '주문 내역' 줄이 깜빡이지 않게 처음 값으로 씀)
+  static StoreFeatures? last;
+
   /// 지금 매장의 기능 설정 (바뀌면 바로 반영, 읽기 실패 시 기본값)
   static Stream<StoreFeatures> watch() => StoreScope.doc
       .snapshots()
-      .map((s) => StoreFeatures.fromStoreData(s.data()))
+      .map((s) => last = StoreFeatures.fromStoreData(s.data()))
       .handleError((_) {});
 
   static Future<StoreFeatures> load() async {

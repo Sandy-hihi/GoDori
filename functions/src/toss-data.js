@@ -8,11 +8,15 @@
 //   _tossInstallations/{merchantId}  토스 '앱 설치' 웹훅으로 받은 매장 { merchantId, name, businessNumber, installedAt, removedAt? }
 //   _tossWebhooks/{x-toss-webhook-id}  같은 웹훅 두 번 처리 안 하게 { type, at }
 //   _tossSandbox/{가짜 merchantId}/orders/{id}  가짜 포스에 들어온 주문 (운영자 페이지에서 봄, 81차: posState·completedAt)
-//   stores/{매장}/roomStatus/{방 번호}  (81차) { open: [포스로 보낸 뒤 아직 안 끝난 주문 ID], paidInCycle, settledAt(ISO) }
+//   stores/{매장}/roomStatus/{방 번호}  (81차) { open: [포스로 보낸 뒤 아직 안 끝난 주문 ID], paidInCycle, settledAt(ISO),
+//                                        cycle: [이번 손님 주문 요약 — 84차 손님 패드 '주문 내역'] }
 //        — 서버만 씀, 그 방 패드·관리자는 읽기(firestore.rules). open이 비고 그사이 결제 완료가 있었으면 settledAt을 새로 씀
 //          → 그 방 패드가 로그인 때 고른 언어로 돌아감 (order_ready_overlay.dart)
+//        cycle 항목 { id, at(ISO), price, items[], lines[{ menuId, name, quantity, options[이름] }], state: 'open'|'paid'|'cancelled' }
+//          포스로 들어간 주문을 넣고, 완료 웹훅이면 paid·취소면 cancelled로 표시. 정산 끝(settledAt)이면 비움
 
 const SENDING_TIMEOUT_MS = 60 * 1000; // 'sending'으로 남은 채 1분이 지나면 다시 보낼 수 있음
+const CYCLE_MAX = 100; // 방 하나의 '주문 내역'에 남기는 최대 주문 수 (문서 크기 제한 대비)
 
 function dupKeyError() {
   const { TossError } = require('./toss');
@@ -113,10 +117,19 @@ function createFirestoreTossData(db) {
     async markFakeOrder(merchantId, id, patch) {
       await db.collection('_tossSandbox').doc(String(merchantId)).collection('orders').doc(String(id)).set(patch, { merge: true });
     },
-    // 81차: 방 결제 대기 목록
-    async openRoomOrder(storeId, room, orderId) {
-      await roomRef(storeId, room).set(
-        { open: FieldValue.arrayUnion(String(orderId)), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    // 81차: 방 결제 대기 목록 (84차: entry가 있으면 '주문 내역' cycle에도)
+    async openRoomOrder(storeId, room, orderId, entry = null) {
+      if (!entry) {
+        await roomRef(storeId, room).set(
+          { open: FieldValue.arrayUnion(String(orderId)), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        return;
+      }
+      await db.runTransaction(async (tx) => {
+        const ref = roomRef(storeId, room);
+        const d = await tx.get(ref);
+        const update = openRoom(d.exists ? d.data() : {}, orderId, entry);
+        tx.set(ref, { ...update, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      });
     },
     async closeRoomOrder(storeId, room, orderId, { paid = false, atIso } = {}) {
       return db.runTransaction(async (tx) => {
@@ -138,7 +151,39 @@ function createFirestoreTossData(db) {
   };
 }
 
+// 84차: 주문 문서 → '주문 내역' 요약 (손님 패드가 roomStatus 문서 하나만 읽으면 되게)
+function cycleEntry(orderId, order, atIso) {
+  const o = order || {};
+  const lines = (Array.isArray(o.lines) ? o.lines : []).slice(0, 50).map((l) => ({
+    menuId: String((l && l.menuId) || ''),
+    name: String((l && l.name) || ''),
+    quantity: Math.max(1, Math.trunc(Number(l && l.quantity) || 1)),
+    options: (Array.isArray(l && l.options) ? l.options : []).slice(0, 25)
+      .map((x) => String((x && typeof x === 'object' ? x.name : x) || '')).filter(Boolean),
+  }));
+  return {
+    id: String(orderId),
+    at: String(atIso || ''),
+    price: String(o.price == null ? '' : o.price),
+    items: (Array.isArray(o.items) ? o.items : []).slice(0, 50).map(String),
+    lines,
+    state: 'open',
+  };
+}
+
+// 방 결제 대기 목록에 주문 하나를 넣음 (+ cycle에 요약, 같은 주문은 한 번만)
+function openRoom(cur, orderId, entry) {
+  const open = Array.isArray(cur.open) ? cur.open.map(String) : [];
+  const update = { open: open.includes(String(orderId)) ? open : [...open, String(orderId)] };
+  if (entry) {
+    const cycle = Array.isArray(cur.cycle) ? cur.cycle : [];
+    if (!cycle.some((e) => e && String(e.id) === String(orderId))) update.cycle = [...cycle, entry].slice(-CYCLE_MAX);
+  }
+  return update;
+}
+
 // 방 결제 대기 목록에서 주문 하나를 뺌 — 목록이 비고 그사이 결제 완료(paid)가 한 번이라도 있었으면 정산 끝
+// 84차: cycle에서 그 주문을 결제됨(paid)/취소(cancelled)로 표시, 정산 끝이면 cycle 비움
 function closeRoom(cur, orderId, paid, atIso) {
   const open = Array.isArray(cur.open) ? cur.open.map(String) : [];
   if (!open.includes(String(orderId))) return { settled: false, open: open.length, update: null };
@@ -147,6 +192,12 @@ function closeRoom(cur, orderId, paid, atIso) {
   const settled = rest.length === 0 && paidInCycle;
   const update = { open: rest, paidInCycle: settled ? false : paidInCycle };
   if (settled) update.settledAt = atIso;
+  if (settled) {
+    update.cycle = [];
+  } else if (Array.isArray(cur.cycle)) {
+    update.cycle = cur.cycle.map((e) => (e && String(e.id) === String(orderId)
+      ? { ...e, state: paid === true ? 'paid' : 'cancelled' } : e));
+  }
   return { settled, open: rest.length, update };
 }
 
@@ -236,11 +287,10 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
       const f = (sandbox.get(String(mid)) || []).find((o) => String(o.id) === String(id));
       if (f) Object.assign(f, patch);
     },
-    async openRoomOrder(s, r, o) {
+    async openRoomOrder(s, r, o, entry = null) {
       const k = `${s}/${r}`;
       const cur = rooms.get(k) || { open: [] };
-      if (!cur.open.includes(String(o))) cur.open = [...cur.open, String(o)];
-      rooms.set(k, cur);
+      rooms.set(k, { ...cur, ...openRoom(cur, o, entry) });
     },
     async closeRoomOrder(s, r, o, { paid = false, atIso } = {}) {
       const k = `${s}/${r}`;
@@ -252,4 +302,4 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
   };
 }
 
-module.exports = { createFirestoreTossData, createMemoryTossData, SENDING_TIMEOUT_MS };
+module.exports = { createFirestoreTossData, createMemoryTossData, SENDING_TIMEOUT_MS, cycleEntry, CYCLE_MAX };

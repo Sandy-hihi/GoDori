@@ -7,6 +7,7 @@ import 'package:boardpad/screens/food_order_screen.dart';
 import 'package:boardpad/screens/game_list_screen.dart';
 import 'package:boardpad/screens/game_tools_screen.dart';
 import 'package:boardpad/screens/notice_screen.dart';
+import 'package:boardpad/screens/order_history_screen.dart';
 import 'package:boardpad/services/home_layout_service.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
 import 'package:boardpad/widgets/home/home_view.dart';
@@ -33,7 +34,7 @@ class PadShell extends StatelessWidget {
     );
   }
 
-  /// 지금 화면: 'games' | 'food' | 'tools' | 'event' | 'notice'
+  /// 지금 화면: 'games' | 'food' | 'tools' | 'event' | 'notice' | 'orders'(84차 주문 내역)
   /// ('party'는 일행과 함께 화면이 아직 쓰는 값 — 사이드바 메뉴에서는 뺌)
   final String current;
   final int? roomNumber;
@@ -237,6 +238,8 @@ Widget? padPageFor(String key, int? roomNumber) {
       return EventScreen(roomNumber: roomNumber);
     case 'notice':
       return NoticeScreen(roomNumber: roomNumber);
+    case 'orders':
+      return OrderHistoryScreen(roomNumber: roomNumber);
   }
   return null;
 }

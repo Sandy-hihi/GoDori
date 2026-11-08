@@ -5,6 +5,7 @@ import 'package:boardpad/screens/food_order_screen.dart';
 import 'package:boardpad/screens/game_list_screen.dart';
 import 'package:boardpad/screens/game_tools_screen.dart';
 import 'package:boardpad/screens/notice_screen.dart';
+import 'package:boardpad/screens/order_history_screen.dart';
 
 /// 홈 화면(L 디자인) 공통 색과 작은 부품
 
@@ -53,6 +54,9 @@ void openHomeTarget(BuildContext context, String target, int? roomNumber) {
     case 'tools':
       homeGo(context, GameToolsScreen(roomNumber: roomNumber));
       break;
+    case 'orders':
+      homeGo(context, OrderHistoryScreen(roomNumber: roomNumber));
+      break;
   }
 }
 
@@ -70,6 +74,8 @@ IconData homeTargetIcon(String target) {
       return Icons.article_outlined;
     case 'tools':
       return Icons.timer_outlined;
+    case 'orders':
+      return Icons.receipt_long_outlined;
   }
   return Icons.arrow_forward;
 }

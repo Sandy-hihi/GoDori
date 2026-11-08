@@ -6,6 +6,7 @@ import 'package:boardpad/models/home_layout.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/services/staff_call_service.dart';
+import 'package:boardpad/services/store_features.dart';
 import 'package:boardpad/widgets/home_common.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
 
@@ -402,11 +403,19 @@ class HomeSidebar extends StatelessWidget {
           );
         }
 
-        return Column(
+        Widget rows(bool tossPos) => Column(
           children: [
             row('home', '홈', Icons.home_rounded),
-            for (final t in targets) row(t, linkTargets[t]!, homeTargetIcon(t)),
+            for (final t in targets)
+              // 84차: '주문 내역'은 토스 POS 연동 매장에서만 (결제 끝나면 비워지는 목록이라)
+              if (t != 'orders' || tossPos) row(t, linkTargets[t]!, homeTargetIcon(t)),
           ],
+        );
+        if (!targets.contains('orders')) return rows(false);
+        return StreamBuilder<StoreFeatures>(
+          stream: StoreFeaturesService.watch(),
+          initialData: StoreFeaturesService.last ?? StoreFeatures.defaults,
+          builder: (context, f) => rows(f.data?.tossPos == true),
         );
       case 'note':
         return Container(
