@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/admin_dialog_width.dart';
 import 'admin_store_settings_screen.dart';
 import 'admin_home_layout_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -51,7 +52,7 @@ class _AdminNoticeManageScreenState extends State<AdminNoticeManageScreen> {
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           content: SizedBox(
-            width: 500,
+            width: adminDialogWidth(context, 500),
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
