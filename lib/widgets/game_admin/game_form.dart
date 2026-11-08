@@ -1,8 +1,10 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/admin_dialog_width.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:boardpad/services/bgg_service.dart';
@@ -595,8 +597,8 @@ class _BggSearchDialogState extends State<BggSearchDialog> {
     return AlertDialog(
       title: const Text('BGG(보드게임긱)에서 찾기', style: TextStyle(fontWeight: FontWeight.bold)),
       content: SizedBox(
-        width: 520,
-        height: 480,
+        width: adminDialogWidth(context, 520),
+        height: math.min(480, MediaQuery.sizeOf(context).height - 160),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

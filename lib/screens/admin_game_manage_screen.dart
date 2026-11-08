@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/admin_dialog_width.dart';
 import 'admin_store_settings_screen.dart';
 import 'admin_home_layout_screen.dart';
 
@@ -178,7 +179,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
           return AlertDialog(
             title: const Text('장르 관리', style: TextStyle(fontWeight: FontWeight.bold)),
             content: SizedBox(
-              width: 360,
+              width: adminDialogWidth(ctx, 360),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -665,7 +666,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
         title: Text(check.ok ? '영상 확인' : '올릴 수 없는 영상이에요',
             style: TextStyle(fontWeight: FontWeight.bold, color: check.ok ? Colors.orange.shade800 : Colors.redAccent)),
         content: SizedBox(
-          width: 460,
+          width: adminDialogWidth(ctx, 460),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1489,6 +1490,19 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                         final all = snapshot.data!.docs;
                         final registeredGeekIds = all.map((d) => (d.data()['geekId'] ?? '').toString()).where((x) => x.isNotEmpty).toSet();
                         final picks = _sortedPicks(all);
+                        // 좁은 화면(폰·아이패드 세로): 등록 카드들을 위에, 목록을 아래에 세로로 (82차)
+                        if (MediaQuery.sizeOf(context).width < 900) {
+                          return ListView(
+                            children: [
+                              _buildAddCard(registeredGeekIds),
+                              _buildBulkCard(registeredGeekIds),
+                              _buildTimeFillCard(all),
+                              _buildPicksCard(picks),
+                              const SizedBox(height: 16),
+                              SizedBox(height: 600, child: _buildListCard(all)),
+                            ],
+                          );
+                        }
                         return Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [

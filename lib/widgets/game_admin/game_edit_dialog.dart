@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/widgets/admin_dialog_width.dart';
 
 import 'package:boardpad/services/bgg_service.dart';
 import 'game_form.dart';
@@ -104,7 +105,7 @@ class _GameEditDialogState extends State<GameEditDialog> {
     return AlertDialog(
       title: const Text('게임 정보 수정', style: TextStyle(fontWeight: FontWeight.bold)),
       content: SizedBox(
-        width: 560,
+        width: adminDialogWidth(context, 560),
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
