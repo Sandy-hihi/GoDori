@@ -626,7 +626,7 @@ const List<HomeLayoutPreset> homeLayoutPresets = [
       sidebarItems: [
         SidebarItem('logo'),
         SidebarItem('links', {
-          'targets': ['event', 'tools', 'notice'],
+          'targets': ['event', 'tools', 'notice', 'orders'], // 89차: 주문 내역(토스 POS 매장만 보임)
         }),
         SidebarItem('spacer'),
         SidebarItem('staffCall'),
@@ -659,7 +659,7 @@ const List<HomeLayoutPreset> homeLayoutPresets = [
         SidebarItem('logo'),
         SidebarItem('room'),
         SidebarItem('links', {
-          'targets': ['games', 'food', 'tools'],
+          'targets': ['games', 'food', 'tools', 'orders'], // 89차
         }),
         SidebarItem('spacer'),
         SidebarItem('staffCall'),
@@ -689,7 +689,7 @@ const List<HomeLayoutPreset> homeLayoutPresets = [
         SidebarItem('logo'),
         SidebarItem('room'),
         SidebarItem('links', {
-          'targets': ['event', 'notice'],
+          'targets': ['event', 'notice', 'orders'], // 89차
         }),
         SidebarItem('spacer'),
         SidebarItem('staffCall'),

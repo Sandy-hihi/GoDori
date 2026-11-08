@@ -66,7 +66,6 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
       current: 'orders',
       roomNumber: widget.roomNumber,
       title: '주문 내역',
-      subtitle: '이번에 주문한 메뉴예요 · 결제가 모두 끝나면 비워져요',
       body: StreamBuilder<StoreFeatures>(
         stream: _features,
         builder: (context, f) {

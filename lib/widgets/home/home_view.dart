@@ -7,6 +7,7 @@ import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/services/staff_call_service.dart';
 import 'package:boardpad/services/store_features.dart';
+import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/widgets/home_common.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
 
@@ -411,7 +412,8 @@ class HomeSidebar extends StatelessWidget {
               if (t != 'orders' || tossPos) row(t, linkTargets[t]!, homeTargetIcon(t)),
           ],
         );
-        if (!targets.contains('orders')) return rows(false);
+        // 매장 로그인 전(위젯 테스트 등)에는 매장 기능을 못 읽으니 숨김
+        if (!targets.contains('orders') || !StoreScope.isSet) return rows(false);
         return StreamBuilder<StoreFeatures>(
           stream: StoreFeaturesService.watch(),
           initialData: StoreFeaturesService.last ?? StoreFeatures.defaults,

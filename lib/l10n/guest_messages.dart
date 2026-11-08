@@ -1354,11 +1354,6 @@ const guestMessages = <String, List<String>> {
     "订单记录",
     "注文履歴"
   ],
-  "이번에 주문한 메뉴예요 · 결제가 모두 끝나면 비워져요": [
-    "Items you ordered this visit · cleared once everything is paid",
-    "本次点的菜单 · 全部结账后会清空",
-    "今回ご注文のメニューです・お会計がすべて済むと消えます"
-  ],
   "이 매장에서는 주문 내역을 볼 수 없어요.": [
     "Order history isn't available at this store.",
     "本店无法查看订单记录。",
