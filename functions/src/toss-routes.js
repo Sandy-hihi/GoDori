@@ -11,6 +11,11 @@
 //   POST /api/ops/toss/unlink     (운영자) { storeId }
 //   POST /api/ops/toss/config     (운영자) { storeId, printOrderSheet }
 //   GET  /api/ops/toss/fake-orders?storeId=   (운영자) 가짜 포스에 들어온 주문
+//   POST /api/ops/toss/fake-complete  (운영자) { storeId, orderKey, id }  가짜 포스에서 '결제 완료' 흉내 (81차 — 진짜는 주문 완료 웹훅)
+//
+// 방 결제 끝 (81차): 포스로 보낸 주문을 stores/{매장}/roomStatus/{방}.open 에 넣고, 완료·취소 웹훅이 오면 뺌.
+//   목록이 비고 그사이 완료(COMPLETED)가 있었으면 settledAt → 그 방 패드가 로그인 때 고른 언어로 돌아감.
+//   (방 이용료는 카운터 포스에서 따로 받아서 모름 — '패드로 시킨 주문이 다 결제됐는지' 기준)
 //
 // 보내기 조건: 매장 features.tossPos(59차, 운영자가 켬) + private/tossPos 연결(가짜 또는 진짜) + 주문에 lines(64차 패드)
 // 가짜 연결(mode 'fake'): merchantId 'fake-<매장>', 상품은 그 매장 고도리 메뉴로 만든 가짜 포스 상품 (src/toss.js)
@@ -28,6 +33,13 @@ const ORDER_EVENTS = {
   'order.order.opened.v1': 'OPENED',
   'order.order.completed.v1': 'COMPLETED',
   'order.order.cancelled.v1': 'CANCELLED',
+};
+
+// 주문이 끝난 상태 — 방 결제 대기 목록에서 뺌 (COMPLETED만 '결제 완료'로 셈)
+const TERMINAL = new Set(['COMPLETED', 'CANCELLED', 'DECLINED', 'EXPIRED']);
+const roomOf = (order) => {
+  const m = /^#(\d{1,3})$/.exec(String((order && order.room) || ''));
+  return m ? Number(m[1]) : null;
 };
 
 // data: src/toss-data.js   live: 진짜 토스 클라이언트(키 없으면 null)   webhookSecret: 웹훅 비밀값(없으면 웹훅 503)
@@ -73,6 +85,25 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     return cfg;
   }
 
+  // 81차: 포스로 들어간 주문을 그 방 결제 대기 목록에 (실패해도 주문 보내기는 성공으로)
+  async function trackOpen(storeId, order, orderId) {
+    const room = roomOf(order);
+    if (room == null) return;
+    try {
+      await data.openRoomOrder(storeId, room, orderId);
+    } catch (e) {
+      console.error('[토스] 방 결제 목록', storeId, orderId, e);
+    }
+  }
+
+  // 포스 주문 상태 반영 (웹훅·가짜 포스 '결제 완료') → 끝난 상태면 방 목록에서 빼고 정산 여부 돌려줌
+  async function applyOrderEvent(storeId, orderId, order, state, atIso, reason = '') {
+    await data.setOrderToss(storeId, orderId, { posState: state, posStateAt: atIso, ...(reason ? { posReason: reason } : {}) });
+    const room = roomOf(order);
+    if (!TERMINAL.has(state) || room == null) return { settled: false, open: null };
+    return data.closeRoomOrder(storeId, room, orderId, { paid: state === 'COMPLETED', atIso });
+  }
+
   // ── 주문 보내기 ──
   async function sendOrder(user, orderId) {
     const cfg = await linkedConfig(user.store);
@@ -102,6 +133,7 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
         warnings, code: undefined, error: undefined, failedAt: undefined,
       };
       await data.setOrderToss(user.store, orderId, patch, { countAttempt: true });
+      await trackOpen(user.store, claim.order, orderId);
       return { ok: true, tossPos: patch };
     } catch (e) {
       const known = e instanceof TossError || (e && e.status && e.code);
@@ -110,6 +142,7 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       if (e && e.code === 'DUPLICATED_ORDER_KEY') {
         const patch = { state: 'sent', mode: cfg.mode, sentAt: nowIso, warnings: ['포스에 이미 들어가 있던 주문이에요.'] };
         await data.setOrderToss(user.store, orderId, patch, { countAttempt: true });
+        await trackOpen(user.store, claim.order, orderId);
         return { ok: true, tossPos: patch };
       }
       const patch = {
@@ -151,12 +184,11 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       if (key) {
         const cfg = await data.getConfig(key.storeId);
         // 그 매장에 연결된 가맹점에서 온 이벤트만 (다른 가맹점이 같은 모양 키를 보내도 무시)
-        if (cfg && String(cfg.merchantId) === merchantId && (await data.getOrder(key.storeId, key.orderId))) {
-          await data.setOrderToss(key.storeId, key.orderId, {
-            posState: ORDER_EVENTS[type],
-            posStateAt: String(ev.createdAt || new Date(now()).toISOString()),
-            ...(d.declinedReason ? { posReason: String(d.declinedReason).slice(0, 200) } : {}),
-          });
+        const order = cfg && String(cfg.merchantId) === merchantId ? await data.getOrder(key.storeId, key.orderId) : null;
+        if (order) {
+          await applyOrderEvent(key.storeId, key.orderId, order, ORDER_EVENTS[type],
+            String(ev.createdAt || new Date(now()).toISOString()),
+            d.declinedReason ? String(d.declinedReason).slice(0, 200) : '');
         }
       }
     }
@@ -285,6 +317,20 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     if (path === '/api/ops/toss/fake-orders' && req.method === 'GET') {
       const storeId = cleanStoreId((req.query || {}).storeId);
       return { orders: await data.listFakeOrders(`${FAKE_PREFIX}${storeId}`) };
+    }
+    if (path === '/api/ops/toss/fake-complete' && req.method === 'POST') {
+      const storeId = cleanStoreId(body.storeId);
+      const cfg = await data.getConfig(storeId);
+      if (!cfg || cfg.mode !== 'fake') throw httpError(409, 'NOT_FAKE', '가짜 포스로 연결된 매장에서만 쓸 수 있어요.');
+      const key = parseOrderKey(body.orderKey);
+      if (!key || key.storeId !== storeId) throw httpError(400, 'INVALID_ORDER_KEY', '주문 키가 올바르지 않아요.');
+      const order = await data.getOrder(storeId, key.orderId);
+      if (!order) throw httpError(404, 'NO_ORDER', '없는 주문이에요.');
+      const atIso = new Date(now()).toISOString();
+      const r = await applyOrderEvent(storeId, key.orderId, order, 'COMPLETED', atIso);
+      const fid = String(body.id == null ? '' : body.id);
+      if (/^\d{1,19}$/.test(fid)) await data.markFakeOrder(cfg.merchantId, fid, { posState: 'COMPLETED', completedAt: atIso });
+      return { ok: true, settled: r.settled === true, open: r.open };
     }
     throw httpError(404, 'NOT_FOUND', '없는 주소예요.');
   }

@@ -20,6 +20,7 @@
 //   /api/video/*                   룰 설명 영상(Cloudflare R2) — 자세한 건 src/video.js
 //   /api/toss/*, /api/ops/toss/*   토스 POS 연동 (64차) — 자세한 건 src/toss-routes.js
 //   /api/stats/*, /api/ops/insights  매장 통계 — 인기 메뉴·인기 게임 (65차) — 자세한 건 src/insights.js
+//   /api/translate/sync           (관리자) 메뉴·공지·이벤트 자동 번역 (83차) — 자세한 건 src/translate.js
 //
 // 로그인 흐름 (Firebase Authentication, 47차부터 매장별)
 //   1) 패드: 매장 아이디 + 패드 비밀번호 + 방 번호(관리자는 0 → PIN 한 번 더) / 관리자 웹: 매장 아이디 + 비밀번호
@@ -127,9 +128,11 @@ function clientIp(headers) {
 // revokeStoreTokens: async (storeId) => 그 매장 패드·관리자 로그인 끊기 (정지·거절할 때)
 // toss:             토스 POS 연동 API (src/toss-routes.js createTossRoutes). 없으면 /api/toss/* 는 503
 // insights:         매장 통계 API (src/insights.js createInsightRoutes, 65차). 없으면 /api/stats/* 는 503
+// translate:        자동 번역 API (src/translate.js createTranslateRoutes, 83차). 없으면 /api/translate/* 는 503
 function createHandler({
   bgg, stores, getLegacySecrets = async () => ({}), verifyIdToken, createToken, attempts, video = null,
   ops = null, monitoring = null, revokeStoreTokens = async () => {}, now = () => Date.now(), toss = null, insights = null,
+  translate = null,
 }) {
   const limit = createLimiter(now);
 
@@ -551,6 +554,11 @@ function createHandler({
       if (path.startsWith('/api/stats/')) {
         if (!insights) throw httpError(503, 'NO_INSIGHTS', '매장 통계가 서버에 연결되지 않았어요.');
         return reply(200, await insights.route(req, path, { requireStoreUser, rate }));
+      }
+      // 83차: 자동 번역 — 관리자 웹이 메뉴·공지·이벤트를 저장한 뒤 부름
+      if (path.startsWith('/api/translate/')) {
+        if (!translate) throw httpError(503, 'NO_TRANSLATE', '자동 번역이 서버에 연결되지 않았어요.');
+        return reply(200, await translate.route(req, path, { requireAdmin, rate }));
       }
       if (path === '/api/ops/insights') {
         await requireOps(req);

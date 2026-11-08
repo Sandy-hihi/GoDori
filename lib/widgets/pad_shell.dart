@@ -22,6 +22,17 @@ class PadShell extends StatelessWidget {
   /// 메인 화면(DashboardScreen) 라우트 이름 — 홈 버튼이 여기까지 돌아감 (login_screen.dart에서 붙임)
   static const String homeRouteName = '/home';
 
+  /// 손님 패드 앱의 Navigator (main.dart MaterialApp.navigatorKey) — 82차: 방 결제가 끝나면
+  /// 화면 밖(order_ready_overlay.dart)에서 홈으로 돌려보낼 때 씀
+  static final navigatorKey = GlobalKey<NavigatorState>();
+
+  /// 홈 화면까지 돌아감 (위에 뜬 창·내부 화면을 모두 닫음)
+  static void goHome() {
+    PadShell.navigatorKey.currentState?.popUntil(
+      (r) => r.settings.name == PadShell.homeRouteName || r.isFirst,
+    );
+  }
+
   /// 지금 화면: 'games' | 'food' | 'tools' | 'event' | 'notice'
   /// ('party'는 일행과 함께 화면이 아직 쓰는 값 — 사이드바 메뉴에서는 뺌)
   final String current;
@@ -103,7 +114,7 @@ class PadShell extends StatelessWidget {
                               ],
                             ),
                           ),
-                          const GuestLanguageButton(),
+                          // 82차: 언어 버튼은 사이드바(직원 호출 위)로 옮김 — 홈과 똑같은 사이드바
                           if (headerTrailing != null) ...[
                             const SizedBox(width: 16),
                             headerTrailing!,

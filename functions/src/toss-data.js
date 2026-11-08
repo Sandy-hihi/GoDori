@@ -7,7 +7,10 @@
 //                                        code, error, warnings[], attempts, posState(웹훅: ACCEPTED·DECLINED·COMPLETED·CANCELLED…), posStateAt }
 //   _tossInstallations/{merchantId}  토스 '앱 설치' 웹훅으로 받은 매장 { merchantId, name, businessNumber, installedAt, removedAt? }
 //   _tossWebhooks/{x-toss-webhook-id}  같은 웹훅 두 번 처리 안 하게 { type, at }
-//   _tossSandbox/{가짜 merchantId}/orders/{id}  가짜 포스에 들어온 주문 (운영자 페이지에서 봄)
+//   _tossSandbox/{가짜 merchantId}/orders/{id}  가짜 포스에 들어온 주문 (운영자 페이지에서 봄, 81차: posState·completedAt)
+//   stores/{매장}/roomStatus/{방 번호}  (81차) { open: [포스로 보낸 뒤 아직 안 끝난 주문 ID], paidInCycle, settledAt(ISO) }
+//        — 서버만 씀, 그 방 패드·관리자는 읽기(firestore.rules). open이 비고 그사이 결제 완료가 있었으면 settledAt을 새로 씀
+//          → 그 방 패드가 로그인 때 고른 언어로 돌아감 (order_ready_overlay.dart)
 
 const SENDING_TIMEOUT_MS = 60 * 1000; // 'sending'으로 남은 채 1분이 지나면 다시 보낼 수 있음
 
@@ -21,6 +24,7 @@ function createFirestoreTossData(db) {
   const store = (id) => db.collection('stores').doc(id);
   const cfgRef = (id) => store(id).collection('private').doc('tossPos');
   const orderRef = (s, o) => store(s).collection('orders').doc(o);
+  const roomRef = (s, r) => store(s).collection('roomStatus').doc(String(r));
   const iso = (v) => (v && typeof v.toDate === 'function' ? v.toDate().toISOString() : v || null);
   const plain = (obj) => {
     const out = {};
@@ -106,6 +110,23 @@ function createFirestoreTossData(db) {
         throw e;
       }
     },
+    async markFakeOrder(merchantId, id, patch) {
+      await db.collection('_tossSandbox').doc(String(merchantId)).collection('orders').doc(String(id)).set(patch, { merge: true });
+    },
+    // 81차: 방 결제 대기 목록
+    async openRoomOrder(storeId, room, orderId) {
+      await roomRef(storeId, room).set(
+        { open: FieldValue.arrayUnion(String(orderId)), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    },
+    async closeRoomOrder(storeId, room, orderId, { paid = false, atIso } = {}) {
+      return db.runTransaction(async (tx) => {
+        const ref = roomRef(storeId, room);
+        const d = await tx.get(ref);
+        const r = closeRoom(d.exists ? d.data() : {}, orderId, paid, atIso);
+        if (r.update) tx.set(ref, { ...r.update, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        return { settled: r.settled, open: r.open };
+      });
+    },
     async listFakeOrders(merchantId, limit = 30) {
       const snap = await db.collection('_tossSandbox').doc(String(merchantId)).collection('orders')
         .orderBy('savedAt', 'desc').limit(limit).get();
@@ -117,6 +138,18 @@ function createFirestoreTossData(db) {
   };
 }
 
+// 방 결제 대기 목록에서 주문 하나를 뺌 — 목록이 비고 그사이 결제 완료(paid)가 한 번이라도 있었으면 정산 끝
+function closeRoom(cur, orderId, paid, atIso) {
+  const open = Array.isArray(cur.open) ? cur.open.map(String) : [];
+  if (!open.includes(String(orderId))) return { settled: false, open: open.length, update: null };
+  const rest = open.filter((x) => x !== String(orderId));
+  const paidInCycle = cur.paidInCycle === true || paid === true;
+  const settled = rest.length === 0 && paidInCycle;
+  const update = { open: rest, paidInCycle: settled ? false : paidInCycle };
+  if (settled) update.settledAt = atIso;
+  return { settled, open: rest.length, update };
+}
+
 // 테스트용 메모리 저장소
 function createMemoryTossData({ menus = {}, orders = {} } = {}) {
   const configs = new Map();
@@ -125,8 +158,9 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
   const webhooks = new Set();
   const installs = new Map();
   const sandbox = new Map(); // merchantId -> [order]
+  const rooms = new Map(); // `${store}/${room}` -> { open, paidInCycle, settledAt }
   return {
-    configs, ordersMap, installs, sandbox, menus,
+    configs, ordersMap, installs, sandbox, menus, rooms,
     async getConfig(s) {
       return configs.has(s) ? JSON.parse(JSON.stringify(configs.get(s))) : null;
     },
@@ -197,6 +231,23 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
     },
     async listFakeOrders(mid) {
       return [...(sandbox.get(String(mid)) || [])];
+    },
+    async markFakeOrder(mid, id, patch) {
+      const f = (sandbox.get(String(mid)) || []).find((o) => String(o.id) === String(id));
+      if (f) Object.assign(f, patch);
+    },
+    async openRoomOrder(s, r, o) {
+      const k = `${s}/${r}`;
+      const cur = rooms.get(k) || { open: [] };
+      if (!cur.open.includes(String(o))) cur.open = [...cur.open, String(o)];
+      rooms.set(k, cur);
+    },
+    async closeRoomOrder(s, r, o, { paid = false, atIso } = {}) {
+      const k = `${s}/${r}`;
+      const cur = rooms.get(k) || { open: [] };
+      const res = closeRoom(cur, o, paid, atIso);
+      if (res.update) rooms.set(k, { ...cur, ...res.update });
+      return { settled: res.settled, open: res.open };
     },
   };
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:boardpad/services/translate_sync.dart';
 import 'admin_store_settings_screen.dart';
 import 'admin_home_layout_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -644,6 +645,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                   await StoreScope.col('menus')
                                       .add(menuData);
                                 }
+                                TranslateSync.kick(); // 83차: 손님 패드 자동 번역 (메뉴 이름·옵션)
                                 if (context.mounted) {
                                   Navigator.pop(context);
                                   ScaffoldMessenger.of(context).showSnackBar(

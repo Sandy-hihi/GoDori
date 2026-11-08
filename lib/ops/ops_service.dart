@@ -121,6 +121,11 @@ class OpsService {
     return [for (final o in (r['orders'] as List? ?? const [])) Map<String, dynamic>.from(o as Map)];
   }
 
+  /// 가짜 포스에서 '결제 완료' 흉내 (81차) → 그 방 패드 주문이 다 끝나면 패드 언어가 기본으로
+  static Future<Map<String, dynamic>> tossFakeComplete(String storeId, Map<String, dynamic> order) =>
+      _call('POST', '/api/ops/toss/fake-complete',
+          body: {'storeId': storeId, 'orderKey': order['orderKey'], 'id': order['id']});
+
   static Future<void> deleteSignup(String storeId) => _call('POST', '/api/ops/store-delete', body: {'storeId': storeId});
 
   static Future<Map<String, dynamic>> usage(int days) => _call('GET', '/api/ops/usage', query: {'days': '$days'});

@@ -96,6 +96,22 @@ flutter:
           weight: 700
         - asset: assets/fonts/Pretendard-ExtraBold.otf
           weight: 800
+  # 중국어·일본어 글꼴 (81·83차) — 부분 글꼴(굵기 400·700): 번역 문구 글자 + 83차부터 자동 번역용으로
+  # 중국어 상용 한자 3755자·일본어 JIS 1수준 한자 2965자 + 가나·전각 기호 (4개 합쳐 약 5.5MB).
+  # 앱에 넣어 두지 않으면 웹에서 언어를 처음 바꿀 때 글자가 깨졌다가 새로고침해야 보임. 목록 밖 드문 한자는 웹이 늦게 받아 옴.
+  # (assets/fonts/NotoSansCJK-LICENSE.txt)
+    - family: NotoSansSC
+      fonts:
+        - asset: assets/fonts/NotoSansSC-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansSC-Bold.ttf
+          weight: 700
+    - family: NotoSansJP
+      fonts:
+        - asset: assets/fonts/NotoSansJP-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansJP-Bold.ttf
+          weight: 700
   # assets:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
