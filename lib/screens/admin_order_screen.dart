@@ -266,6 +266,19 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
 
                     final items = data['items'] as List<dynamic>? ?? [];
 
+                    // 폰 세로(폭 600 미만): 위아래로 쌓는 카드 — 가로 고정폭(방 100·가격 120·버튼 132)이 375px에 안 들어가서 (80차)
+                    if (MediaQuery.sizeOf(context).width < 600) {
+                      return _compactOrderCard(
+                        docId: docId,
+                        data: data,
+                        statusStr: statusStr,
+                        flow: flow,
+                        isCompleted: isCompleted,
+                        isReady: isReady,
+                        items: items,
+                      );
+                    }
+
                     return Container(
                       margin: const EdgeInsets.only(bottom: 16.0),
                       decoration: BoxDecoration(
@@ -365,14 +378,114 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
     );
   }
 
+  // 폰 세로용 주문 카드: [방 번호·시간·상태] 머리 → 메뉴·요청사항 → 금액 → 꽉 찬 버튼
+  Widget _compactOrderCard({
+    required String docId,
+    required Map<String, dynamic> data,
+    required String statusStr,
+    required OrderFlow flow,
+    required bool isCompleted,
+    required bool isReady,
+    required List<dynamic> items,
+  }) {
+    final Color roomColor = isCompleted ? Colors.black87 : Color((data['roomColor'] as int?) ?? 0xFFC2365A);
+    final Color ink = isCompleted ? Colors.grey : Colors.black87;
+    final String notes = (data['notes'] ?? '').toString().trim();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: isReady ? Border.all(color: const Color(0xFF27AE60), width: 2.5) : null,
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 8, offset: const Offset(0, 2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 머리: 방 번호 · 주문 시각 · 상태
+          Container(
+            color: roomColor,
+            padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+            child: Row(
+              children: [
+                Text((data['room'] ?? '#?').toString(),
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.white)),
+                const SizedBox(width: 10),
+                Text((data['time'] ?? '').toString(), style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    flow.isPickup ? '${flow.statusText(statusStr)} · ${flow.badge}' : flow.statusText(statusStr),
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 본문: 메뉴 → 요청사항 → 금액
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final it in items)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(it.toString(), style: TextStyle(fontSize: 16, color: ink, height: 1.3)),
+                  ),
+                if (notes.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(color: const Color(0xFFF4F5F7), borderRadius: BorderRadius.circular(8)),
+                    child: Text(notes, style: TextStyle(fontSize: 13, color: isCompleted ? Colors.grey : Colors.grey[700])),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text("${data['price']} 원", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: ink)),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: TossSendBadge(
+                        orderId: docId,
+                        tossPos: data['tossPos'] is Map ? Map<String, dynamic>.from(data['tossPos'] as Map) : null,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // 아래: 상태 변경 버튼 (가로 꽉 차게)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+            child: _buildStatusButton(docId, statusStr, flow, compact: true),
+          ),
+        ],
+      ),
+    );
+  }
+
   // 3. 상태 버튼 위젯 (글자·다음 상태는 수령 방식에 따라 — models/order_flow.dart)
-  Widget _buildStatusButton(String docId, String currentStatus, OrderFlow flow) {
+  // compact: 폰 세로 카드에서 가로 꽉 찬 52px 버튼
+  Widget _buildStatusButton(String docId, String currentStatus, OrderFlow flow, {bool compact = false}) {
+    final Size? fixed = compact ? null : const Size(132, 72);
+    final Size minimum = compact ? const Size.fromHeight(52) : const Size(132, 72);
     if (currentStatus == 'completed') {
       return ElevatedButton(
         onPressed: () => _deleteOrder(docId),
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.redAccent,
-          fixedSize: const Size(132, 72),
+          fixedSize: fixed,
+          minimumSize: minimum,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
         ),
         child: const Text('삭제', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
@@ -388,7 +501,8 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
       onPressed: () => _toggleOrderStatus(docId, currentStatus, flow),
       style: ElevatedButton.styleFrom(
         backgroundColor: color,
-        fixedSize: const Size(132, 72),
+        fixedSize: fixed,
+        minimumSize: minimum,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
       ),
