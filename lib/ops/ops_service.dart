@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -7,6 +8,7 @@ import 'package:http/http.dart' as http;
 
 import '../firebase_options.dart';
 import '../services/admin_session.dart';
+import '../services/r2_upload.dart';
 
 class OpsException implements Exception {
   final String message;
@@ -141,4 +143,36 @@ class OpsService {
       _call('POST', '/api/ops/recount-r2', body: {'storeId': storeId});
 
   static Future<void> changePassword(String password) => _call('POST', '/api/ops/password', body: {'password': password});
+
+  // ── 공용 룰 영상 보관함 (92차) — 서버 functions/src/video.js shared* ──
+  static Future<Map<String, dynamic>> sharedVideos() => _call('GET', '/api/ops/shared-video/list');
+
+  /// 올리기: 주소 받기 → R2로 PUT(진행률) → 서버 확인. quality '1080' / '720'
+  static Future<void> uploadSharedVideo({
+    required String bggId,
+    required String title,
+    required String quality,
+    required Uint8List bytes,
+    Map<String, dynamic>? meta,
+    void Function(double)? onProgress,
+  }) async {
+    final up = await _call('POST', '/api/ops/shared-video/upload-url',
+        body: {'bggId': bggId, 'quality': quality, 'size': bytes.length, 'contentType': 'video/mp4'});
+    try {
+      await putToStorage(up['uploadUrl'] as String, bytes,
+          contentType: (up['contentType'] ?? 'video/mp4').toString(), onProgress: onProgress);
+    } on R2UploadException catch (e) {
+      throw OpsException(e.message);
+    }
+    await _call('POST', '/api/ops/shared-video/confirm',
+        body: {'bggId': bggId, 'quality': quality, 'key': up['key'], 'title': title, 'meta': meta ?? {}});
+  }
+
+  /// 93차: 매장이 올린 영상을 공용으로 옮기기. dryRun이면 미리 보기만 → { moved: [...], skipped: [...] }
+  static Future<Map<String, dynamic>> moveStoreVideosToShared(String storeId, {required bool dryRun}) =>
+      _call('POST', '/api/ops/shared-video/move-store', body: {'storeId': storeId, 'dryRun': dryRun});
+
+  /// quality '1080' / '720' / 'all'
+  static Future<void> deleteSharedVideo(String bggId, {String quality = 'all'}) =>
+      _call('POST', '/api/ops/shared-video/delete', body: {'bggId': bggId, 'quality': quality});
 }

@@ -84,6 +84,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
   final Set<String> _rowBusy = {};
   final Map<String, double> _videoProgress = {}; // 룰 영상 올리는 중 (문서 id → 0~1)
   final Map<String, int> _videoPlays = {}; // 룰 영상 재생 횟수 (videoStats, 서버가 기록)
+  Map<String, String> _sharedVideos = {}; // 92차 공용 룰 영상 (BGG 번호 → 화질 '1080p·720p'), 매장 영상이 없으면 패드가 이걸 틂
 
   @override
   void initState() {
@@ -96,6 +97,23 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
       }
     });
     _loadVideoPlays();
+    _loadSharedVideos();
+  }
+
+  // 공용 룰 영상 목록 (shared/ruleVideos, 운영자가 올림 — 화면 열 때 문서 1개만 읽음)
+  Future<void> _loadSharedVideos() async {
+    try {
+      final doc = await FirebaseFirestore.instance.collection('shared').doc('ruleVideos').get();
+      final v = doc.data()?['videos'];
+      if (v is! Map || !mounted) return;
+      setState(() {
+        _sharedVideos = {
+          for (final e in v.entries)
+            if (e.value is Map)
+              e.key.toString(): ['1080', '720'].where((q) => (e.value as Map)['q$q'] is Map).map((q) => '${q}p').join('·'),
+        }..removeWhere((k, q) => q.isEmpty);
+      });
+    } catch (_) {} // 규칙 배포 전이거나 없으면 그냥 안 보임
   }
 
   // 룰 영상 재생 횟수 (화면 열 때 한 번만 읽음)
@@ -120,6 +138,9 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
     _bulkCtrl.dispose();
     super.dispose();
   }
+
+  // 92차: 패드는 게임 목록을 하루 1번만 받음 → 바꾼 뒤엔 '손님 앱 새로고침'을 눌러야 바로 보임
+  static const _refreshHint = ' 패드에 바로 보이게 하려면 "손님 앱 새로고침"을 눌러 주세요.';
 
   void _toast(String msg, {bool error = false}) {
     if (!mounted) return;
@@ -379,7 +400,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
         _addBusy = false;
         _addNote = null;
       });
-      _toast("'${fields['title']}' 게임을 추가했어요.");
+      _toast("'${fields['title']}' 게임을 추가했어요.$_refreshHint");
     } catch (e) {
       debugPrint('Game add error: $e');
       if (!mounted) return;
@@ -521,7 +542,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
       _bulkRunning = false;
       _bulkResults = List.of(results);
     });
-    _toast('대용량 추가 끝: $okCount개 등록, ${results.length - okCount}개 건너뜀/실패');
+    _toast('대용량 추가 끝: $okCount개 등록, ${results.length - okCount}개 건너뜀/실패.$_refreshHint');
   }
 
   // ───────────────────────── 목록 행 동작 ─────────────────────────
@@ -588,7 +609,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
         photo = '사진은 BGG에서 못 가져와서 그대로 두었어요.';
       }
       await doc.reference.update(update);
-      _toast('BGG 정보로 갱신했어요. (게임 이름은 그대로) $photo');
+      _toast('BGG 정보로 갱신했어요. (게임 이름은 그대로) $photo$_refreshHint');
     } catch (e) {
       _toast(e.toString(), error: true);
     } finally {
@@ -782,7 +803,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
       await deleteStorageUrl((data['rulebookImageUrl'] ?? '').toString());
       await deleteStorageUrl((data['ruleVideoUrl'] ?? '').toString());
       await doc.reference.delete();
-      _toast('삭제했어요.');
+      _toast('삭제했어요.$_refreshHint');
     } catch (e) {
       _toast('삭제에 실패했어요. 다시 시도해 주세요.', error: true);
     }
@@ -794,7 +815,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
       barrierDismissible: false,
       builder: (_) => GameEditDialog(docId: doc.id, data: doc.data(), genreList: _genreList),
     );
-    if (saved == true) _toast('수정했어요.');
+    if (saved == true) _toast('수정했어요.$_refreshHint');
   }
 
   // ───────────────────────── 매장 추천 순서 ─────────────────────────
@@ -1159,6 +1180,8 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
         '룰 영상 ${r2Videos.keys.map((q) => '${q}p').join('·')}${plays > 0 ? ' · 재생 $plays회' : ''}'
       else if (hasLegacyVideo)
         '매장 영상 있음 (예전 방식)'
+      else if (geekId.isNotEmpty && _sharedVideos.containsKey(geekId))
+        '공용 룰 영상 ${_sharedVideos[geekId]} (운영자 제공 — 매장 영상을 올리면 그게 먼저)'
       else if (hasYoutube)
         '유튜브 영상',
     ];
@@ -1468,19 +1491,23 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      ElevatedButton.icon(
-                        onPressed: () async {
-                          await StoreScope.col('settings')
-                              .doc('appRefresh')
-                              .set({'gamesUpdatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
-                          _toast('손님 앱 게임 목록이 새로고침됩니다.');
-                        },
-                        icon: const Icon(Icons.sync),
-                        label: const Text('손님 앱 새로고침', style: TextStyle(fontWeight: FontWeight.bold)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: kAdminNavy,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      // 92차: 패드는 게임 목록을 하루 1번만 받음(game_catalog.dart) — 게임을 추가·수정·삭제·숨김한 뒤 누르면 모든 패드가 다시 받음
+                      Tooltip(
+                        message: '패드는 게임 목록을 하루 1번만 받아요.\n게임을 추가·수정·삭제·숨김한 뒤 누르면 모든 패드가 바로 다시 받아요.',
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            await StoreScope.col('settings')
+                                .doc('appRefresh')
+                                .set({'gamesUpdatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+                            _toast('패드들이 게임 목록을 다시 받아요. (패드는 평소 하루 1번만 받아요)');
+                          },
+                          icon: const Icon(Icons.sync),
+                          label: const Text('손님 앱 새로고침', style: TextStyle(fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kAdminNavy,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                          ),
                         ),
                       ),
                         ],

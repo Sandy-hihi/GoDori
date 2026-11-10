@@ -36,11 +36,13 @@ const { STORE_ID_RE, MAX_ROOMS, RESERVED_IDS, STATUSES, cleanStoreId, hashSecret
 const MIN = 60 * 1000;
 const IMAGE_MAX_BYTES = 1.5 * 1024 * 1024;
 const DETAILS_MAX_IDS = 30;
-// 로그인 실패 제한: 같은 IP 15분에 5번, 전체 1시간에 30번 틀리면 잠시 잠금
+// 로그인 실패 제한: 같은 IP 15분에 5번 틀리면 그 IP만 잠시 잠금
 const LOGIN_LIMITS = [
   { key: (ip) => `ip:${ip}`, max: 5, windowMs: 15 * MIN },
-  { key: () => 'global', max: 30, windowMs: 60 * MIN },
 ];
+// 전체(모든 IP·모든 매장) 1시간 30번은 잠그지 않고 서버 기록에 경보만 남김 (DEF-011, 91차)
+// — 예전엔 잠갔는데, 그러면 누구 한 명이 틀린 비밀번호 30번으로 모든 매장 로그인을 1시간 막을 수 있었음
+const LOGIN_WATCH = { key: 'global', max: 30, windowMs: 60 * MIN };
 
 // 난이도: BGG geek weight 구간 (월정액권 앱과 같은 기준·색 — 매장 난이도 스티커 색)
 const DIFFICULTY_BUCKETS = [
@@ -192,7 +194,7 @@ function createHandler({
     return decoded;
   }
 
-  // ── 로그인 실패 제한 (같은 IP 15분 5번, 전체 1시간 30번) ──
+  // ── 로그인 실패 제한 (같은 IP 15분 5번 → 잠금, 전체 1시간 30번 → 경보만) ──
   async function checkLock(ip) {
     for (const l of LOGIN_LIMITS) {
       if (await attempts.isLocked(l.key(ip), l.max, l.windowMs)) {
@@ -202,13 +204,22 @@ function createHandler({
   }
   async function fail(ip, code, message) {
     for (const l of LOGIN_LIMITS) await attempts.recordFail(l.key(ip), l.windowMs);
+    await attempts.recordFail(LOGIN_WATCH.key, LOGIN_WATCH.windowMs);
+    if (await attempts.isLocked(LOGIN_WATCH.key, LOGIN_WATCH.max, LOGIN_WATCH.windowMs)) {
+      console.warn(`[로그인 경보] 1시간 동안 틀린 로그인이 ${LOGIN_WATCH.max}번을 넘었어요 — 여러 IP에서 비밀번호를 맞춰 보는 중일 수 있음 (마지막 IP ${ip})`);
+    }
     return httpError(401, code, message);
   }
 
+  // 받침에 따라 을/를, 이/가 (91차 — '비밀번호을' 고침. 패드 앱 번역표 guest_messages.dart와 글자가 같아야 함)
+  function josa(word, withFinal, withoutFinal) {
+    const c = word.charCodeAt(word.length - 1) - 0xAC00;
+    return word + (c >= 0 && c < 11172 && c % 28 !== 0 ? withFinal : withoutFinal);
+  }
   function textField(v, what, max = 100) {
     const s = typeof v === 'string' ? v.trim() : '';
-    if (!s) throw httpError(400, 'EMPTY_PASSWORD', `${what}을 입력해 주세요.`);
-    if (s.length > max) throw httpError(400, 'INVALID_PASSWORD', `${what}이 너무 길어요.`);
+    if (!s) throw httpError(400, 'EMPTY_PASSWORD', `${josa(what, '을', '를')} 입력해 주세요.`);
+    if (s.length > max) throw httpError(400, 'INVALID_PASSWORD', `${josa(what, '이', '가')} 너무 길어요.`);
     return s;
   }
 
@@ -246,7 +257,7 @@ function createHandler({
     if (room === 0) {
       // 59차: 매장이 패드 관리자 대시보드를 끈 경우 (비밀번호가 맞은 뒤에만 알려 줌)
       if (account.features && account.features.adminDashboard === false) {
-        throw httpError(403, 'DASHBOARD_OFF', '이 매장은 패드 관리자 대시보드(방 번호 0)를 쓰지 않아요. 주문 관리는 관리자 웹에서 해 주세요.');
+        throw httpError(403, 'DASHBOARD_OFF', '이 매장은 패드 관리자 대시보드(방 번호 0)가 꺼져 있어요. 관리자 웹 → 매장 설정에서 다시 켜 주세요.');
       }
       const pin = typeof body.pin === 'string' ? body.pin.trim() : '';
       if (!pin) return { needPin: true, store: storeId, storeName: account.name };
@@ -442,6 +453,19 @@ function createHandler({
       if (v.length < 10 || v.length > 100) throw httpError(400, 'INVALID_PASSWORD', '운영자 비밀번호는 10자 이상으로 정해 주세요.');
       await ops.setPasswordHash(hashSecret(v));
       return { ok: true };
+    }
+    // 92차: 공용 룰 영상 보관함 (BGG 번호 기준, 모든 매장이 같이 씀 — src/video.js)
+    const sharedRoutes = {
+      'GET /api/ops/shared-video/list': 'sharedList',
+      'POST /api/ops/shared-video/upload-url': 'sharedUploadUrl',
+      'POST /api/ops/shared-video/confirm': 'sharedConfirm',
+      'POST /api/ops/shared-video/delete': 'sharedRemove',
+      'POST /api/ops/shared-video/move-store': 'moveStoreToShared', // 93차: 매장 영상 → 공용 { storeId, dryRun }
+    };
+    const sharedFn = sharedRoutes[`${req.method} ${path}`];
+    if (sharedFn) {
+      if (!video) throw httpError(503, 'R2_NOT_CONNECTED', '영상 저장소가 아직 연결되지 않았어요.');
+      return video[sharedFn](body);
     }
     throw httpError(404, 'NOT_FOUND', '없는 주소예요.');
   }

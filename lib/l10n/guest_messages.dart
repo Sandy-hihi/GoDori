@@ -1408,5 +1408,111 @@ const guestMessages = <String, List<String>> {
     "Paid",
     "已结账",
     "会計済み"
+  ],
+  // 91차: 패드 로그인·PIN 오류 문구 (DEF-007 — admin_session.dart, 서버 app.js·stores.js와 글자가 같아야 함)
+  "매장 아이디, 비밀번호, 방 번호를 모두 입력해 주세요.": [
+    "Please enter the store ID, password, and room number.",
+    "请输入店铺ID、密码和房间号。",
+    "店舗ID・パスワード・部屋番号をすべて入力してください。"
+  ],
+  "매장 설정에서 패드 관리자 대시보드를 꺼서 닫았어요. 다시 쓰려면 관리자 웹 → 매장 설정에서 켜 주세요.": [
+    "The pad admin dashboard was turned off in store settings. To use it again, turn it on in Admin web → Store settings.",
+    "已在店铺设置中关闭平板管理面板。如需再次使用，请在管理网页 → 店铺设置中开启。",
+    "店舗設定でパッド管理画面がオフになったため閉じました。再び使うには管理者ウェブ → 店舗設定でオンにしてください。"
+  ],
+  "이 매장은 패드 관리자 대시보드(방 번호 0)가 꺼져 있어요. 관리자 웹 → 매장 설정에서 다시 켜 주세요.": [
+    "The pad admin dashboard (room 0) is turned off for this store. Turn it back on in Admin web → Store settings.",
+    "本店的平板管理面板（房间号0）已关闭。请在管理网页 → 店铺设置中重新开启。",
+    "この店舗ではパッド管理画面（部屋番号0）がオフになっています。管理者ウェブ → 店舗設定で再びオンにしてください。"
+  ],
+  "서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.": [
+    "The server is slow to respond. Please try again shortly.",
+    "服务器响应较慢，请稍后再试。",
+    "サーバーの応答が遅れています。しばらくしてからもう一度お試しください。"
+  ],
+  "로그인 서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.": [
+    "Couldn't connect to the sign-in server. Please check the internet connection.",
+    "无法连接登录服务器，请检查网络连接。",
+    "ログインサーバーに接続できませんでした。インターネット接続を確認してください。"
+  ],
+  "로그인 API 경로를 찾을 수 없어요. 앱의 서버 주소와 배포 연결 설정을 확인해 주세요. (404)": [
+    "Sign-in API not found. Please check the app's server address and deployment settings. (404)",
+    "找不到登录API。请检查应用的服务器地址和部署设置。（404）",
+    "ログインAPIが見つかりません。アプリのサーバーアドレスとデプロイ設定を確認してください。（404）"
+  ],
+  "로그인 API가 올바른 응답을 보내지 않았어요. 서버 주소와 배포 연결 설정을 확인해 주세요.": [
+    "The sign-in API returned an invalid response. Please check the server address and deployment settings.",
+    "登录API返回了无效响应。请检查服务器地址和部署设置。",
+    "ログインAPIから正しい応答がありませんでした。サーバーアドレスとデプロイ設定を確認してください。"
+  ],
+  "로그인하지 못했어요. 잠시 후 다시 시도해 주세요.": [
+    "Couldn't sign in. Please try again shortly.",
+    "登录失败，请稍后再试。",
+    "ログインできませんでした。しばらくしてからもう一度お試しください。"
+  ],
+  "로그인 후 매장·방 권한 정보를 확인하지 못했어요. 직원에게 문의해 주세요.": [
+    "Signed in, but couldn't verify store and room permissions. Please ask a staff member.",
+    "登录后无法确认店铺和房间权限，请联系店员。",
+    "ログイン後、店舗・部屋の権限を確認できませんでした。スタッフにお問い合わせください。"
+  ],
+  "매장 아이디는 영어 소문자·숫자·-로 3~30자예요.": [
+    "Store ID must be 3–30 characters: lowercase letters, numbers, or -.",
+    "店铺ID须为3至30位小写英文字母、数字或-。",
+    "店舗IDは英小文字・数字・-で3～30文字です。"
+  ],
+  "비밀번호를 입력해 주세요.": [
+    "Please enter the password.",
+    "请输入密码。",
+    "パスワードを入力してください。"
+  ],
+  "비밀번호가 너무 길어요.": [
+    "The password is too long.",
+    "密码太长。",
+    "パスワードが長すぎます。"
+  ],
+  "방 번호를 확인해 주세요. (관리자는 0)": [
+    "Please check the room number. (Admin: 0)",
+    "请确认房间号。（管理员为0）",
+    "部屋番号を確認してください。（管理者は0）"
+  ],
+  "비밀번호를 너무 많이 틀렸어요. 잠시 뒤에 다시 시도해 주세요.": [
+    "Too many incorrect attempts. Please try again later.",
+    "密码错误次数过多，请稍后再试。",
+    "パスワードの入力ミスが多すぎます。しばらくしてからもう一度お試しください。"
+  ],
+  "이 매장은 패드 비밀번호가 아직 없어요. 관리자 웹 → 매장 설정에서 만들어 주세요.": [
+    "This store has no pad password yet. Please create one in Admin web → Store settings.",
+    "本店尚未设置平板密码。请在管理网页 → 店铺设置中创建。",
+    "この店舗にはまだパッドのパスワードがありません。管理者ウェブ → 店舗設定で作成してください。"
+  ],
+  "아이디 또는 비밀번호가 올바르지 않습니다.": [
+    "Incorrect ID or password.",
+    "ID或密码不正确。",
+    "IDまたはパスワードが正しくありません。"
+  ],
+  "가입 승인을 기다리고 있어요. 승인되면 로그인할 수 있어요.": [
+    "Waiting for sign-up approval. You can sign in once approved.",
+    "正在等待注册审批，审批通过后即可登录。",
+    "登録の承認待ちです。承認されるとログインできます。"
+  ],
+  "가입이 승인되지 않았어요. 운영자에게 문의해 주세요.": [
+    "Sign-up was not approved. Please contact the operator.",
+    "注册未获批准，请联系运营方。",
+    "登録は承認されませんでした。運営者にお問い合わせください。"
+  ],
+  "이용이 정지된 매장이에요. 운영자에게 문의해 주세요.": [
+    "This store's service is suspended. Please contact the operator.",
+    "本店已被停用，请联系运营方。",
+    "この店舗は利用停止中です。運営者にお問い合わせください。"
+  ],
+  "PIN이 너무 길어요.": [
+    "The PIN is too long.",
+    "PIN码太长。",
+    "PINが長すぎます。"
+  ],
+  "이 매장은 관리자 PIN이 설정되어 있지 않아요.": [
+    "No admin PIN is set for this store.",
+    "本店尚未设置管理员PIN码。",
+    "この店舗には管理者PINが設定されていません。"
   ]
 };

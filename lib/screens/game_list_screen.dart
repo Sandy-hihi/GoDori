@@ -9,7 +9,7 @@ import 'package:boardpad/widgets/home/home_theme.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
 import 'package:boardpad/widgets/rule_video_player.dart';
 import 'package:boardpad/services/store_scope.dart';
-import 'package:boardpad/services/usage_meter.dart';
+import 'package:boardpad/services/game_catalog.dart';
 import 'package:boardpad/services/insight_service.dart';
 
 class GameListScreen extends StatefulWidget {
@@ -68,9 +68,7 @@ class _GameListScreenState extends State<GameListScreen> {
   static const double _rowStride = _cardH + _gap;
   static const double _loopMarkH = 72;
 
-  Future<QuerySnapshot>? _gamesFuture;
-  StreamSubscription? _refreshSubscription;
-  bool _isInitialRefreshLoad = true;
+  Future<List<Map<String, dynamic>>>? _gamesFuture;
   late final Stream<DocumentSnapshot> _genreStream =
       StoreScope.col('settings').doc('genres').snapshots();
 
@@ -88,31 +86,16 @@ class _GameListScreenState extends State<GameListScreen> {
     selectedDifficulty = widget.initialDifficulty;
     _searchController = TextEditingController(text: widget.initialSearchQuery);
     _gamesFuture = _fetchGames();
-    _listenForRemoteRefresh();
+    GameCatalog.revision.addListener(_onCatalogChanged);
   }
 
-  // 관리자가 settings/appRefresh 문서의 gamesUpdatedAt을 바꾸면 자동 재로딩
-  void _listenForRemoteRefresh() {
-    _refreshSubscription = StoreScope.col('settings')
-        .doc('appRefresh')
-        .snapshots()
-        .listen((doc) {
-      if (_isInitialRefreshLoad) {
-        _isInitialRefreshLoad = false;
-        return;
-      }
-      if (mounted) {
-        setState(() {
-          _gamesFuture = _fetchGames();
-        });
-      }
-    });
+  // 관리자가 '손님 앱 새로고침'을 누르면(settings/appRefresh) GameCatalog가 알려 줌 → 다시 받기
+  void _onCatalogChanged() {
+    if (mounted) setState(() => _gamesFuture = _fetchGames());
   }
 
-  // 게임 목록 1회성 읽기 (실시간 구독 없음 → Firestore 읽기 횟수 최소화)
-  Future<QuerySnapshot> _fetchGames() {
-    return StoreScope.col('games').where('isAvailable', isEqualTo: true).get().metered();
-  }
+  // 게임 목록: 하루 1번만 Firestore에서 받고 그날은 패드에 저장한 것을 씀 (92차, game_catalog.dart)
+  Future<List<Map<String, dynamic>>> _fetchGames() => GameCatalog.load();
 
   @override
   void dispose() {
@@ -121,7 +104,7 @@ class _GameListScreenState extends State<GameListScreen> {
     _currentGroup.dispose();
     _railVisible.dispose();
     _searchController.dispose();
-    _refreshSubscription?.cancel();
+    GameCatalog.revision.removeListener(_onCatalogChanged);
     super.dispose();
   }
 
@@ -219,20 +202,23 @@ class _GameListScreenState extends State<GameListScreen> {
   }
 
   // 필터 + 가나다순 정렬 (같은 데이터·같은 필터면 이전 결과 재사용)
-  void _sortAndFilter(QuerySnapshot data) {
-    // docs는 부를 때마다 새 목록이라, 받아 온 결과(QuerySnapshot) 자체로 같은지 봄
+  void _sortAndFilter(List<Map<String, dynamic>> data) {
+    // 받아 온 목록(GameCatalog가 그날 같은 것을 돌려줌) 자체로 같은지 봄
     final key = Object.hash(identityHashCode(data), selectedTab, selectedGenre, searchQuery, selectedPlayers,
         selectedTime, selectedDifficulty);
     if (key == _sortedKey) return;
     _sortedKey = key;
 
+    // 검색어 앞뒤 공백은 무시 — 공백만이면 전체 목록 (DEF-005, 91차)
+    final query = searchQuery.trim().toLowerCase();
     // _docId: 룰 영상(R2) 재생 주소를 서버에서 받을 때 씀
-    final filtered = data.docs.map((d) => <String, dynamic>{...d.data() as Map<String, dynamic>, '_docId': d.id}).where((game) {
+    // (GameCatalog가 '_docId'를 이미 넣어 둠, 원본을 건드리지 않게 사본으로)
+    final filtered = data.map((d) => <String, dynamic>{...d}).where((game) {
       // isAvailable 필터는 Firestore 쿼리에서 서버 사이드로 처리됨
       final bool isRecommended = game['isRecommended'] == true;
       final bool matchesTab = selectedTab == '전체' || (selectedTab == '추천' && isRecommended);
       final bool matchesGenre = selectedGenre == '전체' || gameGenres(game).contains(selectedGenre); // 장르 여러 개 지원
-      final bool matchesSearch = '${game['title'] ?? ''} ${guestField(context, game, 'title')}'.toLowerCase().contains(searchQuery.toLowerCase());
+      final bool matchesSearch = '${game['title'] ?? ''} ${guestField(context, game, 'title')}'.toLowerCase().contains(query);
       final bool matchesPlayers = _matchesPlayerFilter(game['players']?.toString(), selectedPlayers);
       final bool matchesTime = _matchesTimeFilter(game['time']?.toString(), selectedTime);
       final bool matchesDifficulty = selectedDifficulty == null || game['difficulty'] == selectedDifficulty;
@@ -257,7 +243,7 @@ class _GameListScreenState extends State<GameListScreen> {
       selectedTime != null ||
       selectedDifficulty != null ||
       selectedGenre != '전체' ||
-      searchQuery.isNotEmpty;
+      searchQuery.trim().isNotEmpty;
 
   void _clearFilters() {
     setState(() {
@@ -280,13 +266,13 @@ class _GameListScreenState extends State<GameListScreen> {
       subtitle: '눌러서 자세히 보고, 룰 영상도 볼 수 있어요',
       headerTrailing: _searchBox(),
       headerBottom: _filters(),
-      body: FutureBuilder<QuerySnapshot>(
+      body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _gamesFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator(color: kOrange));
           }
-          if (snapshot.hasError || !snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
             return const PadEmpty(icon: Icons.casino_outlined, text: '등록된 보드게임이 없어요.');
           }
           return _buildGameList(snapshot.data!);
@@ -405,8 +391,9 @@ class _GameListScreenState extends State<GameListScreen> {
                 ? List<String>.from((genreSnap.data!.data() as Map? ?? {})['items'] ?? [])
                 : [];
             final List<String> allGenres = ['전체', ...genreList];
-            // 선택된 장르가 목록에 없으면 '전체'로 리셋
-            if (!allGenres.contains(selectedGenre)) selectedGenre = '전체';
+            // 선택된 장르가 목록에 없으면 '전체'로 리셋 — 장르 목록을 받은 뒤에만
+            // (받기 전에 리셋하면 홈 '장르별'에서 고른 장르가 지워짐, DEF-006, 91차)
+            if (genreSnap.hasData && !allGenres.contains(selectedGenre)) selectedGenre = '전체';
             return SizedBox(
               height: 40,
               child: ListView(
@@ -453,7 +440,7 @@ class _GameListScreenState extends State<GameListScreen> {
   }
 
   // 게임 카드 목록 — 가나다순, 끝까지 내리면 다시 처음부터 (끝없이 반복)
-  Widget _buildGameList(QuerySnapshot data) {
+  Widget _buildGameList(List<Map<String, dynamic>> data) {
     _sortAndFilter(data);
     final games = _sortedGames;
     final gameGroups = _sortedGroups;

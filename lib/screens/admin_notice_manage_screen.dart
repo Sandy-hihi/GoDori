@@ -412,11 +412,11 @@ class _AdminNoticeManageScreenState extends State<AdminNoticeManageScreen> {
                   ),
                   const SizedBox(height: 24),
                   Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                    child: Material(
+                      // 91차: 흰 Container → Material — 안의 ListTile 눌림 효과가 보이게 (콘솔 'ListTile background color or ink splashes may be invisible')
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      clipBehavior: Clip.antiAlias,
                       child: StreamBuilder<DocumentSnapshot>(
                         stream: StoreScope.col('settings')
                             .doc('notices')

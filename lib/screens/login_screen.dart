@@ -140,7 +140,8 @@ class _LoginScreenState extends State<LoginScreen> {
       _autoTouched = false;
       _autoLogin = _roomController.text.trim() != '0';
       if (closed == AdminPadGate.closedByOwner) {
-        _error = '매장 설정에서 패드 관리자 대시보드를 꺼서 닫았어요. 주문 관리는 관리자 웹에서 해 주세요.';
+        // DEF-017(91차): 주문 관리는 매장 관리자 패드에서만 함(11/8 팀 결정) — 관리자 웹으로 보내지 않고 다시 켜는 곳을 알려 줌
+        _error = '매장 설정에서 패드 관리자 대시보드를 꺼서 닫았어요. 다시 쓰려면 관리자 웹 → 매장 설정에서 켜 주세요.';
       }
     });
   }
@@ -170,7 +171,7 @@ class _LoginScreenState extends State<LoginScreen> {
               pinController.clear();
               setDlg(() {
                 checking = false;
-                errorText = e.message;
+                errorText = guestTr(ctx, e.message); // 91차: 서버 오류 문구도 번역 (DEF-007)
               });
             }
           }

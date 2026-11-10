@@ -24,6 +24,7 @@ class AdminWebLoginScreen extends StatefulWidget {
 class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
   final _idController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _idFocus = FocusNode();
   final _passwordFocus = FocusNode();
   bool _isChecking = false;
   String? _errorText;
@@ -32,6 +33,7 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
   void dispose() {
     _idController.dispose();
     _passwordController.dispose();
+    _idFocus.dispose();
     _passwordFocus.dispose();
     super.dispose();
   }
@@ -39,23 +41,29 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
   @override
   void initState() {
     super.initState();
-    _skipIfLoggedIn();
-    AdminSession.loadPrefs(prefix: 'web.').then((p) {
-      if (!mounted || _idController.text.isNotEmpty || p.storeId.isEmpty) {
-        return;
-      }
-      _idController.text = p.storeId;
-      _passwordFocus.requestFocus();
-    });
+    _start();
   }
 
-  // 이미 관리자로 로그인돼 있으면 바로 관리 화면으로
-  Future<void> _skipIfLoggedIn() async {
+  // 이미 관리자로 로그인돼 있으면 바로 관리 화면으로, 아니면 저장된 매장 아이디를 채우고 커서를 둠.
+  // 91차: 예전엔 autofocus + 매장 아이디 불러오기가 로그인 확인과 따로 돌아서, 이미 로그인된 상태로
+  // 시작(R)하면 넘어가는 화면의 입력칸에 포커스가 가며 'RenderBox was not laid out: RenderEditable' 오류가 남
+  // → 로그인 확인이 끝난 뒤, 화면이 그려진 다음에만 커서를 줌
+  Future<void> _start() async {
     try {
-      if (await AdminSession.isAdmin() && mounted) _goToAdmin();
+      if (await AdminSession.isAdmin()) {
+        if (mounted) _goToAdmin();
+        return;
+      }
     } on AdminLoginException catch (e) {
       if (mounted) setState(() => _errorText = e.message);
     }
+    final p = await AdminSession.loadPrefs(prefix: 'web.');
+    if (!mounted) return;
+    if (_idController.text.isEmpty && p.storeId.isNotEmpty) _idController.text = p.storeId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      (_idController.text.isEmpty ? _idFocus : _passwordFocus).requestFocus();
+    });
   }
 
   void _goToAdmin() {
@@ -126,7 +134,7 @@ class _AdminWebLoginScreenState extends State<AdminWebLoginScreen> {
               const SizedBox(height: 24),
               TextField(
                 controller: _idController,
-                autofocus: true,
+                focusNode: _idFocus, // 91차: autofocus 대신 _start()에서 커서를 줌
                 enabled: !_isChecking,
                 autocorrect: false,
                 textInputAction: TextInputAction.next,

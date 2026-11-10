@@ -29,7 +29,8 @@ class _StoreFeaturesCardState extends State<StoreFeaturesCard> {
         builder: (ctx) => AlertDialog(
           title: const Text('패드 관리자 대시보드를 끌까요?', style: TextStyle(fontWeight: FontWeight.bold)),
           content: const Text('패드에서 방 번호 0으로 로그인할 수 없게 되고, 지금 열려 있는 패드 대시보드도 바로 닫혀요.\n'
-              '주문 확인·처리는 이 관리자 웹의 주문 화면에서 하게 돼요. 언제든 다시 켤 수 있어요.'),
+              // DEF-017(91차): 관리자 웹엔 주문 화면이 없음(주문은 매장 관리자 패드에서 — 11/8 팀 결정)
+              '관리자 웹에는 주문 화면이 없어서, 끄면 패드 주문은 토스 POS(연동 매장)에서만 볼 수 있어요. 언제든 다시 켤 수 있어요.'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
             FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('끄기')),
@@ -126,7 +127,7 @@ class _StoreFeaturesCardState extends State<StoreFeaturesCard> {
                 color: _navy,
                 title: '패드 관리자 대시보드 (방 번호 0)',
                 description: '매장 패드에서 방 번호 0 + 관리자 PIN으로 들어가는 주문 현황 화면이에요.\n'
-                    '주문을 POS나 이 관리자 웹으로만 보신다면 꺼 두셔도 돼요.',
+                    '주문을 토스 POS로만 보신다면 꺼 두셔도 돼요. (관리자 웹에는 주문 화면이 없어요)',
                 trailing: Switch(
                   value: f?.adminDashboard ?? true,
                   activeTrackColor: _navy,

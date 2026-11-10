@@ -137,4 +137,16 @@ void main() {
       'en',
     );
   });
+
+  // 91차(DEF-007): 패드 로그인 오류 문구 — 서버·앱 문구 그대로, 숫자 섞인 것은 규칙으로
+  test('pad login error messages are translated', () async {
+    final l = GuestLanguage.instance;
+    await l.select('en');
+    expect(l.translate('아이디 또는 비밀번호가 올바르지 않습니다.'), 'Incorrect ID or password.');
+    expect(l.translate('비밀번호를 입력해 주세요.'), 'Please enter the password.');
+    expect(l.translate('이 매장의 방 번호는 1~11번이에요. (관리자는 0)'),
+        'Room numbers for this store are 1–11. (Admin: 0)');
+    await l.select('ja');
+    expect(l.translate('요청을 처리하지 못했어요. (418)'), 'リクエストを処理できませんでした。（418）');
+  });
 }

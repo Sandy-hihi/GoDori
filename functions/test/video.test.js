@@ -15,6 +15,7 @@ const fakeVerify = async (t) => {
   if (t === 'guest-token') return { uid: 'pad.platform6.3', pad: true, store: 'platform6', room: 3 };
   if (t === 'other-admin') return { uid: 'admin-web.other-store', admin: true, store: 'other-store' };
   if (t === 'anon-token') return { uid: 'anon123' };
+  if (t === 'ops-token') return { uid: 'ops', ops: true };
   throw new Error('bad token');
 };
 
@@ -230,3 +231,127 @@ test('R2 저장소: 설정이 비면 null(연결 안 됨), HEAD 404면 null', as
   await s.remove('rule-videos/x/1_1080.mp4');
   assert.deepEqual(calls, ['HEAD', 'DELETE']);
 });
+
+// ── 92차: 공용 룰 영상 보관함 ──
+function setupShared() {
+  const { createMemoryOps } = require('../src/ops');
+  const { createMemorySharedVideos } = require('../src/video');
+  const storage = fakeStorage();
+  const games = fakeGames();
+  games.docs.get('g1').geekId = '13'; // 카탄 BGG 13
+  games.docs.get('g2').geekId = '148228'; // 스플렌더
+  const shared = createMemorySharedVideos();
+  const plays = [];
+  let t = 1793700000000;
+  const video = createVideoApi({ storage, games, shared, stats: { recordPlay: async (s, id, title, b) => plays.push([s, id, title, b]) }, now: () => t++ });
+  const h = createHandler({
+    ops: createMemoryOps({ password: 'ops-password-1' }),
+    bgg: {},
+    stores: createMemoryStores({ platform6: { name: '플랫폼6' }, 'other-store': { name: '다른 매장' } }),
+    verifyIdToken: fakeVerify,
+    createToken: async () => 'x',
+    attempts: createMemoryAttempts(),
+    video,
+  });
+  return { h, storage, games, shared, plays };
+}
+
+async function sharedUpload(ctx, bggId, quality, size = 2000, title = '카탄') {
+  const r = await ctx.h(req('POST', '/api/ops/shared-video/upload-url', { token: 'ops-token', body: { bggId, quality, size, contentType: 'video/mp4' } }));
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  ctx.storage.files.set(r.body.key, size);
+  const c = await ctx.h(req('POST', '/api/ops/shared-video/confirm', { token: 'ops-token', body: { bggId, quality, key: r.body.key, title, meta: { width: 1920, height: 1080 } } }));
+  return { up: r, c };
+}
+
+test('공용 영상: 운영자만 올리고, 매장 영상이 없으면 같은 BGG 번호의 공용 영상을 재생', async () => {
+  const ctx = setupShared();
+  // 운영자 아니면 못 올림
+  const no = await ctx.h(req('POST', '/api/ops/shared-video/upload-url', { token: 'admin-token', body: { bggId: '13', quality: '1080', size: 10, contentType: 'video/mp4' } }));
+  assert.equal(no.status, 403);
+  // BGG 번호 검사
+  const bad = await ctx.h(req('POST', '/api/ops/shared-video/upload-url', { token: 'ops-token', body: { bggId: 'abc', quality: '1080', size: 10, contentType: 'video/mp4' } }));
+  assert.equal(bad.status, 400);
+
+  const { up, c } = await sharedUpload(ctx, '13', '1080');
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  assert.match(up.body.key, /^rule-videos\/_shared\/13\/\d+_1080\.mp4$/);
+  assert.equal(ctx.shared.map.get('13').title, '카탄');
+
+  // 다른 BGG 번호 폴더의 키로 확인하면 거절
+  const wrong = await ctx.h(req('POST', '/api/ops/shared-video/confirm', { token: 'ops-token', body: { bggId: '148228', quality: '1080', key: up.body.key } }));
+  assert.equal(wrong.status, 400);
+
+  // 패드: 카탄(g1)은 매장 영상이 없어도 공용 영상으로 재생
+  const play = await ctx.h(req('GET', '/api/video/play-url', { token: 'guest-token', query: { gameId: 'g1' } }));
+  assert.equal(play.status, 200, JSON.stringify(play.body));
+  assert.equal(play.body.shared, true);
+  assert.ok(play.body.q1080.url.includes('rule-videos/_shared/13/'));
+  assert.deepEqual(ctx.plays.at(-1).slice(0, 3), ['platform6', 'g1', '카탄']);
+  // 스플렌더(g2)는 공용 영상도 없음
+  assert.equal((await ctx.h(req('GET', '/api/video/play-url', { token: 'guest-token', query: { gameId: 'g2' } }))).status, 404);
+
+  // 매장 영상이 생기면 매장 영상이 먼저
+  const own = await upload(ctx, 'g1', '1080');
+  assert.equal(own.c.status, 200, JSON.stringify(own.c.body));
+  const play2 = await ctx.h(req('GET', '/api/video/play-url', { token: 'guest-token', query: { gameId: 'g1' } }));
+  assert.equal(play2.body.shared, undefined);
+  assert.ok(play2.body.q1080.url.includes('rule-videos/platform6/g1/'));
+
+  // 목록·다시 올리면 예전 파일 지움·지우기
+  const list = await ctx.h(req('GET', '/api/ops/shared-video/list', { token: 'ops-token' }));
+  assert.equal(list.status, 200);
+  assert.equal(list.body.videos.length, 1);
+  assert.equal(list.body.videos[0].bggId, '13');
+  assert.equal(list.body.totalBytes, 2000);
+  const again = await sharedUpload(ctx, '13', '1080', 3000, '');
+  assert.equal(again.c.status, 200);
+  assert.ok(ctx.storage.removed.includes(up.body.key));
+  assert.equal(ctx.shared.map.get('13').title, '카탄'); // 이름을 비워 보내면 원래 이름 유지
+  const del = await ctx.h(req('POST', '/api/ops/shared-video/delete', { token: 'ops-token', body: { bggId: '13', quality: 'all' } }));
+  assert.equal(del.status, 200);
+  assert.equal(ctx.shared.map.has('13'), false);
+  assert.ok(ctx.storage.removed.includes(again.up.body.key));
+});
+
+test('공용 영상: 매장 영상을 공용으로 옮기기 (93차) — 미리 보기, BGG 번호 없음·이미 있음은 건너뜀, 파일은 그대로', async () => {
+  const ctx = setupShared();
+  ctx.games.docs.set('g3', { title: '번호 없는 게임' });
+  ctx.games.listWithVideo = async (store) =>
+    store === 'platform6' ? [...ctx.games.docs.entries()].map(([id, d]) => ({ id, ...JSON.parse(JSON.stringify(d)) })).filter((g) => g.ruleVideo && (g.ruleVideo.q1080 || g.ruleVideo.q720)) : [];
+  // 매장 영상: 카탄(g1) 1080·720, 스플렌더(g2) 1080, 번호 없는 게임(g3) 1080
+  const k1 = (await upload(ctx, 'g1', '1080', 1000)).up.body.key;
+  await upload(ctx, 'g1', '720', 500);
+  await upload(ctx, 'g2', '1080', 800);
+  await upload(ctx, 'g3', '1080', 300);
+  // 스플렌더는 이미 공용 영상이 있음
+  await sharedUpload(ctx, '148228', '1080', 900, '스플렌더');
+  const removedBefore = ctx.storage.removed.length;
+
+  const ops = (body) => ctx.h(req('POST', '/api/ops/shared-video/move-store', { token: 'ops-token', body }));
+  assert.equal((await ctx.h(req('POST', '/api/ops/shared-video/move-store', { token: 'admin-token', body: { storeId: 'platform6' } }))).status, 403);
+  const dry = await ops({ storeId: 'platform6' });
+  assert.equal(dry.status, 200, JSON.stringify(dry.body));
+  assert.equal(dry.body.dryRun, true);
+  assert.deepEqual(dry.body.moved.map((m) => m.gameId), ['g1']);
+  assert.deepEqual(dry.body.moved[0].qualities, ['1080', '720']);
+  assert.deepEqual(dry.body.skipped.map((s) => s.gameId).sort(), ['g2', 'g3']);
+  assert.ok(ctx.games.docs.get('g1').ruleVideo.q1080, '미리 보기는 아무것도 안 바꿈');
+  assert.equal(ctx.shared.map.has('13'), false);
+
+  const run = await ops({ storeId: 'platform6', dryRun: false });
+  assert.equal(run.status, 200, JSON.stringify(run.body));
+  assert.equal(ctx.shared.map.get('13').q1080.key, k1); // 같은 파일을 그대로 가리킴
+  assert.ok(ctx.shared.map.get('13').q720);
+  assert.equal(ctx.games.docs.get('g1').ruleVideo.q1080, undefined);
+  assert.ok(ctx.games.docs.get('g2').ruleVideo.q1080, '건너뛴 게임은 매장 영상 그대로');
+  assert.equal(ctx.storage.removed.length, removedBefore, '파일은 하나도 안 지움');
+  // 옮긴 뒤에도 패드 재생은 됨 (공용으로)
+  const play = await ctx.h(req('GET', '/api/video/play-url', { token: 'guest-token', query: { gameId: 'g1' } }));
+  assert.equal(play.status, 200);
+  assert.equal(play.body.shared, true);
+  assert.ok(play.body.q1080.url.includes(k1));
+  // 한 번 더 돌리면 옮길 것 없음
+  const again = await ops({ storeId: 'platform6', dryRun: false });
+  assert.equal(again.body.moved.length, 0);
+  });

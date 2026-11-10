@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'ops_insights.dart';
 import 'ops_service.dart';
 import 'ops_toss.dart';
+import 'ops_videos.dart';
 
 /// 운영자 페이지 (48차, 49차부터 따로 사이트) — https://godori-ops.web.app (lib/main_ops.dart)
 /// 가입된 매장 관리(가입 승인·거절·정지·다시 열기·삭제, 59차 기능 켜기·끄기 — 토스 POS 연동·패드 대시보드)와 서버 이용 통계(비용 관리).
@@ -188,7 +189,7 @@ class _OpsHome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           backgroundColor: _ink,
@@ -206,10 +207,10 @@ class _OpsHome extends StatelessWidget {
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white60,
             indicatorColor: _orange,
-            tabs: [Tab(text: '매장'), Tab(text: '매장 통계'), Tab(text: '이용 통계'), Tab(text: '설정')],
+            tabs: [Tab(text: '매장'), Tab(text: '매장 통계'), Tab(text: '이용 통계'), Tab(text: '공용 룰 영상'), Tab(text: '설정')],
           ),
         ),
-        body: const TabBarView(children: [_StoresTab(), OpsInsightsTab(), _UsageTab(), _SettingsTab()]),
+        body: const TabBarView(children: [_StoresTab(), OpsInsightsTab(), _UsageTab(), OpsSharedVideosTab(), _SettingsTab()]),
       ),
     );
   }

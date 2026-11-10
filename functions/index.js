@@ -164,6 +164,7 @@ function getHandle() {
           })
         : null,
       games: createGameStore(db),
+      shared: createSharedVideos(db),
       stats: createVideoStats(db),
     }),
   });
@@ -179,9 +180,57 @@ function createGameStore(db) {
       const doc = await game(storeId, gameId).get();
       return doc.exists ? doc.data() : null;
     },
+    // 93차: 영상이 있는 게임 (운영자 '매장 영상을 공용으로 옮기기' — 가끔 한 번이라 전체를 읽음)
+    async listWithVideo(storeId) {
+      const snap = await db.collection('stores').doc(storeId).collection('games').get();
+      return snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((g) => g.ruleVideo && (g.ruleVideo.q1080 || g.ruleVideo.q720));
+    },
     async setRuleVideo(storeId, gameId, field, info) {
       // 패드 게임 목록에 바로 반영하려면 관리자 웹의 '손님 앱 새로고침' (영상마다 자동으로 하면 패드 읽기 비용이 커짐)
       await game(storeId, gameId).update(new FieldPath('ruleVideo', field), info == null ? FieldValue.delete() : info);
+    },
+  };
+}
+
+// 92차 공용 룰 영상 기록: shared/ruleVideos { videos: { <BGG 번호>: { title, q1080, q720, updatedAt } }, updatedAt }
+// 서버만 씀. 앱(패드·관리자 웹)은 firestore.rules로 읽기만 — 패드 게임 목록(game_catalog.dart)이 하루 1번 같이 읽음
+// 재생 때마다 읽지 않게 1분 기억 (운영자가 바꾸면 그 인스턴스는 바로 비움)
+function createSharedVideos(db) {
+  const { FieldValue } = require('firebase-admin/firestore');
+  const ref = db.collection('shared').doc('ruleVideos');
+  let cache = null;
+  let cacheAt = 0;
+  async function all() {
+    if (cache && Date.now() - cacheAt < 60 * 1000) return cache;
+    const doc = await ref.get();
+    cache = (doc.exists && doc.get('videos')) || {};
+    cacheAt = Date.now();
+    return cache;
+  }
+  return {
+    async get(bggId) {
+      const v = (await all())[bggId];
+      return v ? { ...v } : null;
+    },
+    async set(bggId, field, info, title) {
+      await db.runTransaction(async (tx) => {
+        const doc = await tx.get(ref);
+        const videos = { ...((doc.exists && doc.get('videos')) || {}) };
+        const e = { ...(videos[bggId] || { title: '' }) };
+        if (title) e.title = title;
+        if (info == null) delete e[field];
+        else e[field] = info;
+        if (!e.q1080 && !e.q720) delete videos[bggId];
+        else videos[bggId] = { ...e, updatedAt: new Date() };
+        tx.set(ref, { videos, updatedAt: FieldValue.serverTimestamp() });
+      });
+      cache = null;
+    },
+    async list() {
+      cache = null;
+      return all();
     },
   };
 }

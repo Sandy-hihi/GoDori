@@ -11,7 +11,7 @@ import 'food_order_screen.dart';
 import '../widgets/home/home_theme.dart';
 import '../widgets/pad_shell.dart';
 import 'package:boardpad/services/store_scope.dart';
-import 'package:boardpad/services/usage_meter.dart';
+import 'package:boardpad/services/game_catalog.dart';
 
 class PartyScreen extends StatefulWidget {
   final int? roomNumber;
@@ -78,11 +78,8 @@ class _PartyScreenState extends State<PartyScreen> {
 
   Future<List<Map<String, dynamic>>> _fetchCatalog() async {
     if (widget.catalog != null) return widget.catalog!;
-    final snapshot = await StoreScope.col('games')
-        .where('isAvailable', isEqualTo: true)
-        .get()
-        .metered();
-    return snapshot.docs.map((doc) => doc.data()).toList();
+    // 92차: 게임 목록 화면과 같은 목록 (하루 1번만 Firestore에서 받음 — game_catalog.dart)
+    return GameCatalog.load();
   }
 
   Future<void> _load() async {

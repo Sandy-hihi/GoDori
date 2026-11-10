@@ -142,10 +142,18 @@ test('로그인: 같은 IP에서 5번 틀리면 맞는 비밀번호도 429 (PIN 
   assert.equal((await webLogin(h, 'web-pass')).status, 429);
   assert.equal((await padLogin(h, { password: 'pad-pass', room: 1 }, '9.9.9.9')).status, 200);
 });
-test('로그인: IP를 바꿔 가며 틀려도 전체 30번이면 잠금', async () => {
+test('로그인: IP를 바꿔 가며 전체 30번 틀려도 잠그지 않고 경보만 (DEF-011)', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
   const h = make();
-  for (let i = 0; i < 30; i++) await padLogin(h, { password: 'x', room: 1 }, `10.0.0.${i}`);
-  assert.equal((await padLogin(h, { password: 'pad-pass', room: 1 }, '10.0.1.1')).status, 429);
+  for (let i = 0; i < 29; i++) await padLogin(h, { password: 'x', room: 1 }, `10.0.0.${i}`);
+  assert.equal(warn.mock.calls.filter((c) => String(c.arguments[0]).includes('[로그인 경보]')).length, 0);
+  await padLogin(h, { password: 'x', room: 1 }, '10.0.0.29');
+  assert.equal(warn.mock.calls.filter((c) => String(c.arguments[0]).includes('[로그인 경보]')).length, 1);
+  // 다른 IP의 맞는 비밀번호는 그대로 로그인됨 (모든 매장이 막히지 않음)
+  assert.equal((await padLogin(h, { password: 'pad-pass', room: 1 }, '10.0.1.1')).status, 200);
+  // 같은 IP 5번 잠금은 그대로
+  for (let i = 0; i < 5; i++) await padLogin(h, { password: 'x', room: 1 }, '10.0.2.1');
+  assert.equal((await padLogin(h, { password: 'pad-pass', room: 1 }, '10.0.2.1')).status, 429);
 });
 test('로그인 성공하면 그 IP의 실패 기록 초기화', async () => {
   const h = make();
