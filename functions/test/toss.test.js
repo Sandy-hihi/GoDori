@@ -109,13 +109,13 @@ const fakeVerify = async (t) => {
   if (t === 'ops') return { uid: 'ops', ops: true };
   throw new Error('bad');
 };
-function make({ tossOn = true, webhookSecret = 'whsec', orders = {} } = {}) {
+function make({ tossOn = true, webhookSecret = 'whsec', orders = {}, live = null } = {}) {
   const stores = createMemoryStores({ platform6: { name: '플랫폼6', account: {}, features: { tossPos: tossOn } } });
   const data = createMemoryTossData({ menus: { platform6: MENUS }, orders: { platform6: orders } });
   let t = 1_800_000_000_000;
   const now = () => t;
   const toss = createTossRoutes({
-    data, stores, webhookSecret, now,
+    data, stores, webhookSecret, now, live,
     httpError: (status, code, message) => Object.assign(new Error(message), { status, code }),
   });
   const h = createHandler({ bgg: {}, stores, verifyIdToken: fakeVerify, createToken: async () => 'x', attempts: createMemoryAttempts(), toss, now });
@@ -311,6 +311,47 @@ test('방 결제 끝: 취소만 있으면 정산 아님, 완료가 섞이면 정
   assert.equal((await data.closeRoomOrder('platform6', 3, 'w', { paid: false, atIso: 't4' })).settled, true);
   assert.equal(data.rooms.get('platform6/3').settledAt, 't4');
   assert.equal((await data.closeRoomOrder('platform6', 3, 'nope', { paid: true, atIso: 't5' })).settled, false);
+});
+
+test('포스 주문 확인 (95차): 가짜 포스는 저장된 주문에서, 진짜는 주문 키 조회 — 없음·오류도 표시', async () => {
+  const { call } = make({ orders: { a: ORDER, b: { ...ORDER } } });
+  assert.equal((await call('GET', '/api/ops/toss/lookup', { token: 'ops', query: { storeId: 'platform6' } })).body.error, 'TOSS_NOT_LINKED');
+  await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'fake' } });
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
+  assert.equal((await call('GET', '/api/ops/toss/lookup', { token: 'admin', query: { storeId: 'platform6' } })).status, 403);
+  const r = await call('GET', '/api/ops/toss/lookup', { token: 'ops', query: { storeId: 'platform6' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.mode, 'fake');
+  assert.equal(r.body.results.length, 1);
+  assert.equal(r.body.results[0].found, true);
+  assert.equal(r.body.results[0].toss.orderState, 'OPENED');
+  assert.equal(r.body.results[0].toss.orderNumber, '3번 방');
+
+  // 진짜: 첫 주문은 토스에 있음, 둘째는 404
+  const calls = [];
+  const live = {
+    mode: 'live',
+    listCatalogItems: async () => [],
+    createOrder: async (mid, body) => ({ id: `t-${body.order.orderKey}` }),
+    getOrderByKey: async (mid, key) => {
+      calls.push([mid, key]);
+      if (key.endsWith('-b')) throw Object.assign(new Error('없는 주문'), { status: 404, code: 'ORDER_NOT_FOUND' });
+      return { id: '999', orderState: 'OPENED', source: 'OPEN_API', orderNumber: '3번 방', chargePrice: { totalAmount: 11500 }, lineItems: [{}, {}] };
+    },
+  };
+  const m = make({ orders: { a: ORDER, b: { ...ORDER } }, live });
+  await m.call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'live', merchantId: '738910' } });
+  await m.call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
+  m.tick(1000);
+  await m.call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'b' } });
+  const lr = await m.call('GET', '/api/ops/toss/lookup', { token: 'ops', query: { storeId: 'platform6' } });
+  assert.equal(lr.status, 200);
+  assert.equal(lr.body.mode, 'live');
+  assert.deepEqual(lr.body.results.map((x) => [x.orderId, x.found]), [['b', false], ['a', true]]);
+  assert.equal(lr.body.results[0].code, 'ORDER_NOT_FOUND');
+  assert.equal(lr.body.results[1].toss.totalAmount, 11500);
+  assert.deepEqual(calls.map((c) => c[0]), ['738910', '738910']);
+  assert.equal(calls[1][1], 'godori-platform6-a');
 });
 
 test('웹훅 비밀값이 없으면 503', async () => {

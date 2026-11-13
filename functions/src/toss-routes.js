@@ -9,6 +9,7 @@
 //   GET  /api/ops/toss/overview   (운영자) 매장별 연결 상태 + 토스 '앱 설치' 매장 목록 + 진짜 키 등록 여부
 //   POST /api/ops/toss/link       (운영자) { storeId, mode: 'fake' | 'live', merchantId? }  매장 ↔ 포스 연결
 //   POST /api/ops/toss/unlink     (운영자) { storeId }
+//   GET  /api/ops/toss/lookup     (운영자) ?storeId=  최근 포스로 보낸 주문 5건을 토스(또는 가짜 포스)에서 주문 키로 다시 조회 (95차)
 //   POST /api/ops/toss/config     (운영자) { storeId, printOrderSheet }
 //   GET  /api/ops/toss/fake-orders?storeId=   (운영자) 가짜 포스에 들어온 주문
 //   POST /api/ops/toss/fake-complete  (운영자) { storeId, orderKey, id }  가짜 포스에서 '결제 완료' 흉내 (81차 — 진짜는 주문 완료 웹훅)
@@ -21,7 +22,7 @@
 // 가짜 연결(mode 'fake'): merchantId 'fake-<매장>', 상품은 그 매장 고도리 메뉴로 만든 가짜 포스 상품 (src/toss.js)
 
 const {
-  TossError, createFakeToss, fakeCatalogFromMenus, buildTossOrder, parseOrderKey, verifyWebhook, catalogView,
+  TossError, createFakeToss, fakeCatalogFromMenus, buildTossOrder, parseOrderKey, orderKeyOf, verifyWebhook, catalogView,
 } = require('./toss');
 const { cycleEntry } = require('./toss-data');
 
@@ -315,6 +316,48 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       if (!(await data.getConfig(storeId))) throw httpError(409, 'TOSS_NOT_LINKED', '먼저 포스와 연결해 주세요.');
       await data.patchConfig(storeId, { printOrderSheet: body.printOrderSheet });
       return { ok: true };
+    }
+    // 95차: 포스 화면에 주문이 안 보일 때 — 토스 서버에 그 주문이 정말 있는지 주문 키로 확인
+    if (path === '/api/ops/toss/lookup' && req.method === 'GET') {
+      const storeId = cleanStoreId((req.query || {}).storeId);
+      const cfg = await data.getConfig(storeId);
+      if (!cfg || !cfg.merchantId) throw httpError(409, 'TOSS_NOT_LINKED', '먼저 포스와 연결해 주세요.');
+      const sent = await data.listSentOrders(storeId, 5);
+      const fakeList = cfg.mode === 'fake' ? await data.listFakeOrders(cfg.merchantId) : null;
+      const results = [];
+      for (const o of sent) {
+        const t = o.tossPos || {};
+        const orderKey = orderKeyOf(storeId, o.id);
+        const row = {
+          orderId: o.id, room: o.room || '', time: o.time || '', price: o.price || '', items: o.items || [],
+          sentAt: t.sentAt || null, sentMode: t.mode || '', posOrderId: t.posOrderId || '', posState: t.posState || '', orderKey,
+        };
+        if (t.mode && t.mode !== cfg.mode) {
+          results.push({ ...row, found: null, note: `지금 연결(${cfg.mode})과 다른 포스(${t.mode})로 보낸 주문이라 조회하지 않았어요.` });
+          continue;
+        }
+        try {
+          const got = fakeList
+            ? fakeList.find((f) => f.orderKey === orderKey) || null
+            : await clientFor(cfg).getOrderByKey(cfg.merchantId, orderKey);
+          if (!got) {
+            results.push({ ...row, found: false, code: 'NOT_FOUND', error: '포스에 이 주문이 없어요.' });
+          } else {
+            results.push({
+              ...row, found: true,
+              toss: {
+                id: String(got.id || ''), orderState: got.orderState || '', source: got.source || '', orderNumber: got.orderNumber || '',
+                createdAt: got.createdAt || null, openedAt: got.openedAt || null, totalAmount: got.chargePrice ? got.chargePrice.totalAmount : null,
+                lineItems: (got.lineItems || []).length, memo: got.memo || '',
+              },
+            });
+          }
+        } catch (e) {
+          const notFound = e && (e.status === 404 || /NOT_FOUND/i.test(String(e.code)));
+          results.push({ ...row, found: notFound ? false : null, code: String((e && e.code) || 'ERROR'), error: String((e && e.message) || e) });
+        }
+      }
+      return { mode: cfg.mode, merchantId: String(cfg.merchantId), merchantName: cfg.merchantName || '', results };
     }
     if (path === '/api/ops/toss/fake-orders' && req.method === 'GET') {
       const storeId = cleanStoreId((req.query || {}).storeId);

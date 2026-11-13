@@ -91,6 +91,9 @@ function createTossClient({ accessKey, secretKey, fetchImpl = fetch, baseUrl = T
     },
     createOrder: (merchantId, body, { printOrderSheet = false } = {}) =>
       request('POST', `${m(merchantId)}/order/orders`, { query: { printOrderSheet }, body }),
+    // 95차: 주문 키로 토스 주문 한 건 조회 (운영자 '포스 주문 확인' — 포스 화면에 안 보일 때 토스에 있는지 확인)
+    getOrderByKey: (merchantId, orderKey) =>
+      request('GET', `${m(merchantId)}/order/orders/by-order-key/${encodeURIComponent(String(orderKey))}`),
   };
 }
 

@@ -34,6 +34,8 @@ class OpsTossRow extends StatelessWidget {
         TextButton(onPressed: () => _openLink(context), child: Text(link == null ? '포스 연결' : '연결 바꾸기')),
         if (link != null && link['mode'] == 'fake')
           TextButton(onPressed: () => _openFakeOrders(context), child: const Text('가짜 포스 주문')),
+        if (link != null)
+          TextButton(onPressed: () => _openLookup(context), child: const Text('포스 주문 확인')),
       ]),
     );
   }
@@ -48,6 +50,117 @@ class OpsTossRow extends StatelessWidget {
 
   Future<void> _openFakeOrders(BuildContext context) =>
       showDialog(context: context, builder: (_) => _FakeOrdersDialog(storeId: storeId));
+
+  Future<void> _openLookup(BuildContext context) =>
+      showDialog(context: context, builder: (_) => _LookupDialog(storeId: storeId));
+}
+
+/// 포스 주문 확인 (95차): 패드가 포스로 보낸 최근 주문 5건을 토스에서 주문 키로 다시 조회
+///   토스에 있음 → 포스 화면 표시 설정 문제 / 토스에 없음 → 고도리 쪽 보내기 문제
+class _LookupDialog extends StatefulWidget {
+  final String storeId;
+  const _LookupDialog({required this.storeId});
+
+  @override
+  State<_LookupDialog> createState() => _LookupDialogState();
+}
+
+class _LookupDialogState extends State<_LookupDialog> {
+  late Future<Map<String, dynamic>> _future = OpsService.tossLookup(widget.storeId);
+
+  static const _states = {
+    'ACCEPTED': '접수됨',
+    'OPENED': '열림 (결제 전)',
+    'COMPLETED': '결제 완료',
+    'CANCELLED': '취소됨',
+    'DECLINED': '거절됨',
+    'EXPIRED': '만료됨',
+  };
+
+  Widget _row(Map r) {
+    final found = r['found'];
+    final toss = r['toss'] is Map ? r['toss'] as Map : const {};
+    final items = (r['items'] as List? ?? const []).join(', ');
+    final Color color = found == true
+        ? const Color(0xFF27AE60)
+        : found == false
+            ? Colors.red
+            : Colors.orange;
+    final head = found == true
+        ? '토스에 있어요 ✓'
+        : found == false
+            ? '토스에 없어요 ✗'
+            : '확인 못 함';
+    return Card(
+      elevation: 0,
+      color: const Color(0xFFF6F7F9),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('${'${r['room']}'.replaceAll('#', '')}번 방  ·  ${r['price']}원  ·  보낸 시각 ${_FakeOrdersDialogState._kst(r['sentAt'])}',
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+          if (items.isNotEmpty) Text(items, style: const TextStyle(fontSize: 13)),
+          const SizedBox(height: 4),
+          Text(head, style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+          if (found == true) ...[
+            Text('토스 상태: ${_states[toss['orderState']] ?? toss['orderState']}  ·  주문 번호 ${toss['orderNumber']}'
+                '  ·  ${toss['totalAmount'] ?? ''}원  ·  상품 ${toss['lineItems']}줄',
+                style: const TextStyle(fontSize: 13)),
+            Text('토스 주문 ID ${toss['id']}  ·  만든 시각 ${_FakeOrdersDialogState._kst(toss['createdAt'])}'
+                '${(toss['source'] ?? '').toString().isEmpty ? '' : '  ·  출처 ${toss['source']}'}',
+                style: const TextStyle(fontSize: 12, color: Colors.black54)),
+          ],
+          if (found != true && (r['error'] ?? r['note']) != null)
+            Text('${r['note'] ?? '${r['code'] ?? ''} ${r['error'] ?? ''}'}',
+                style: const TextStyle(fontSize: 12, color: Colors.black54)),
+          SelectableText('주문 키 ${r['orderKey']}', style: const TextStyle(fontSize: 11, color: Colors.black38)),
+        ]),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('${widget.storeId} — 포스 주문 확인'),
+      content: SizedBox(
+        width: 560,
+        height: 480,
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: _future,
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+            if (snap.hasError) return Text('${snap.error}', style: const TextStyle(color: Colors.red));
+            final d = snap.data ?? const {};
+            final list = (d['results'] as List? ?? const []).whereType<Map>().toList();
+            return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(
+                d['mode'] == 'fake'
+                    ? '가짜 포스(개발용)에서 찾았어요'
+                    : '실제 토스: ${d['merchantName'] ?? ''} (가맹점 ${d['merchantId']})',
+                style: const TextStyle(fontSize: 13, color: Colors.black54),
+              ),
+              const Text('패드가 포스로 보낸 최근 주문 5건이에요. 토스에 있는데 포스 화면에 안 보이면 포스 쪽 표시 설정 문제예요.',
+                  style: TextStyle(fontSize: 12, color: Colors.black45)),
+              const SizedBox(height: 8),
+              Expanded(
+                child: list.isEmpty
+                    ? const Center(child: Text('포스로 보낸 주문이 아직 없어요.'))
+                    : ListView(children: [for (final r in list) _row(r)]),
+              ),
+            ]);
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => setState(() => _future = OpsService.tossLookup(widget.storeId)),
+          child: const Text('다시 조회'),
+        ),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('닫기')),
+      ],
+    );
+  }
 }
 
 class _LinkDialog extends StatefulWidget {

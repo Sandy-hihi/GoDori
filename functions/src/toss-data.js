@@ -84,6 +84,13 @@ function createFirestoreTossData(db) {
       const snap = await store(storeId).collection('orders').where('tossPos.state', '==', 'failed').limit(limit).get();
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
+    // 95차: 포스로 보낸 주문 중 최근 것 (운영자 '포스 주문 확인') — 색인 없이 50개 읽어 보낸 시각순
+    async listSentOrders(storeId, limit = 5) {
+      const snap = await store(storeId).collection('orders').where('tossPos.state', '==', 'sent').limit(50).get();
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => String((b.tossPos || {}).sentAt || '').localeCompare(String((a.tossPos || {}).sentAt || '')))
+        .slice(0, limit);
+    },
     async listMenus(storeId) {
       const snap = await store(storeId).collection('menus').get();
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -259,6 +266,13 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
       return [...ordersMap.entries()]
         .filter(([k, v]) => k.startsWith(`${s}/`) && v.tossPos && v.tossPos.state === 'failed')
         .map(([k, v]) => ({ id: k.split('/')[1], ...v }));
+    },
+    async listSentOrders(s, limit = 5) {
+      return [...ordersMap.entries()]
+        .filter(([k, v]) => k.startsWith(`${s}/`) && v.tossPos && v.tossPos.state === 'sent')
+        .map(([k, v]) => ({ id: k.split('/')[1], ...JSON.parse(JSON.stringify(v)) }))
+        .sort((a, b) => String(b.tossPos.sentAt || '').localeCompare(String(a.tossPos.sentAt || '')))
+        .slice(0, limit);
     },
     async listMenus(s) {
       return (menus[s] || []).map((m) => ({ ...m }));

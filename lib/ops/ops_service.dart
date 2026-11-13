@@ -123,6 +123,10 @@ class OpsService {
     return [for (final o in (r['orders'] as List? ?? const [])) Map<String, dynamic>.from(o as Map)];
   }
 
+  /// 포스 주문 확인 (95차) — 이 매장이 포스로 보낸 최근 주문 5건이 토스에 정말 있는지 주문 키로 조회
+  static Future<Map<String, dynamic>> tossLookup(String storeId) =>
+      _call('GET', '/api/ops/toss/lookup', query: {'storeId': storeId});
+
   /// 가짜 포스에서 '결제 완료' 흉내 (81차) → 그 방 패드 주문이 다 끝나면 패드 언어가 기본으로
   static Future<Map<String, dynamic>> tossFakeComplete(String storeId, Map<String, dynamic> order) =>
       _call('POST', '/api/ops/toss/fake-complete',
