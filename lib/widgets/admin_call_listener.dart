@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'package:boardpad/models/staff_call_reason.dart';
 import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/services/usage_meter.dart';
 
@@ -40,6 +41,7 @@ class _AdminCallListenerState extends State<AdminCallListener> {
           final call = {
             'docId': change.doc.id,
             'roomNumber': data['roomNumber'],
+            'reason': data['reason'], // 손님이 고른 호출 사유 (없을 수 있음)
           };
           if (_isDialogShowing && _dialogSetState != null) {
             // 다이얼로그가 이미 열려있으면 목록에 추가
@@ -82,15 +84,21 @@ class _AdminCallListenerState extends State<AdminCallListener> {
                 separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (_, index) {
                   final call = _pendingCalls[index];
+                  final reason = staffCallReasonOf(call['reason']);
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8.0),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          '${call['roomNumber']}번 방에서 호출',
-                          style: const TextStyle(fontSize: 17),
+                        Expanded(
+                          child: Text(
+                            reason == null
+                                ? '${call['roomNumber']}번 방에서 호출'
+                                : '${call['roomNumber']}번 방 · ${reason.label}',
+                            style: const TextStyle(fontSize: 17),
+                          ),
                         ),
+                        const SizedBox(width: 8),
                         ElevatedButton(
                           onPressed: () async {
                             await StoreScope.col('staff_calls')

@@ -1,3 +1,4 @@
+import 'package:boardpad/models/staff_call_reason.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -161,6 +162,8 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
                   ...calls.map((doc) {
                     final data = doc.data() as Map<String, dynamic>;
                     final room = data['roomNumber']?.toString() ?? '?';
+                    // 손님이 고른 호출 사유 (없으면 예전 호출 — 그냥 '직원 호출')
+                    final reason = staffCallReasonOf(data['reason']);
                     final ts = data['timestamp'];
                     String timeStr = '';
                     if (ts != null && ts is Timestamp) {
@@ -198,15 +201,26 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
                               ],
                             ),
                           ),
-                          // 중앙: 안내 문구
-                          const Expanded(
+                          // 중앙: 호출 사유 (왜 불렀는지 알고 가도록) — 사유가 없으면 '직원 호출'
+                          Expanded(
                             child: Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 16),
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
                               child: Row(
                                 children: [
-                                  Icon(Icons.notifications_active, color: Color(0xFFE67E22), size: 22),
-                                  SizedBox(width: 8),
-                                  Text('직원 호출', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black87)),
+                                  Icon(reason?.icon ?? Icons.notifications_active, color: const Color(0xFFE67E22), size: 22),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      reason?.label ?? '직원 호출',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black87),
+                                    ),
+                                  ),
+                                  if (reason != null) ...[
+                                    const SizedBox(width: 8),
+                                    const Text('직원 호출', style: TextStyle(fontSize: 13, color: Colors.black45)),
+                                  ],
                                 ],
                               ),
                             ),

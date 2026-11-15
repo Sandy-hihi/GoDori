@@ -122,8 +122,12 @@ service cloud.firestore {
         allow read: if isAdmin();
 
         // 손님 패드의 호출 생성 (staff_call_service.dart) — 자기 방 번호로만
+        // reason(호출 사유)은 있어도 되고 없어도 됨(예전 패드 앱과 호환). 있으면 정해진 값만 —
+        // 목록은 lib/models/staff_call_reason.dart 와 같아야 함 (test/staff_call_reason_test.dart 가 검사)
         allow create: if isPad()
-                      && request.resource.data.keys().hasOnly(['roomNumber', 'timestamp', 'isAcknowledged'])
+                      && request.resource.data.keys().hasOnly(['roomNumber', 'timestamp', 'isAcknowledged', 'reason'])
+                      && (!('reason' in request.resource.data)
+                          || request.resource.data.reason in ['rule', 'swap', 'water', 'clean', 'pay', 'staff'])
                       && request.resource.data.roomNumber == padRoom()
                       && roomOk(padRoom())
                       && request.resource.data.isAcknowledged == false
