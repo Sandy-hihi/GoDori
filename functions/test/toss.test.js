@@ -354,6 +354,44 @@ test('포스 주문 확인 (95차): 가짜 포스는 저장된 주문에서, 진
   assert.equal(calls[1][1], 'godori-platform6-a');
 });
 
+test('포스 플러그인 신호 (96차): 로그인 없이 저장, 크기 줄임, 운영자만 목록 — 연결된 매장 표시', async () => {
+  const { call, data } = make();
+  await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'live', merchantId: '738910' } });
+  // 가맹점 ID 없는 'boot'·오류 신호 — 저장 없이 기록만
+  const boot = await call('POST', '/api/toss/plugin/hello', { body: { stage: 'boot', version: '0.1.1', errors: ['merchant: x'] } });
+  assert.equal(boot.status, 200);
+  assert.equal(boot.body.saved, false);
+  assert.equal(data.plugins.size, 0);
+  const tables = Array.from({ length: 400 }, (_, i) => ({ id: i + 1, hallId: 7, title: `기본홀${i + 1}`, hasOrder: i === 0 }));
+  const r = await call('POST', '/api/toss/plugin/hello', {
+    body: { merchantId: 738910, merchantName: '테스트보겜카', serial: '26BP0000WP01528', version: '0.1.0',
+      halls: [{ id: 7, title: '기본홀' }], tables, tableError: '' },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.linkedStore, null); // 가짜 make()에는 live 클라이언트가 없어 연결이 안 됨
+  const saved = data.plugins.get('738910');
+  assert.equal(saved.tables.length, 300);
+  assert.equal(saved.tables[0].hasOrder, true);
+  assert.equal(saved.serial, '26BP0000WP01528');
+  assert.equal(saved.count, 1);
+  assert.deepEqual(saved.errors, []);
+  assert.equal((await call('GET', '/api/ops/toss/plugins', { token: 'admin' })).status, 403);
+  const list = await call('GET', '/api/ops/toss/plugins', { token: 'ops' });
+  assert.equal(list.status, 200);
+  assert.equal(list.body.plugins.length, 1);
+  assert.equal(list.body.plugins[0].merchantId, '738910');
+
+  // 진짜로 연결된 매장이면 linkedStore
+  const live = { mode: 'live', listCatalogItems: async () => [], createOrder: async () => ({ id: '1' }) };
+  const m = make({ live });
+  await m.call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'live', merchantId: '738910' } });
+  const r2 = await m.call('POST', '/api/toss/plugin/hello', { body: { merchantId: '738910', tableError: 'x'.repeat(500) } });
+  assert.equal(r2.body.linkedStore, 'platform6');
+  assert.equal(m.data.plugins.get('738910').tableError.length, 200);
+  const l2 = await m.call('GET', '/api/ops/toss/plugins', { token: 'ops' });
+  assert.equal(l2.body.plugins[0].linkedStore, 'platform6');
+});
+
 test('웹훅 비밀값이 없으면 503', async () => {
   const { call } = make({ webhookSecret: '' });
   assert.equal((await call('POST', '/api/toss/webhook', { body: {}, rawBody: Buffer.from('{}') })).status, 503);

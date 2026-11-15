@@ -1,0 +1,30 @@
+{
+  "name": "godori-toss-plugin",
+  "private": true,
+  "version": "0.1.2",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "webpack serve --config webpack.config.mjs",
+    "build": "webpack --config webpack.config.mjs",
+    "typecheck": "eslint --fix src/**/*.ts && tsc --noEmit",
+    "test:dev": "jest src/__test__/test.e2e.ts",
+    "zip": "npm run build && zip -r godori-toss-plugin.zip dist/ -x \"*.DS_Store\" && cd dist && zip ../godori-toss-plugin.zip main.js"
+  },
+  "dependencies": {
+    "@tossplace/pos-plugin-sdk": "^0.0.31"
+  },
+  "devDependencies": {
+    "@tossplace/pos-plugin-test": "^0.0.9",
+    "@types/jest": "^29",
+    "@types/node": "^22.13.16",
+    "jest": "^29",
+    "process": "^0.11.10",
+    "ts-jest": "^29",
+    "ts-loader": "^9.5.2",
+    "ts-node": "^10",
+    "typescript": "^4.7.3",
+    "webpack": "^5",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^4.13.3"
+  }
+}

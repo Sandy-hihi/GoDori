@@ -2,6 +2,10 @@
 // 토스 POS 연동 API (64차) — app.js가 /api/toss/* 와 /api/ops/toss/* 를 여기로 넘김
 //
 //   POST /api/toss/webhook        토스가 보내는 웹훅 (로그인 없음, 서명 확인) — 앱 설치·주문 상태
+//   POST /api/toss/plugin/hello   (96차, 로그인 없음) 토스 포스 플러그인(toss-plugin/)이 켜질 때·10분마다 보내는 신호
+//                                 { merchantId, merchantName, serial, version, halls[], tables[], tableError, errors[], stage, reason } → _tossPlugin/{merchantId}
+//                                 가맹점 ID가 없는 신호(플러그인 0.1.1 'boot'·오류)는 저장 없이 기록만 '[토스 플러그인] boot 가맹점 없음 …'
+//                                 ★지금은 누구나 보낼 수 있음(시험용 — 저장만 하고 주문·결제는 안 건드림). 주문을 넘기기 전에 매장별 키를 붙일 것
 //   POST /api/toss/send-order     (패드·관리자) { orderId }  주문을 포스로 보내기. 패드는 주문 직후 자동, 관리자는 '다시 보내기'
 //   GET  /api/toss/status         (관리자) 연결 상태·메뉴 연결표·보내기 실패한 주문
 //   GET  /api/toss/catalog        (관리자) 포스 상품 목록 (메뉴 연결 화면용)
@@ -10,6 +14,7 @@
 //   POST /api/ops/toss/link       (운영자) { storeId, mode: 'fake' | 'live', merchantId? }  매장 ↔ 포스 연결
 //   POST /api/ops/toss/unlink     (운영자) { storeId }
 //   GET  /api/ops/toss/lookup     (운영자) ?storeId=  최근 포스로 보낸 주문 5건을 토스(또는 가짜 포스)에서 주문 키로 다시 조회 (95차)
+//   GET  /api/ops/toss/plugins    (운영자) 포스 플러그인 신호 목록 + 어느 매장과 연결된 가맹점인지 (96차)
 //   POST /api/ops/toss/config     (운영자) { storeId, printOrderSheet }
 //   GET  /api/ops/toss/fake-orders?storeId=   (운영자) 가짜 포스에 들어온 주문
 //   POST /api/ops/toss/fake-complete  (운영자) { storeId, orderKey, id }  가짜 포스에서 '결제 완료' 흉내 (81차 — 진짜는 주문 완료 웹훅)
@@ -204,10 +209,52 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     return s;
   };
 
+  // 96차: 포스 플러그인 신호 — 크기를 줄여서 저장만 함
+  const cleanText = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, max);
+  const cleanNum = (v) => (Number.isSafeInteger(Number(v)) ? Number(v) : null);
+  async function pluginHello(body, ctx) {
+    const list = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
+    const stage = cleanText(body.stage, 20) || 'hello';
+    const reason = cleanText(body.reason, 20);
+    const errors = list(body.errors, 10).map((e) => cleanText(e, 200)).filter(Boolean);
+    const merchantId = String(body.merchantId == null ? '' : body.merchantId);
+    // 0.1.1: 켜지자마자 보내는 'boot'·오류 신호는 가맹점 ID가 없음 — 저장하지 않고 기록만
+    if (!/^\d{1,19}$/.test(merchantId)) {
+      ctx.rate('toss-plugin:none', 60, 10 * 60 * 1000, '포스 플러그인 신호');
+      console.log(`[토스 플러그인] ${stage}${reason ? `(${reason})` : ''} 가맹점 없음 v${cleanText(body.version, 20) || '?'}`
+        + `${errors.length ? ` · 오류: ${errors.join(' | ')}` : ''}`);
+      return { ok: true, saved: false, at: new Date(now()).toISOString() };
+    }
+    ctx.rate(`toss-plugin:${merchantId}`, 30, 10 * 60 * 1000, '포스 플러그인 신호');
+    const halls = list(body.halls, 50).map((h) => ({ id: cleanNum(h && h.id), title: cleanText(h && h.title, 40) }));
+    const tables = list(body.tables, 300).map((t) => ({
+      id: cleanNum(t && t.id), hallId: cleanNum(t && t.hallId), title: cleanText(t && t.title, 40), hasOrder: !!(t && t.hasOrder),
+    }));
+    const info = {
+      merchantName: cleanText(body.merchantName, 60),
+      serial: cleanText(body.serial, 40),
+      version: cleanText(body.version, 20),
+      halls, tables,
+      tableError: cleanText(body.tableError, 200),
+      errors,
+    };
+    await data.savePluginHello(merchantId, info);
+    let linkedStore = null;
+    for (const s of await stores.listStores()) {
+      const cfg = await data.getConfig(s.id);
+      if (cfg && cfg.mode === 'live' && String(cfg.merchantId) === merchantId) { linkedStore = s.id; break; }
+    }
+    console.log(`[토스 플러그인] 가맹점 ${merchantId}(${info.merchantName}) 매장 ${linkedStore || '-'} 포스 ${info.serial || '-'} v${info.version || '?'}`
+      + ` 홀 ${halls.length} · 테이블 ${tables.length}${info.tableError ? ` · 테이블 오류: ${info.tableError}` : ''}`
+      + `${errors.length ? ` · 오류: ${errors.join(' | ')}` : ''}${reason ? ` (${reason})` : ''}`);
+    return { ok: true, linkedStore, at: new Date(now()).toISOString() };
+  }
+
   // 관리자·패드 API — ctx: app.js의 requireStoreUser 등
   async function route(req, path, ctx) {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     if (path === '/api/toss/webhook' && req.method === 'POST') return webhook(req);
+    if (path === '/api/toss/plugin/hello' && req.method === 'POST') return pluginHello(body, ctx);
 
     if (path === '/api/toss/send-order' && req.method === 'POST') {
       const user = await ctx.requireStoreUser(req);
@@ -358,6 +405,15 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
         }
       }
       return { mode: cfg.mode, merchantId: String(cfg.merchantId), merchantName: cfg.merchantName || '', results };
+    }
+    // 96차: 포스 플러그인 신호
+    if (path === '/api/ops/toss/plugins' && req.method === 'GET') {
+      const links = {};
+      for (const s of await stores.listStores()) {
+        const cfg = await data.getConfig(s.id);
+        if (cfg && cfg.mode === 'live' && cfg.merchantId) links[String(cfg.merchantId)] = s.id;
+      }
+      return { plugins: (await data.listPluginHellos()).map((p) => ({ ...p, linkedStore: links[String(p.merchantId)] || null })) };
     }
     if (path === '/api/ops/toss/fake-orders' && req.method === 'GET') {
       const storeId = cleanStoreId((req.query || {}).storeId);

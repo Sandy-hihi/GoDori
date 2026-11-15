@@ -8,6 +8,8 @@
 //   _tossInstallations/{merchantId}  토스 '앱 설치' 웹훅으로 받은 매장 { merchantId, name, businessNumber, installedAt, removedAt? }
 //   _tossWebhooks/{x-toss-webhook-id}  같은 웹훅 두 번 처리 안 하게 { type, at }
 //   _tossSandbox/{가짜 merchantId}/orders/{id}  가짜 포스에 들어온 주문 (운영자 페이지에서 봄, 81차: posState·completedAt)
+//   _tossPlugin/{merchantId}  (96차) 토스 포스 플러그인이 보낸 '살아 있어요' 신호 { merchantName, serial, version, halls[], tables[],
+//                              tableError, lastSeenAt, count } — 포스 기계가 여러 대면 serial만 마지막 것
 //   stores/{매장}/roomStatus/{방 번호}  (81차) { open: [포스로 보낸 뒤 아직 안 끝난 주문 ID], paidInCycle, settledAt(ISO),
 //                                        cycle: [이번 손님 주문 요약 — 84차 손님 패드 '주문 내역'] }
 //        — 서버만 씀, 그 방 패드·관리자는 읽기(firestore.rules). open이 비고 그사이 결제 완료가 있었으면 settledAt을 새로 씀
@@ -110,6 +112,15 @@ function createFirestoreTossData(db) {
     },
     async listInstallations() {
       const snap = await db.collection('_tossInstallations').get();
+      return snap.docs.map((d) => ({ merchantId: d.id, ...plain(d.data()) }));
+    },
+    // 96차: 포스 플러그인 신호
+    async savePluginHello(merchantId, info) {
+      await db.collection('_tossPlugin').doc(String(merchantId)).set(
+        { ...info, lastSeenAt: FieldValue.serverTimestamp(), count: FieldValue.increment(1) }, { merge: true });
+    },
+    async listPluginHellos() {
+      const snap = await db.collection('_tossPlugin').get();
       return snap.docs.map((d) => ({ merchantId: d.id, ...plain(d.data()) }));
     },
     async addFakeOrder(merchantId, order) {
@@ -216,9 +227,10 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
   const webhooks = new Set();
   const installs = new Map();
   const sandbox = new Map(); // merchantId -> [order]
+  const plugins = new Map(); // merchantId -> 플러그인 신호 (96차)
   const rooms = new Map(); // `${store}/${room}` -> { open, paidInCycle, settledAt }
   return {
-    configs, ordersMap, installs, sandbox, menus, rooms,
+    configs, ordersMap, installs, sandbox, menus, rooms, plugins,
     async getConfig(s) {
       return configs.has(s) ? JSON.parse(JSON.stringify(configs.get(s))) : null;
     },
@@ -287,6 +299,13 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
     },
     async listInstallations() {
       return [...installs.entries()].map(([merchantId, v]) => ({ merchantId, ...v }));
+    },
+    async savePluginHello(mid, info) {
+      const cur = plugins.get(String(mid)) || {};
+      plugins.set(String(mid), { ...cur, ...JSON.parse(JSON.stringify(info)), lastSeenAt: new Date().toISOString(), count: (cur.count || 0) + 1 });
+    },
+    async listPluginHellos() {
+      return [...plugins.entries()].map(([merchantId, v]) => ({ merchantId, ...v }));
     },
     async addFakeOrder(mid, order) {
       const list = sandbox.get(String(mid)) || [];
