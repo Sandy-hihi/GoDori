@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:boardpad/models/order_flow.dart';
 import 'package:boardpad/services/admin_session.dart';
@@ -22,6 +23,9 @@ import 'package:boardpad/widgets/pad_shell.dart';
 /// - 관리자 토큰(방 0)·로그아웃 상태에서는 아무것도 안 함
 /// - 81차: 자기 방 roomStatus 문서도 구독 — 토스 포스에서 그 방 패드 주문이 다 결제되면(settledAt이 바뀜)
 ///   손님이 바꾼 언어를 로그인 때 고른 언어로 되돌리고 홈 화면으로 돌아감(82차). 토스 연동을 안 하는 매장은 문서가 안 생겨서 아무 일 없음
+/// - 97차: 엉뚱한 때 '똑똑똑' 소리가 나던 문제 — 소리를 낸 주문 번호를 패드에 저장(_rungPrefKey)해서
+///   새로 켜기·새로고침·다시 로그인·토큰 갱신 때 이미 울린 주문으로 다시 울리지 않음(창·띠는 그대로 보임).
+///   토큰을 읽다 잠깐 실패해도(인터넷 끊김 등) 구독을 끊지 않음 — 예전엔 끊었다가 다시 구독하면서 소리가 또 났음
 class OrderReadyOverlay extends StatefulWidget {
   final Widget child;
   const OrderReadyOverlay({super.key, required this.child});
@@ -45,6 +49,7 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
   Object? _settledSeen; // 처음 받은 settledAt (켤 때 이미 있던 값으로는 되돌리지 않음)
   bool _roomFirst = true;
   String? _watchKey; // '매장/방' — 토큰이 새로 고쳐져도 같은 방이면 다시 구독하지 않음
+  int _gen = 0; // _onUser가 겹쳐 불릴 때 늦게 끝난 예전 호출은 무시
   final _player = AudioPlayer();
 
   List<_ReadyOrder> _ready = [];
@@ -61,7 +66,10 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
     }
   }
 
+  static String _rungPrefKey(String watchKey) => 'orderReadyRung/$watchKey';
+
   Future<void> _onUser(User? user) async {
+    final gen = ++_gen;
     String? store;
     int? room;
     if (user != null) {
@@ -72,8 +80,12 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
           store = claims!['store'] as String;
           room = r.toInt();
         }
-      } catch (_) {}
+      } catch (_) {
+        // 97차: 토큰을 잠깐 못 읽음(인터넷 끊김 등) — 로그아웃이 아니니 지금 구독을 그대로 둠
+        return;
+      }
     }
+    if (gen != _gen) return;
     final key = (store != null && room != null) ? '$store/$room' : null;
     if (key == _watchKey) return;
     _watchKey = key;
@@ -91,6 +103,12 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
       });
     }
     if (store == null || room == null) return;
+    // 97차: 이 방 패드에서 이미 소리를 낸 주문 — 새로 켜거나 새로고침해도 다시 울리지 않게
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _rung.addAll(prefs.getStringList(_rungPrefKey(key!)) ?? const []);
+    } catch (_) {}
+    if (gen != _gen || key != _watchKey) return;
     _orderSub = FirebaseFirestore.instance
         .collection('stores')
         .doc(store)
@@ -141,8 +159,20 @@ class _OrderReadyOverlayState extends State<OrderReadyOverlay> {
       _rung.addAll(fresh);
     }
     _dismissed.retainAll(ids);
+    final before = _rung.length;
     _rung.retainAll(ids);
+    if (fresh.isNotEmpty || _rung.length != before) _saveRung();
     if (mounted) setState(() => _ready = list);
+  }
+
+  // 지금 '준비 완료' 상태인 주문 중 소리를 낸 것만 저장 (끝난 주문은 빠지므로 쌓이지 않음)
+  Future<void> _saveRung() async {
+    final key = _watchKey;
+    if (key == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_rungPrefKey(key), _rung.toList());
+    } catch (_) {}
   }
 
   @override

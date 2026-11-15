@@ -18,9 +18,14 @@ class AdminOrderScreen extends StatefulWidget {
 class _AdminOrderScreenState extends State<AdminOrderScreen> {
   final _audioPlayer = AudioPlayer();
   StreamSubscription? _callSubscription;
-  bool _isInitialLoad = true;
   StreamSubscription? _orderSubscription;
-  bool _isOrderInitialLoad = true;
+  // 97차: 이미 본 직원 호출·주문 번호. 서버에서 처음 받은 목록(캐시 말고)으로 채운 뒤,
+  // 그 뒤에 '처음 보는' 번호가 생길 때만 소리를 냄. 예전엔 첫 결과 하나만 건너뛰어서,
+  // 첫 결과가 기기 캐시에서 오면 이어서 온 서버 결과의 예전 주문·호출로 띵동이 울렸음
+  final Set<String> _seenCalls = {};
+  bool _callsReady = false;
+  final Set<String> _seenOrders = {};
+  bool _ordersReady = false;
 
   @override
   void initState() {
@@ -29,21 +34,24 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
     _listenForOrders();
   }
 
+  /// 새로 생긴 문서가 있으면 true. 서버 결과를 처음 받기 전까지는 목록만 채우고 false
+  static bool _hasNew(QuerySnapshot snapshot, Set<String> seen, bool ready) {
+    final ids = snapshot.docs.map((d) => d.id).toSet();
+    final fresh = ready && ids.difference(seen).isNotEmpty;
+    seen.addAll(ids);
+    return fresh;
+  }
+
   void _listenForStaffCalls() {
     _callSubscription = StoreScope.col('staff_calls')
         .where('isAcknowledged', isEqualTo: false)
         .snapshots()
         .metered()
         .listen((snapshot) {
-      if (_isInitialLoad) {
-        _isInitialLoad = false;
-        return;
+      if (_hasNew(snapshot, _seenCalls, _callsReady)) {
+        _audioPlayer.play(AssetSource('sounds/ddingdong.mp3'));
       }
-      for (var change in snapshot.docChanges) {
-        if (change.type == DocumentChangeType.added) {
-          _audioPlayer.play(AssetSource('sounds/ddingdong.mp3'));
-        }
-      }
+      if (!snapshot.metadata.isFromCache) _callsReady = true;
     });
   }
 
@@ -53,16 +61,10 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
         .snapshots()
         .metered()
         .listen((snapshot) {
-      if (_isOrderInitialLoad) {
-        _isOrderInitialLoad = false;
-        return;
+      if (_hasNew(snapshot, _seenOrders, _ordersReady)) {
+        _audioPlayer.play(AssetSource('sounds/ddingdong.mp3'));
       }
-      for (var change in snapshot.docChanges) {
-        if (change.type == DocumentChangeType.added) {
-          _audioPlayer.play(AssetSource('sounds/ddingdong.mp3'));
-          break;
-        }
-      }
+      if (!snapshot.metadata.isFromCache) _ordersReady = true;
     });
   }
 
