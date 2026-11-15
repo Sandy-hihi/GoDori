@@ -427,6 +427,117 @@ test('포스 플러그인 신호 (96차): 로그인 없이 저장, 크기 줄임
   assert.equal(l2.body.plugins[0].linkedStore, 'platform6');
 });
 
+test('포스 플러그인 2단계 (100차): 기기 승인 → 패드 주문 대기 → 플러그인이 가져가 테이블에 넣음 → 포스 완료로 방 정산', async () => {
+  const catalog = fakeCatalogFromMenus(MENUS);
+  const live = { mode: 'live', listCatalogItems: async () => catalog, createOrder: async () => { throw new Error('Open API로 보내면 안 됨'); } };
+  const { call, data, tick } = make({ live, orders: { a: ORDER, b: { ...ORDER, price: '5000' }, c: { ...ORDER, room: '#4' } } });
+  await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'live', merchantId: '738910' } });
+  await call('POST', '/api/toss/menu-map', { token: 'admin', body: { map: { m1: catalog[0].id } } });
+  // 가짜 포스엔 플러그인 못 씀, 진짜에서만
+  assert.equal((await call('POST', '/api/ops/toss/config', { token: 'ops', body: { storeId: 'platform6', via: 'x' } })).status, 400);
+  assert.equal((await call('POST', '/api/ops/toss/config', { token: 'ops', body: { storeId: 'platform6', via: 'plugin' } })).status, 200);
+  assert.equal((await call('GET', '/api/ops/toss/overview', { token: 'ops' })).body.links.platform6.via, 'plugin');
+
+  // 패드 주문 → 서버에 대기
+  const q = await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
+  assert.equal(q.body.tossPos.state, 'queued');
+  assert.equal((await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } })).body.already, true);
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'b' } });
+
+  // 기기 등록: 첫 신호에 열쇠, 승인 전엔 주문 못 받음
+  const dev = { merchantId: 738910, serial: 'POS1' };
+  const h1 = await call('POST', '/api/toss/plugin/hello', { body: { ...dev, version: '0.2.0' } });
+  assert.equal(h1.body.approved, false);
+  assert.ok(h1.body.deviceToken);
+  const token = h1.body.deviceToken;
+  assert.equal((await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token } })).status, 403);
+  assert.equal((await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token: 'nope' } })).status, 403);
+  const pl = await call('GET', '/api/ops/toss/plugins', { token: 'ops' });
+  assert.equal(pl.body.plugins[0].devices.POS1.approved, false);
+  assert.equal(pl.body.plugins[0].devices.POS1.tokenHash, undefined);
+  assert.equal((await call('POST', '/api/ops/toss/plugin-device', { token: 'ops', body: { merchantId: '738910', serial: 'POS1', approved: true } })).status, 200);
+  const h2 = await call('POST', '/api/toss/plugin/hello', { body: { ...dev, token } });
+  assert.equal(h2.body.approved, true);
+  assert.equal(h2.body.deviceToken, undefined);
+  assert.equal(h2.body.via, 'plugin');
+  // 승인된 기기는 열쇠 없이 다시 등록 못 함
+  const h3 = await call('POST', '/api/toss/plugin/hello', { body: { ...dev } });
+  assert.equal(h3.body.deviceToken, undefined);
+  assert.ok(h3.body.deviceProblem);
+
+  // 가져가기 — 다른 포스는 같은 주문을 못 받음
+  const p1 = await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token } });
+  assert.equal(p1.status, 200);
+  assert.deepEqual(p1.body.orders.map((o) => o.orderId).sort(), ['a', 'b']);
+  const oa = p1.body.orders.find((o) => o.orderId === 'a');
+  assert.equal(oa.room, 3);
+  assert.equal(oa.orderKey, 'godori-platform6-a');
+  assert.equal(oa.lineItems[0].item.id, Number(catalog[0].id));
+  assert.equal(oa.lineItems[0].quantity.value, 1);
+  assert.equal(oa.lineItems[0].optionChoices.length, 2);
+  assert.equal(oa.lineItems[1].item.id, undefined); // 연결 안 된 메뉴는 이름만
+  assert.equal(oa.lineItems[1].item.title, '감자튀김');
+  assert.equal((await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token } })).body.orders.length, 0);
+
+  // 결과: a는 새 주문, b는 같은 테이블 열린 주문에 덧붙임, 남의 주문엔 못 씀
+  const ack = (body) => call('POST', '/api/toss/plugin/ack', { body: { ...dev, token, ...body } });
+  assert.equal((await ack({ orderId: 'c', ok: true, posOrderId: '9' })).status, 409);
+  assert.equal((await ack({ orderId: 'a', ok: true, posOrderId: '777', tableId: 963261, tableTitle: '기본홀03', posAmount: 11500 })).status, 200);
+  assert.equal((await ack({ orderId: 'b', ok: true, posOrderId: '777', tableId: 963261, tableTitle: '기본홀03', appended: true })).status, 200);
+  assert.equal((await ack({ orderId: 'a', ok: true, posOrderId: '777' })).body.already, true);
+  const ta = (await data.getOrder('platform6', 'a')).tossPos;
+  assert.equal(ta.state, 'sent');
+  assert.equal(ta.mode, 'plugin');
+  assert.equal(ta.tableTitle, '기본홀03');
+  assert.equal(ta.claimedAtMs, undefined);
+  assert.deepEqual(data.rooms.get('platform6/3').open, ['a', 'b']);
+
+  // 실패하면 failed, 관리자가 다시 보내면 다시 대기
+  await call('POST', '/api/toss/send-order', { token: 'pad4', body: { orderId: 'c' } });
+  const p2 = await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token } });
+  assert.deepEqual(p2.body.orders.map((o) => o.orderId), ['c']);
+  await ack({ orderId: 'c', ok: false, code: 'NO_TABLE', error: '4번 방에 맞는 테이블이 없어요.' });
+  assert.equal((await data.getOrder('platform6', 'c')).tossPos.state, 'failed');
+  assert.equal((await call('POST', '/api/toss/send-order', { token: 'admin', body: { orderId: 'c' } })).body.tossPos.state, 'queued');
+  // 가져간 뒤 답이 없으면 1분 30초 뒤 다시 가져갈 수 있음
+  assert.equal((await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token } })).body.orders.length, 1);
+  assert.equal((await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token } })).body.orders.length, 0);
+  tick(91 * 1000);
+  assert.equal((await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token } })).body.orders.length, 1);
+
+  // 포스 주문 완료(남은 금액 0) → 그 포스 주문에 들어간 고도리 주문 둘 다 결제 → 방 정산
+  const ev = (body) => call('POST', '/api/toss/plugin/event', { body: { ...dev, token, ...body } });
+  assert.equal((await ev({ posOrderId: '777', orderState: 'OPENED' })).body.matched, 0);
+  const done = await ev({ posOrderId: '777', orderState: 'COMPLETED', unpaid: 0 });
+  assert.equal(done.body.matched, 2);
+  assert.equal(done.body.settled, true);
+  assert.ok(data.rooms.get('platform6/3').settledAt);
+  assert.equal((await data.getOrder('platform6', 'b')).tossPos.posState, 'COMPLETED');
+
+  // 기기 지우기 → 다시 열쇠 받고 승인 전
+  await call('POST', '/api/ops/toss/plugin-device', { token: 'ops', body: { merchantId: '738910', serial: 'POS1', remove: true } });
+  const h4 = await call('POST', '/api/toss/plugin/hello', { body: { ...dev } });
+  assert.ok(h4.body.deviceToken);
+  assert.equal(h4.body.approved, false);
+});
+
+test('포스 플러그인: 결제 없이 완료(남은 금액 있음)는 결제로 안 봄, 취소도 정산 아님', async () => {
+  const live = { mode: 'live', listCatalogItems: async () => fakeCatalogFromMenus(MENUS), createOrder: async () => ({ id: '1' }) };
+  const { call, data } = make({ live, orders: { a: ORDER } });
+  await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'live', merchantId: '738910' } });
+  await call('POST', '/api/ops/toss/config', { token: 'ops', body: { storeId: 'platform6', via: 'plugin' } });
+  const dev = { merchantId: '738910', serial: 'P' };
+  const token = (await call('POST', '/api/toss/plugin/hello', { body: dev })).body.deviceToken;
+  await call('POST', '/api/ops/toss/plugin-device', { token: 'ops', body: { merchantId: '738910', serial: 'P', approved: true } });
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
+  await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token } });
+  await call('POST', '/api/toss/plugin/ack', { body: { ...dev, token, orderId: 'a', ok: true, posOrderId: '5' } });
+  const r = await call('POST', '/api/toss/plugin/event', { body: { ...dev, token, posOrderId: '5', orderState: 'COMPLETED', unpaid: 3000 } });
+  assert.equal(r.body.settled, false);
+  assert.equal((await data.getOrder('platform6', 'a')).tossPos.posState, 'CANCELLED');
+  assert.ok(!data.rooms.get('platform6/3').settledAt);
+});
+
 test('웹훅 비밀값이 없으면 503', async () => {
   const { call } = make({ webhookSecret: '' });
   assert.equal((await call('POST', '/api/toss/webhook', { body: {}, rawBody: Buffer.from('{}') })).status, 503);

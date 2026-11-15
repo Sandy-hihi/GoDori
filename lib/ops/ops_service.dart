@@ -115,8 +115,19 @@ class OpsService {
 
   static Future<void> tossUnlink(String storeId) => _call('POST', '/api/ops/toss/unlink', body: {'storeId': storeId});
 
-  static Future<void> tossConfig(String storeId, {required bool printOrderSheet}) =>
-      _call('POST', '/api/ops/toss/config', body: {'storeId': storeId, 'printOrderSheet': printOrderSheet});
+  static Future<void> tossConfig(String storeId, {bool? printOrderSheet, String? via}) => _call('POST', '/api/ops/toss/config',
+      body: {'storeId': storeId, 'printOrderSheet': ?printOrderSheet, 'via': ?via});
+
+  /// 포스 플러그인 신호·기기 목록 (96·100차) — plugins[{merchantId, merchantName, version, tables[], lastSeenAt, devices{시리얼: {approved, lastSeenAt, version}}, linkedStore}]
+  static Future<List<Map<String, dynamic>>> tossPlugins() async {
+    final r = await _call('GET', '/api/ops/toss/plugins');
+    return [for (final p in (r['plugins'] as List? ?? const [])) Map<String, dynamic>.from(p as Map)];
+  }
+
+  /// 포스 플러그인 기기 승인·취소·지우기 (100차)
+  static Future<void> tossPluginDevice(String merchantId, String serial, {bool? approved, bool remove = false}) =>
+      _call('POST', '/api/ops/toss/plugin-device',
+          body: {'merchantId': merchantId, 'serial': serial, 'approved': ?approved, if (remove) 'remove': true});
 
   static Future<List<Map<String, dynamic>>> tossFakeOrders(String storeId) async {
     final r = await _call('GET', '/api/ops/toss/fake-orders', query: {'storeId': storeId});

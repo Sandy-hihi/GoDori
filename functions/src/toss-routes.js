@@ -6,7 +6,12 @@
 //                                 { merchantId, merchantName, serial, version, halls[], tables[], tableError, errors[], stage, reason } → _tossPlugin/{merchantId}
 //                                 가맹점 ID가 없는 신호(플러그인 0.1.1 'boot'·오류)는 저장 없이 기록만 '[토스 플러그인] boot 가맹점 없음 …'
 //                                 ★지금은 누구나 보낼 수 있음(시험용 — 저장만 하고 주문·결제는 안 건드림). 주문을 넘기기 전에 매장별 키를 붙일 것
+//   POST /api/toss/plugin/poll    (100차, 포스 플러그인 — 승인된 기기 열쇠) { merchantId, serial, token } → { orders[], pollMs }
+//                                 이 가맹점에 연결된 매장(via 'plugin')의 대기 주문을 가져감(한 포스만 — claimed)
+//   POST /api/toss/plugin/ack     (100차) { …, orderId, ok, posOrderId, tableId, tableTitle, appended, posAmount, error } 포스에 넣은 결과
+//   POST /api/toss/plugin/event   (100차) { …, posOrderId, orderState, paymentState, unpaid } 포스 주문이 끝남(완료·취소) → 방 정산
 //   POST /api/toss/send-order     (패드·관리자) { orderId }  주문을 포스로 보내기. 패드는 주문 직후 자동, 관리자는 '다시 보내기'
+//                                 100차: via 'plugin' 매장은 서버에 'queued'로 두고 포스 플러그인이 가져감
 //   GET  /api/toss/status         (관리자) 연결 상태·메뉴 연결표·보내기 실패한 주문
 //   GET  /api/toss/catalog        (관리자) 포스 상품 목록 (메뉴 연결 화면용)
 //   POST /api/toss/menu-map       (관리자) { map: { 고도리 메뉴 ID: 토스 상품 ID | '상품ID:옵션ID=선택ID,…' (99차) | null } }
@@ -15,7 +20,8 @@
 //   POST /api/ops/toss/unlink     (운영자) { storeId }
 //   GET  /api/ops/toss/lookup     (운영자) ?storeId=  최근 포스로 보낸 주문 5건을 토스(또는 가짜 포스)에서 주문 키로 다시 조회 (95차)
 //   GET  /api/ops/toss/plugins    (운영자) 포스 플러그인 신호 목록 + 어느 매장과 연결된 가맹점인지 (96차)
-//   POST /api/ops/toss/config     (운영자) { storeId, printOrderSheet }
+//   POST /api/ops/toss/config     (운영자) { storeId, printOrderSheet?, via?: 'plugin' | 'api' } (100차 via — 실제 포스에 주문을 넣는 길)
+//   POST /api/ops/toss/plugin-device (100차, 운영자) { merchantId, serial, approved: true|false } 또는 { …, remove: true }
 //   GET  /api/ops/toss/fake-orders?storeId=   (운영자) 가짜 포스에 들어온 주문
 //   POST /api/ops/toss/fake-complete  (운영자) { storeId, orderKey, id }  가짜 포스에서 '결제 완료' 흉내 (81차 — 진짜는 주문 완료 웹훅)
 //
@@ -28,8 +34,14 @@
 
 const {
   TossError, createFakeToss, fakeCatalogFromMenus, buildTossOrder, parseOrderKey, orderKeyOf, verifyWebhook, catalogView, parseMapEntry,
+  pluginLineItems,
 } = require('./toss');
-const { cycleEntry } = require('./toss-data');
+const { cycleEntry, CLAIM_TIMEOUT_MS } = require('./toss-data');
+const crypto = require('crypto');
+
+const PLUGIN_POLL_MS = 3000; // 100차: 포스 플러그인이 주문을 물어보는 간격 (폴링 — 웹소켓은 커지면 바꿀 것 23번)
+const PLUGIN_IDLE_MS = 30000; // 플러그인으로 보내지 않는 매장·승인 전 기기
+const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
 const FAKE_PREFIX = 'fake-';
 const CATALOG_CACHE_MS = 60 * 1000;
@@ -115,6 +127,7 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
   // ── 주문 보내기 ──
   async function sendOrder(user, orderId) {
     const cfg = await linkedConfig(user.store);
+    if (cfg.mode === 'live' && cfg.via === 'plugin') return queueForPlugin(user, orderId);
     const claim = await data.claimOrder(user.store, orderId, now());
     if (!claim.order) throw httpError(404, 'NO_ORDER', '없는 주문이에요.');
     if (user.pad === true && claim.order.room !== `#${Number(user.room)}`) {
@@ -161,6 +174,171 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       await data.setOrderToss(user.store, orderId, patch, { countAttempt: true });
       return { ok: false, tossPos: patch };
     }
+  }
+
+  // 100차: 포스 플러그인으로 보내는 매장 — 서버에 'queued'로 두면 포스 플러그인이 가져가서 방에 연결된 테이블에 넣음
+  async function queueForPlugin(user, orderId) {
+    const order = await data.getOrder(user.store, orderId);
+    if (!order) throw httpError(404, 'NO_ORDER', '없는 주문이에요.');
+    if (user.pad === true && order.room !== `#${Number(user.room)}`) throw httpError(403, 'FORBIDDEN', '이 방의 주문이 아니에요.');
+    const t = order.tossPos || {};
+    if (['sent', 'queued', 'claimed'].includes(t.state)) return { ok: true, already: true, tossPos: t };
+    const nowIso = new Date(now()).toISOString();
+    if (!Array.isArray(order.lines) || !order.lines.length) {
+      const patch = { state: 'failed', mode: 'plugin', failedAt: nowIso, code: 'NO_LINES', error: '예전 패드에서 들어온 주문이라 포스로 보낼 수 없어요. 포스에 직접 입력해 주세요.' };
+      await data.setOrderToss(user.store, orderId, patch, { countAttempt: true });
+      return { ok: false, tossPos: patch };
+    }
+    const patch = {
+      state: 'queued', mode: 'plugin', queuedAt: nowIso,
+      code: undefined, error: undefined, failedAt: undefined, claimedBy: undefined, claimedAtMs: undefined,
+    };
+    await data.setOrderToss(user.store, orderId, patch);
+    return { ok: true, queued: true, tossPos: patch };
+  }
+
+  // ── 포스 플러그인 (100차) ──
+  // 기기 = 가맹점 + 포스 시리얼. 처음 신호(hello) 때 서버가 열쇠(token)를 주고, 운영자가 승인해야 주문을 받음.
+  // (플러그인 코드는 공개 저장소라 코드 안에 비밀값을 둘 수 없음 → 기기마다 받은 열쇠 + 운영자 승인)
+  const authCache = new Map(); // `${merchantId}:${serial}:${sha(token)}` → { approved, at }
+  async function pluginDevice(body) {
+    const merchantId = String(body.merchantId == null ? '' : body.merchantId);
+    const serial = cleanText(body.serial, 40);
+    if (!/^\d{1,19}$/.test(merchantId) || !serial) throw httpError(400, 'INVALID_PLUGIN', '가맹점·포스 기기 정보가 없어요.');
+    const token = String(body.token || '').slice(0, 100);
+    const dev = (await data.getPluginDevices(merchantId))[serial] || null;
+    const ok = !!(dev && token && dev.tokenHash === sha(token));
+    return { merchantId, serial, dev, ok, approved: ok && dev.approved === true };
+  }
+  async function pluginAuth(body) {
+    const key = `${body.merchantId}:${body.serial}:${sha(body.token || '')}`;
+    const hit = authCache.get(key);
+    let auth;
+    if (hit && now() - hit.at < 30 * 1000) {
+      auth = hit.auth;
+    } else {
+      auth = await pluginDevice(body);
+      authCache.set(key, { auth, at: now() });
+    }
+    if (!auth.approved) throw httpError(403, 'PLUGIN_NOT_APPROVED', '운영자 승인 전인 포스 기기예요.');
+    return auth;
+  }
+  const linkCache = new Map(); // merchantId → { v: { storeId, cfg } | null, at }
+  async function pluginStore(merchantId, { fresh = false } = {}) {
+    const hit = linkCache.get(merchantId);
+    if (!fresh && hit && now() - hit.at < 30 * 1000) return hit.v;
+    let v = null;
+    for (const s of await stores.listStores()) {
+      const cfg = await data.getConfig(s.id);
+      if (cfg && cfg.mode === 'live' && String(cfg.merchantId) === merchantId) {
+        v = { storeId: s.id, cfg };
+        break;
+      }
+    }
+    linkCache.set(merchantId, { v, at: now() });
+    return v;
+  }
+
+  async function pluginPoll(body, ctx) {
+    const auth = await pluginAuth(body);
+    ctx.rate(`toss-plugin-poll:${auth.merchantId}:${auth.serial}`, 60, 60 * 1000, '포스 플러그인 주문 확인');
+    const link = await pluginStore(auth.merchantId);
+    if (!link || link.cfg.via !== 'plugin') return { orders: [], pollMs: PLUGIN_IDLE_MS, idle: true };
+    const { storeId, cfg } = link;
+    const nowMs = now();
+    const nowIso = new Date(nowMs).toISOString();
+    const waiting = (await data.listPluginOrders(storeId))
+      .filter((o) => {
+        const t = o.tossPos || {};
+        return t.state === 'queued' || nowMs - (Number(t.claimedAtMs) || 0) > CLAIM_TIMEOUT_MS;
+      })
+      .sort((a, b) => String((a.tossPos || {}).queuedAt || '').localeCompare(String((b.tossPos || {}).queuedAt || '')))
+      .slice(0, 5);
+    const out = [];
+    let catalogById = null;
+    for (const o of waiting) {
+      const order = await data.claimPluginOrder(storeId, o.id, auth.serial, nowMs);
+      if (!order) continue;
+      try {
+        if (!catalogById) catalogById = new Map((await catalogOf(cfg)).map((i) => [String(i.id), i]));
+        const { body: built, warnings } = buildTossOrder({ storeId, orderId: o.id, order, menuMap: cfg.menuMap || {}, catalogById, nowIso });
+        out.push({
+          orderId: o.id, orderKey: built.order.orderKey, room: roomOf(order), memo: built.order.memo,
+          price: built.order.chargePrice ? built.order.chargePrice.totalAmount : null,
+          lineItems: pluginLineItems(built.order.lineItems, catalogById), warnings,
+        });
+      } catch (e) {
+        const known = e instanceof TossError || (e && e.status && e.code);
+        if (!known) console.error('[토스 플러그인] 주문 만들기 오류', storeId, o.id, e);
+        await data.setOrderToss(storeId, o.id, {
+          state: 'failed', mode: 'plugin', failedAt: nowIso, code: String((e && e.code) || 'ERROR'),
+          error: known ? String(e.message) : '포스로 보낼 주문을 만들지 못했어요.', claimedBy: undefined, claimedAtMs: undefined,
+        }, { countAttempt: true });
+      }
+    }
+    return { orders: out, pollMs: PLUGIN_POLL_MS };
+  }
+
+  async function pluginAck(body, ctx) {
+    const auth = await pluginAuth(body);
+    ctx.rate(`toss-plugin-ack:${auth.merchantId}`, 120, 60 * 1000, '포스 플러그인 결과');
+    const link = await pluginStore(auth.merchantId);
+    if (!link) throw httpError(409, 'TOSS_NOT_LINKED', '이 가맹점과 연결된 매장이 없어요.');
+    const orderId = String(body.orderId || '');
+    if (!/^[A-Za-z0-9]{1,40}$/.test(orderId)) throw httpError(400, 'INVALID_ORDER', '주문 ID가 올바르지 않아요.');
+    const order = await data.getOrder(link.storeId, orderId);
+    if (!order) throw httpError(404, 'NO_ORDER', '없는 주문이에요.');
+    const t = order.tossPos || {};
+    if (t.state === 'sent') return { ok: true, already: true };
+    if (t.state !== 'claimed' || t.claimedBy !== auth.serial) throw httpError(409, 'NOT_YOURS', '이 포스가 가져간 주문이 아니에요.');
+    const nowIso = new Date(now()).toISOString();
+    const warnings = (Array.isArray(body.warnings) ? body.warnings : []).slice(0, 10).map((w) => cleanText(w, 200)).filter(Boolean);
+    if (body.ok === true) {
+      const posOrderId = cleanText(body.posOrderId, 40);
+      if (!posOrderId) throw httpError(400, 'NO_POS_ORDER', '포스 주문 ID가 없어요.');
+      const patch = {
+        state: 'sent', mode: 'plugin', posOrderId, sentAt: nowIso, tableId: cleanNum(body.tableId), tableTitle: cleanText(body.tableTitle, 40),
+        appended: body.appended === true, warnings, claimedAtMs: undefined,
+      };
+      await data.setOrderToss(link.storeId, orderId, patch, { countAttempt: true });
+      await trackOpen(link.storeId, order, orderId);
+      console.log(`[토스 플러그인] 주문 ${link.storeId}/${orderId} ${order.room || ''} → 포스 주문 ${posOrderId} 테이블 ${patch.tableTitle || '-'}`
+        + `${patch.appended ? ' (열린 주문에 덧붙임)' : ''} · 고도리 ${order.price || '?'}원 / 포스 ${cleanNum(body.posAmount) == null ? '?' : cleanNum(body.posAmount)}원`
+        + `${warnings.length ? ` · ${warnings.join(' | ')}` : ''}`);
+      return { ok: true };
+    }
+    const patch = {
+      state: 'failed', mode: 'plugin', failedAt: nowIso, code: cleanText(body.code, 40) || 'PLUGIN_FAILED',
+      error: cleanText(body.error, 200) || '포스에 주문을 넣지 못했어요.', warnings, claimedBy: undefined, claimedAtMs: undefined,
+    };
+    await data.setOrderToss(link.storeId, orderId, patch, { countAttempt: true });
+    console.log(`[토스 플러그인] 주문 ${link.storeId}/${orderId} 실패: ${patch.code} ${patch.error}`);
+    return { ok: true };
+  }
+
+  // 포스 주문이 끝나면(완료·취소) 그 포스 주문에 들어간 고도리 주문을 모두 정리 → 방 정산
+  async function pluginEvent(body, ctx) {
+    const auth = await pluginAuth(body);
+    ctx.rate(`toss-plugin-event:${auth.merchantId}`, 120, 60 * 1000, '포스 플러그인 신호');
+    const link = await pluginStore(auth.merchantId);
+    if (!link) return { ok: true, matched: 0 };
+    const posOrderId = cleanText(body.posOrderId, 40);
+    if (!posOrderId) throw httpError(400, 'NO_POS_ORDER', '포스 주문 ID가 없어요.');
+    const orderState = cleanText(body.orderState, 20);
+    const unpaid = Number(body.unpaid) || 0;
+    // 완료인데 남은 금액이 있으면(결제 없이 테이블만 비움 등) 결제로 보지 않음
+    const state = orderState === 'CANCELLED' ? 'CANCELLED' : orderState === 'COMPLETED' ? (unpaid > 0 ? 'CANCELLED' : 'COMPLETED') : null;
+    if (!state) return { ok: true, matched: 0 };
+    const nowIso = new Date(now()).toISOString();
+    const list = await data.findOrdersByPosOrder(link.storeId, posOrderId);
+    let settled = false;
+    for (const o of list) {
+      if ((o.tossPos || {}).posState === state) continue;
+      const r = await applyOrderEvent(link.storeId, o.id, o, state, nowIso);
+      settled = settled || r.settled === true;
+    }
+    console.log(`[토스 플러그인] 포스 주문 ${posOrderId} ${orderState}(남은 ${unpaid}원) → 고도리 주문 ${list.length}건 ${state}${settled ? ' · 방 정산' : ''}`);
+    return { ok: true, matched: list.length, settled };
   }
 
   // ── 웹훅 ──
@@ -239,15 +417,37 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       errors,
     };
     await data.savePluginHello(merchantId, info);
-    let linkedStore = null;
-    for (const s of await stores.listStores()) {
-      const cfg = await data.getConfig(s.id);
-      if (cfg && cfg.mode === 'live' && String(cfg.merchantId) === merchantId) { linkedStore = s.id; break; }
+    const link = await pluginStore(merchantId, { fresh: true });
+    const linkedStore = link ? link.storeId : null;
+    // 100차: 기기 등록 — 처음 보는 포스(또는 승인 전에 열쇠를 잃은 포스)에 새 열쇠를 줌. 운영자가 승인해야 주문을 받음
+    let deviceToken;
+    let approved = false;
+    let deviceProblem = '';
+    if (info.serial) {
+      const auth = await pluginDevice({ merchantId, serial: info.serial, token: body.token });
+      const at = new Date(now()).toISOString();
+      if (auth.ok) {
+        approved = auth.approved;
+        await data.setPluginDevice(merchantId, info.serial, { lastSeenAt: at, version: info.version });
+      } else if (!auth.dev || auth.dev.approved !== true) {
+        deviceToken = crypto.randomBytes(24).toString('hex');
+        await data.setPluginDevice(merchantId, info.serial, {
+          tokenHash: sha(deviceToken), approved: false, firstSeenAt: (auth.dev && auth.dev.firstSeenAt) || at, lastSeenAt: at, version: info.version,
+        });
+      } else {
+        deviceProblem = '승인된 기기인데 열쇠가 맞지 않아요 — 운영자 페이지에서 이 기기를 지우고 다시 승인해 주세요.';
+      }
     }
     console.log(`[토스 플러그인] 가맹점 ${merchantId}(${info.merchantName}) 매장 ${linkedStore || '-'} 포스 ${info.serial || '-'} v${info.version || '?'}`
       + ` 홀 ${halls.length} · 테이블 ${tables.length}${info.tableError ? ` · 테이블 오류: ${info.tableError}` : ''}`
+      + ` · 기기 ${approved ? '승인됨' : deviceToken ? '새 열쇠(승인 전)' : deviceProblem ? '열쇠 안 맞음' : '승인 전'}`
+      + ` · 보내기 ${link && link.cfg.via === 'plugin' ? '플러그인' : '안 함'}`
       + `${errors.length ? ` · 오류: ${errors.join(' | ')}` : ''}${reason ? ` (${reason})` : ''}`);
-    return { ok: true, linkedStore, at: new Date(now()).toISOString() };
+    return {
+      ok: true, linkedStore, at: new Date(now()).toISOString(), approved, ...(deviceToken ? { deviceToken } : {}),
+      ...(deviceProblem ? { deviceProblem } : {}), via: link && link.cfg.via === 'plugin' ? 'plugin' : 'api',
+      pollMs: approved && link && link.cfg.via === 'plugin' ? PLUGIN_POLL_MS : PLUGIN_IDLE_MS,
+    };
   }
 
   // 관리자·패드 API — ctx: app.js의 requireStoreUser 등
@@ -255,6 +455,9 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     if (path === '/api/toss/webhook' && req.method === 'POST') return webhook(req);
     if (path === '/api/toss/plugin/hello' && req.method === 'POST') return pluginHello(body, ctx);
+    if (path === '/api/toss/plugin/poll' && req.method === 'POST') return pluginPoll(body, ctx);
+    if (path === '/api/toss/plugin/ack' && req.method === 'POST') return pluginAck(body, ctx);
+    if (path === '/api/toss/plugin/event' && req.method === 'POST') return pluginEvent(body, ctx);
 
     if (path === '/api/toss/send-order' && req.method === 'POST') {
       const user = await ctx.requireStoreUser(req);
@@ -322,6 +525,7 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
           links[s.id] = {
             mode: cfg.mode, merchantId: String(cfg.merchantId), merchantName: cfg.merchantName || '',
             printOrderSheet: cfg.printOrderSheet === true, mapped: Object.keys(cfg.menuMap || {}).length,
+            via: cfg.via === 'plugin' ? 'plugin' : 'api',
           };
         }
       }
@@ -349,6 +553,7 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
         ...cfg,
         printOrderSheet: before.printOrderSheet === true,
         menuMap: sameMerchant ? before.menuMap || {} : {},
+        ...(sameMerchant && cfg.mode === 'live' && before.via === 'plugin' ? { via: 'plugin' } : {}),
         linkedAt: new Date(now()).toISOString(),
       });
       return { ok: true, store: storeId, ...cfg, menuMapCleared: !sameMerchant && Object.keys(before.menuMap || {}).length > 0 };
@@ -360,9 +565,21 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     }
     if (path === '/api/ops/toss/config' && req.method === 'POST') {
       const storeId = cleanStoreId(body.storeId);
-      if (typeof body.printOrderSheet !== 'boolean') throw httpError(400, 'INVALID', 'printOrderSheet는 true/false예요.');
-      if (!(await data.getConfig(storeId))) throw httpError(409, 'TOSS_NOT_LINKED', '먼저 포스와 연결해 주세요.');
-      await data.patchConfig(storeId, { printOrderSheet: body.printOrderSheet });
+      const patch = {};
+      if (body.printOrderSheet !== undefined) {
+        if (typeof body.printOrderSheet !== 'boolean') throw httpError(400, 'INVALID', 'printOrderSheet는 true/false예요.');
+        patch.printOrderSheet = body.printOrderSheet;
+      }
+      if (body.via !== undefined) {
+        if (body.via !== 'plugin' && body.via !== 'api') throw httpError(400, 'INVALID', "via는 'plugin' 또는 'api'예요.");
+        patch.via = body.via;
+      }
+      if (!Object.keys(patch).length) throw httpError(400, 'NOTHING', '바꿀 설정이 없어요.');
+      const cfg = await data.getConfig(storeId);
+      if (!cfg) throw httpError(409, 'TOSS_NOT_LINKED', '먼저 포스와 연결해 주세요.');
+      if (patch.via === 'plugin' && cfg.mode !== 'live') throw httpError(409, 'NOT_LIVE', '실제 포스에 연결된 매장에서만 플러그인으로 보낼 수 있어요.');
+      await data.patchConfig(storeId, patch);
+      linkCache.clear();
       return { ok: true };
     }
     // 95차: 포스 화면에 주문이 안 보일 때 — 토스 서버에 그 주문이 정말 있는지 주문 키로 확인
@@ -414,7 +631,29 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
         const cfg = await data.getConfig(s.id);
         if (cfg && cfg.mode === 'live' && cfg.merchantId) links[String(cfg.merchantId)] = s.id;
       }
-      return { plugins: (await data.listPluginHellos()).map((p) => ({ ...p, linkedStore: links[String(p.merchantId)] || null })) };
+      // 100차: 기기 열쇠(tokenHash)는 빼고 보냄
+      return {
+        plugins: (await data.listPluginHellos()).map((p) => ({
+          ...p,
+          devices: Object.fromEntries(Object.entries(p.devices || {}).map(([serial, d]) => {
+            const { tokenHash, ...rest } = d || {};
+            return [serial, { ...rest, hasToken: !!tokenHash }];
+          })),
+          linkedStore: links[String(p.merchantId)] || null,
+        })),
+      };
+    }
+    if (path === '/api/ops/toss/plugin-device' && req.method === 'POST') {
+      const merchantId = String(body.merchantId == null ? '' : body.merchantId);
+      const serial = cleanText(body.serial, 40);
+      if (!/^\d{1,19}$/.test(merchantId) || !serial) throw httpError(400, 'INVALID', '가맹점·기기 번호를 확인해 주세요.');
+      const devices = await data.getPluginDevices(merchantId);
+      if (!devices[serial]) throw httpError(404, 'NO_DEVICE', '신호를 보낸 적 없는 기기예요.');
+      if (body.remove === true) await data.setPluginDevice(merchantId, serial, null);
+      else if (typeof body.approved === 'boolean') await data.setPluginDevice(merchantId, serial, { approved: body.approved });
+      else throw httpError(400, 'INVALID', 'approved(true/false) 또는 remove가 필요해요.');
+      authCache.clear();
+      return { ok: true };
     }
     if (path === '/api/ops/toss/fake-orders' && req.method === 'GET') {
       const storeId = cleanStoreId((req.query || {}).storeId);

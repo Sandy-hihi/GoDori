@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:boardpad/services/translate_sync.dart';
 import 'admin_store_settings_screen.dart';
@@ -30,6 +32,11 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   String _selectedCategory = '전체';
+
+  // 100차: 구독은 화면이 처음 열릴 때 한 번만 — build 안에서 만들면 검색·카테고리를 바꿀 때마다 새로 구독해서
+  //        목록이 '불러오는 중'으로 깜빡이고 스크롤이 맨 위로 감
+  late final Stream<QuerySnapshot> _menuStream = StoreScope.col('menus').orderBy('timestamp').snapshots().metered();
+  late final Stream<DocumentSnapshot> _categoryStream = StoreScope.col('settings').doc('categories').snapshots();
 
   @override
   void dispose() {
@@ -112,10 +119,13 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
     String menuName,
     String imageUrl,
   ) {
+    final messenger = ScaffoldMessenger.of(context);
+    var busy = false;
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) => StatefulBuilder(
+        builder: (context, setDialog) => AlertDialog(
           title: const Text(
             '메뉴 삭제',
             style: TextStyle(
@@ -126,24 +136,36 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
           content: Text('\'$menuName\' 메뉴를 정말 삭제하시겠습니까?\n삭제된 데이터는 복구할 수 없습니다.'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: busy ? null : () => Navigator.pop(context),
               child: const Text(
                 '취소',
                 style: TextStyle(color: Colors.grey, fontSize: 16),
               ),
             ),
             ElevatedButton(
-              onPressed: () async {
-                // 💡 '삭제하기'를 누르면 Firestore에서 진짜로 삭제 후 팝업 닫기
-                await _deleteStorageImage(imageUrl);
-                await StoreScope.col('menus')
-                    .doc(docId)
-                    .delete();
-                if (context.mounted) Navigator.pop(context);
-              },
+              // 100차: 누르면 바로 흐리게 + 다시 안 눌림. 예전엔 사진 지우는 동안 다시 누를 수 있어서
+              //        '닫기'가 두 번 → 메뉴 관리 화면까지 닫혀 하얀 화면이 됨
+              onPressed: busy
+                  ? null
+                  : () async {
+                      setDialog(() => busy = true);
+                      try {
+                        await StoreScope.col('menus').doc(docId).delete();
+                      } catch (e) {
+                        if (context.mounted) {
+                          setDialog(() => busy = false);
+                          messenger.showSnackBar(SnackBar(content: Text('삭제하지 못했어요: $e')));
+                        }
+                        return;
+                      }
+                      unawaited(_deleteStorageImage(imageUrl)); // 사진은 뒤에서 지움 (기다리지 않음)
+                      if (context.mounted) Navigator.pop(context);
+                    },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.redAccent,
                 foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.redAccent.withValues(alpha: 0.45),
+                disabledForegroundColor: Colors.white.withValues(alpha: 0.85),
               ),
               child: const Text(
                 '삭제하기',
@@ -151,8 +173,8 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
               ),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -981,9 +1003,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                   ),
                   const SizedBox(height: 16),
                   StreamBuilder<DocumentSnapshot>(
-                    stream: StoreScope.col('settings')
-                        .doc('categories')
-                        .snapshots(),
+                    stream: _categoryStream,
                     builder: (context, catSnap) {
                       final List<String> catList =
                           (catSnap.hasData && catSnap.data!.exists)
@@ -1032,10 +1052,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                       borderRadius: BorderRadius.circular(12),
                       clipBehavior: Clip.antiAlias,
                       child: StreamBuilder<QuerySnapshot>(
-                        stream: StoreScope.col('menus')
-                            .orderBy('timestamp')
-                            .snapshots()
-                            .metered(),
+                        stream: _menuStream,
                         builder: (context, snapshot) {
                           if (snapshot.connectionState ==
                               ConnectionState.waiting) {

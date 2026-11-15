@@ -233,6 +233,46 @@ const sameName = (a, b) => normName(a) !== '' && normName(a) === normName(b);
 const isRequiredOption = (o) => !!o && (o.required === true || o.isRequired === true || asInt(o.minChoices) > 0 || asInt(o.minSelectCount) > 0);
 const choicePrice = (c) => Math.max(0, asInt(c && (c.priceValue != null ? c.priceValue : c.price && typeof c.price === 'object' ? c.price.priceValue : c.price)));
 
+// 100차: buildTossOrder의 Open API 줄 → 포스 플러그인 SDK order.add/addMenu 줄 (PluginOrderItemDto)
+//   ITEM: item.id·optionChoices[].id = 포스 상품·선택 ID, chargePrice = 상품 1개 값(옵션 값은 포스가 선택 ID로 더한다고 보고 뺌 — 시험으로 확인할 것)
+//   연결 안 된 메뉴(AD_HOC): 포스 상품 ID가 없음 → 이름·값만 보내고 옵션은 줄 메모로 (포스가 받는지는 시험으로 확인)
+const safeId = (v) => {
+  const n = Number(v);
+  return Number.isSafeInteger(n) ? n : String(v);
+};
+function pluginLineItems(lineItems, catalogById = new Map()) {
+  return (lineItems || []).map((li) => {
+    const unit = Math.max(0, asInt(li.itemPrice && li.itemPrice.priceValue));
+    if (li.targetType === 'ITEM') {
+      const item = catalogById.get(String(li.targetId)) || {};
+      return {
+        diningOption: 'HERE',
+        item: {
+          id: safeId(li.targetId),
+          title: String(item.title || (li.itemPrice && li.itemPrice.title) || ''),
+          ...(item.category ? { category: item.category } : {}),
+          ...(item.code ? { code: String(item.code) } : {}),
+          type: 'ITEM',
+        },
+        quantity: { value: li.quantity },
+        chargePrice: { value: unit },
+        optionChoices: (li.optionChoices || []).map((c) => ({ id: safeId(c.optionChoiceId), quantity: c.quantity || 1 })),
+      };
+    }
+    const opts = li.optionChoices || [];
+    const optTotal = opts.reduce((s, c) => s + Math.max(0, asInt(c.price)), 0);
+    const memo = opts.map((c) => `${c.title}${asInt(c.price) ? `(+${asInt(c.price)})` : ''}`).join(', ').slice(0, 100);
+    return {
+      diningOption: 'HERE',
+      item: { title: String((li.item && li.item.title) || ''), ...(li.item && li.item.category ? { category: li.item.category } : {}), type: 'ITEM' },
+      quantity: { value: li.quantity },
+      chargePrice: { value: unit + optTotal },
+      optionChoices: [],
+      ...(memo ? { memo } : {}),
+    };
+  });
+}
+
 function buildTossOrder({ storeId, orderId, order, menuMap = {}, catalogById = new Map(), nowIso = new Date().toISOString() }) {
   const lines = Array.isArray(order.lines) ? order.lines : [];
   if (!lines.length) {
@@ -399,4 +439,5 @@ module.exports = {
   catalogView,
   parseMapEntry,
   normName,
+  pluginLineItems,
 };

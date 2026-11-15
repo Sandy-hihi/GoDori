@@ -5,11 +5,15 @@
 //                                     printOrderSheet, menuMap: { 고도리 메뉴 ID: 토스 상품 ID } }
 //   stores/{매장}/orders/{주문}.tossPos  { state: 'sending'|'sent'|'failed', mode, posOrderId, sentAt, failedAt,
 //                                        code, error, warnings[], attempts, posState(웹훅: ACCEPTED·DECLINED·COMPLETED·CANCELLED…), posStateAt }
+//        100차 포스 플러그인으로 보내는 매장(private/tossPos.via == 'plugin'): state 'queued'(서버에 대기) → 'claimed'(포스 플러그인이
+//        가져감 — claimedBy 포스 시리얼, claimedAtMs) → 'sent'(mode 'plugin', posOrderId = 포스 주문 ID, tableId·tableTitle, appended)
+//        · 'failed'. 같은 테이블에 열린 주문이 있으면 그 주문에 덧붙여서(addMenu) 여러 고도리 주문이 같은 posOrderId를 가짐
 //   _tossInstallations/{merchantId}  토스 '앱 설치' 웹훅으로 받은 매장 { merchantId, name, businessNumber, installedAt, removedAt? }
 //   _tossWebhooks/{x-toss-webhook-id}  같은 웹훅 두 번 처리 안 하게 { type, at }
 //   _tossSandbox/{가짜 merchantId}/orders/{id}  가짜 포스에 들어온 주문 (운영자 페이지에서 봄, 81차: posState·completedAt)
 //   _tossPlugin/{merchantId}  (96차) 토스 포스 플러그인이 보낸 '살아 있어요' 신호 { merchantName, serial, version, halls[], tables[],
 //                              tableError, lastSeenAt, count } — 포스 기계가 여러 대면 serial만 마지막 것
+//                              100차 devices: { 포스 시리얼: { tokenHash, approved, firstSeenAt, lastSeenAt, version } } — 운영자가 승인한 기기만 주문을 받음
 //   stores/{매장}/roomStatus/{방 번호}  (81차) { open: [포스로 보낸 뒤 아직 안 끝난 주문 ID], paidInCycle, settledAt(ISO),
 //                                        cycle: [이번 손님 주문 요약 — 84차 손님 패드 '주문 내역'] }
 //        — 서버만 씀, 그 방 패드·관리자는 읽기(firestore.rules). open이 비고 그사이 결제 완료가 있었으면 settledAt을 새로 씀
@@ -18,6 +22,7 @@
 //          포스로 들어간 주문을 넣고, 완료 웹훅이면 paid·취소면 cancelled로 표시. 정산 끝(settledAt)이면 비움
 
 const SENDING_TIMEOUT_MS = 60 * 1000; // 'sending'으로 남은 채 1분이 지나면 다시 보낼 수 있음
+const CLAIM_TIMEOUT_MS = 90 * 1000; // 100차: 포스 플러그인이 가져간 뒤 1분 30초 답이 없으면 다른 포스(또는 다시)가 가져갈 수 있음
 const CYCLE_MAX = 100; // 방 하나의 '주문 내역'에 남기는 최대 주문 수 (문서 크기 제한 대비)
 
 function dupKeyError() {
@@ -122,6 +127,41 @@ function createFirestoreTossData(db) {
     async listPluginHellos() {
       const snap = await db.collection('_tossPlugin').get();
       return snap.docs.map((d) => ({ merchantId: d.id, ...plain(d.data()) }));
+    },
+    // 100차: 플러그인 기기(포스 시리얼)별 { tokenHash, approved, firstSeenAt, lastSeenAt } — _tossPlugin/{merchantId}.devices
+    async getPluginDevices(merchantId) {
+      const d = await db.collection('_tossPlugin').doc(String(merchantId)).get();
+      return (d.exists && d.data().devices) || {};
+    },
+    async setPluginDevice(merchantId, serial, patch) {
+      const ref = db.collection('_tossPlugin').doc(String(merchantId));
+      if (patch == null) {
+        await ref.set({ devices: { [serial]: FieldValue.delete() } }, { merge: true });
+        return;
+      }
+      await ref.set({ devices: { [serial]: patch } }, { merge: true });
+    },
+    // 100차: 포스 플러그인이 가져갈 주문 (queued, 또는 가져갔는데 답이 없는 claimed)
+    async listPluginOrders(storeId, limit = 20) {
+      const snap = await store(storeId).collection('orders').where('tossPos.state', 'in', ['queued', 'claimed']).limit(limit).get();
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    // 한 포스만 가져가게 — queued거나, claimed인데 CLAIM_TIMEOUT_MS 넘게 답이 없으면 가져감
+    async claimPluginOrder(storeId, orderId, serial, nowMs) {
+      return db.runTransaction(async (tx) => {
+        const ref = orderRef(storeId, orderId);
+        const d = await tx.get(ref);
+        if (!d.exists) return null;
+        const t = d.data().tossPos || {};
+        const free = t.state === 'queued' || (t.state === 'claimed' && nowMs - (Number(t.claimedAtMs) || 0) > CLAIM_TIMEOUT_MS);
+        if (!free) return null;
+        tx.update(ref, { 'tossPos.state': 'claimed', 'tossPos.claimedBy': String(serial), 'tossPos.claimedAtMs': nowMs });
+        return d.data();
+      });
+    },
+    async findOrdersByPosOrder(storeId, posOrderId) {
+      const snap = await store(storeId).collection('orders').where('tossPos.posOrderId', '==', String(posOrderId)).limit(50).get();
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
     async addFakeOrder(merchantId, order) {
       const ref = db.collection('_tossSandbox').doc(String(merchantId)).collection('orders').doc(String(order.id));
@@ -307,6 +347,35 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
     async listPluginHellos() {
       return [...plugins.entries()].map(([merchantId, v]) => ({ merchantId, ...v }));
     },
+    async getPluginDevices(mid) {
+      return JSON.parse(JSON.stringify((plugins.get(String(mid)) || {}).devices || {}));
+    },
+    async setPluginDevice(mid, serial, patch) {
+      const cur = plugins.get(String(mid)) || {};
+      const devices = { ...(cur.devices || {}) };
+      if (patch == null) delete devices[serial];
+      else devices[serial] = { ...(devices[serial] || {}), ...JSON.parse(JSON.stringify(patch)) };
+      plugins.set(String(mid), { ...cur, devices });
+    },
+    async listPluginOrders(s) {
+      return [...ordersMap.entries()]
+        .filter(([k, v]) => k.startsWith(`${s}/`) && v.tossPos && ['queued', 'claimed'].includes(v.tossPos.state))
+        .map(([k, v]) => ({ id: k.split('/')[1], ...JSON.parse(JSON.stringify(v)) }));
+    },
+    async claimPluginOrder(s, o, serial, nowMs) {
+      const order = ordersMap.get(`${s}/${o}`);
+      if (!order) return null;
+      const t = order.tossPos || {};
+      const free = t.state === 'queued' || (t.state === 'claimed' && nowMs - (Number(t.claimedAtMs) || 0) > CLAIM_TIMEOUT_MS);
+      if (!free) return null;
+      order.tossPos = { ...t, state: 'claimed', claimedBy: String(serial), claimedAtMs: nowMs };
+      return JSON.parse(JSON.stringify(order));
+    },
+    async findOrdersByPosOrder(s, posOrderId) {
+      return [...ordersMap.entries()]
+        .filter(([k, v]) => k.startsWith(`${s}/`) && v.tossPos && String(v.tossPos.posOrderId) === String(posOrderId))
+        .map(([k, v]) => ({ id: k.split('/')[1], ...JSON.parse(JSON.stringify(v)) }));
+    },
     async addFakeOrder(mid, order) {
       const list = sandbox.get(String(mid)) || [];
       if (list.some((o) => o.orderKey === order.orderKey)) throw dupKeyError();
@@ -335,4 +404,4 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
   };
 }
 
-module.exports = { createFirestoreTossData, createMemoryTossData, SENDING_TIMEOUT_MS, cycleEntry, CYCLE_MAX };
+module.exports = { createFirestoreTossData, createMemoryTossData, SENDING_TIMEOUT_MS, CLAIM_TIMEOUT_MS, cycleEntry, CYCLE_MAX };

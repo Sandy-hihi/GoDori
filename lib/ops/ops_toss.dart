@@ -25,6 +25,7 @@ class OpsTossRow extends StatelessWidget {
         : link['mode'] == 'fake'
             ? '가짜 포스(개발용) · 메뉴 연결 ${link['mapped']}개'
             : '실제 포스: ${link['merchantName'] ?? ''} (가맹점 ${link['merchantId']}) · 메뉴 연결 ${link['mapped']}개'
+                '${link['via'] == 'plugin' ? ' · 포스 플러그인으로 보냄' : ''}'
                 '${overview!['liveReady'] == true ? '' : ' · ⚠ 서버에 토스 키 없음'}';
     return Padding(
       padding: const EdgeInsets.only(top: 6),
@@ -36,6 +37,8 @@ class OpsTossRow extends StatelessWidget {
           TextButton(onPressed: () => _openFakeOrders(context), child: const Text('가짜 포스 주문')),
         if (link != null)
           TextButton(onPressed: () => _openLookup(context), child: const Text('포스 주문 확인')),
+        if (link != null && link['mode'] == 'live')
+          TextButton(onPressed: () => _openPlugin(context, link), child: const Text('포스 플러그인')),
       ]),
     );
   }
@@ -53,6 +56,138 @@ class OpsTossRow extends StatelessWidget {
 
   Future<void> _openLookup(BuildContext context) =>
       showDialog(context: context, builder: (_) => _LookupDialog(storeId: storeId));
+
+  Future<void> _openPlugin(BuildContext context, Map<String, dynamic> link) async {
+    final changed = await showDialog<bool>(context: context, builder: (_) => _PluginDialog(storeId: storeId, link: link));
+    if (changed == true) onChanged();
+  }
+}
+
+/// 포스 플러그인 (100차): 이 매장 주문을 포스 플러그인으로 보낼지 + 포스 기기 승인
+///   플러그인 코드는 공개 저장소라 비밀값을 못 넣음 → 포스가 처음 신호를 보낼 때 서버가 기기마다 열쇠를 주고, 여기서 승인한 기기만 주문을 받음
+class _PluginDialog extends StatefulWidget {
+  final String storeId;
+  final Map<String, dynamic> link;
+  const _PluginDialog({required this.storeId, required this.link});
+
+  @override
+  State<_PluginDialog> createState() => _PluginDialogState();
+}
+
+class _PluginDialogState extends State<_PluginDialog> {
+  late bool _plugin = widget.link['via'] == 'plugin';
+  bool _changed = false;
+  bool _busy = false;
+  String? _error;
+  late Future<List<Map<String, dynamic>>> _future = OpsService.tossPlugins();
+
+  String get _merchantId => '${widget.link['merchantId'] ?? ''}';
+
+  Future<void> _run(Future<void> Function() f) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await f();
+      _changed = true;
+      if (mounted) setState(() => _future = OpsService.tossPlugins());
+    } on OpsException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String _time(dynamic iso) {
+    final t = DateTime.tryParse('${iso ?? ''}')?.toLocal();
+    if (t == null) return '-';
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${t.month}/${t.day} ${two(t.hour)}:${two(t.minute)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('${widget.storeId} — 포스 플러그인'),
+      content: SizedBox(
+        width: 560,
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _plugin,
+              title: const Text('주문을 포스 플러그인으로 보내기'),
+              subtitle: const Text('켜면 패드 주문이 서버에 대기하고, 포스 플러그인이 몇 초마다 가져가서 방에 맞는 테이블에 넣어요(포스에서 결제). '
+                  '끄면 예전처럼 토스 서버로 바로 보내요(테이블 없음).'),
+              onChanged: _busy
+                  ? null
+                  : (v) {
+                      setState(() => _plugin = v);
+                      _run(() => OpsService.tossConfig(widget.storeId, via: v ? 'plugin' : 'api'));
+                    },
+            ),
+            const Text('방 ↔ 테이블: 포스 테이블 이름이 \'N번 방\'·\'방N\'처럼 방과 같으면 그 테이블, 없으면 이름 끝 숫자가 N인 테이블 (예: 기본홀03 = 3번 방)',
+                style: TextStyle(color: Colors.black54, fontSize: 13)),
+            const Divider(height: 24),
+            Text('포스 기기 (가맹점 $_merchantId)', style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            FutureBuilder<List<Map<String, dynamic>>>(
+              future: _future,
+              builder: (context, snap) {
+                if (snap.connectionState != ConnectionState.done) {
+                  return const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator());
+                }
+                if (snap.hasError) return Text('불러오지 못했어요: ${snap.error}', style: const TextStyle(color: Colors.red));
+                Map<String, dynamic>? p;
+                for (final x in snap.data ?? const <Map<String, dynamic>>[]) {
+                  if ('${x['merchantId']}' == _merchantId) p = x;
+                }
+                final devices = p == null ? const <String, dynamic>{} : Map<String, dynamic>.from((p['devices'] as Map?) ?? const {});
+                if (p == null || devices.isEmpty) {
+                  return const Text('아직 이 가맹점 포스에서 플러그인 신호가 없어요. 포스에서 플러그인(0.2.0 이상)이 켜지면 여기에 나와요.',
+                      style: TextStyle(color: Colors.black54));
+                }
+                final tables = (p['tables'] as List? ?? const []).length;
+                return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('마지막 신호 ${_time(p['lastSeenAt'])} · v${p['version'] ?? '?'} · 테이블 $tables개',
+                      style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                  for (final e in devices.entries)
+                    Builder(builder: (_) {
+                      final d = Map<String, dynamic>.from((e.value as Map?) ?? const {});
+                      final approved = d['approved'] == true;
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(approved ? Icons.verified : Icons.hourglass_empty, color: approved ? Colors.green : Colors.orange),
+                        title: Text('포스 ${e.key}'),
+                        subtitle: Text('${approved ? '승인됨' : '승인 전 — 주문을 받지 않아요'} · 처음 ${_time(d['firstSeenAt'])} · 마지막 ${_time(d['lastSeenAt'])}'
+                            '${d['version'] == null ? '' : ' · v${d['version']}'}'),
+                        trailing: Wrap(spacing: 4, children: [
+                          TextButton(
+                            onPressed: _busy ? null : () => _run(() => OpsService.tossPluginDevice(_merchantId, e.key, approved: !approved)),
+                            child: Text(approved ? '승인 취소' : '승인'),
+                          ),
+                          TextButton(
+                            onPressed: _busy ? null : () => _run(() => OpsService.tossPluginDevice(_merchantId, e.key, remove: true)),
+                            style: TextButton.styleFrom(foregroundColor: Colors.red),
+                            child: const Text('지우기'),
+                          ),
+                        ]),
+                      );
+                    }),
+                ]);
+              },
+            ),
+            if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+          ]),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _busy ? null : () => setState(() => _future = OpsService.tossPlugins()), child: const Text('새로고침')),
+        TextButton(onPressed: () => Navigator.pop(context, _changed), child: const Text('닫기')),
+      ],
+    );
+  }
 }
 
 /// 포스 주문 확인 (95차): 패드가 포스로 보낸 최근 주문 5건을 토스에서 주문 키로 다시 조회
