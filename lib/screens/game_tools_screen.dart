@@ -357,11 +357,6 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            GuestText(
-              '🔄 리셋: 설정 시간으로 복귀   🗑 초기화: 전체 지우기',
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
-            ),
           ],
         ),
       ),
@@ -419,6 +414,9 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
   // 공통 - 이름 입력
   final List<TextEditingController> _nameControllers = [];
   int _playerCount = 4;
+  final ScrollController _playerScrollController = ScrollController();
+  Timer? _playerScrollbarTimer;
+  bool _showPlayerScrollbar = false;
 
   // 팀 나누기
   int _teamCount = 2;
@@ -430,6 +428,13 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
   bool _drawFinished = false;
 
   void _syncControllers(int count) {
+    if (count >= 5 && count > _nameControllers.length) {
+      _playerScrollbarTimer?.cancel();
+      _showPlayerScrollbar = true;
+      _playerScrollbarTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) setState(() => _showPlayerScrollbar = false);
+      });
+    }
     while (_nameControllers.length < count) {
       _nameControllers.add(TextEditingController());
     }
@@ -524,6 +529,42 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
   }
 
   // ── 팀 나누기 화면 ───────────────────────────────────
+  Widget _buildPlayerNameList({bool clearTeamResult = false}) {
+    return Scrollbar(
+      controller: _playerScrollController,
+      thumbVisibility: _showPlayerScrollbar,
+      child: ListView.builder(
+        controller: _playerScrollController,
+        padding: const EdgeInsets.only(right: 12),
+        itemCount: _playerCount,
+        itemBuilder: (context, i) => Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: TextField(
+            controller: _nameControllers[i],
+            decoration: InputDecoration(
+              isDense: true,
+              border: const OutlineInputBorder(),
+              prefixIcon: Padding(
+                padding: const EdgeInsets.all(8),
+                child: CircleAvatar(
+                  radius: 12,
+                  backgroundColor: kInk,
+                  child: GuestText('${i + 1}',
+                      style: const TextStyle(color: Colors.white, fontSize: 11)),
+                ),
+              ),
+              prefixIconConstraints: const BoxConstraints(
+                minWidth: 40, minHeight: 40, maxWidth: 40, maxHeight: 40),
+            ),
+            onChanged: clearTeamResult
+                ? (_) => setState(() => _teamResult = [])
+                : null,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTeamDivide() {
     return Row(
       children: [
@@ -545,26 +586,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
               const GuestText('비워두면 번호로 자동 부여', style: TextStyle(fontSize: 12, color: Colors.grey)),
               const SizedBox(height: 8),
               Expanded(
-                child: ListView.builder(
-                  itemCount: _playerCount,
-                  itemBuilder: (context, i) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: TextField(
-                      controller: _nameControllers[i],
-                      decoration: InputDecoration(
-                        labelText: guestTr(context, '${i + 1}번째 참가자'),
-                        isDense: true,
-                        border: const OutlineInputBorder(),
-                        prefixIcon: CircleAvatar(
-                          radius: 14,
-                          backgroundColor: kInk,
-                          child: GuestText('${i + 1}', style: const TextStyle(color: Colors.white, fontSize: 11)),
-                        ),
-                      ),
-                      onChanged: (_) => setState(() => _teamResult = []),
-                    ),
-                  ),
-                ),
+                child: _buildPlayerNameList(clearTeamResult: true),
               ),
               const SizedBox(height: 16),
               SizedBox(
@@ -681,25 +703,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
               const GuestText('비워두면 번호로 자동 부여', style: TextStyle(fontSize: 12, color: Colors.grey)),
               const SizedBox(height: 8),
               Expanded(
-                child: ListView.builder(
-                  itemCount: _playerCount,
-                  itemBuilder: (context, i) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: TextField(
-                      controller: _nameControllers[i],
-                      decoration: InputDecoration(
-                        labelText: guestTr(context, '${i + 1}번째 참가자'),
-                        isDense: true,
-                        border: const OutlineInputBorder(),
-                        prefixIcon: CircleAvatar(
-                          radius: 14,
-                          backgroundColor: kInk,
-                          child: GuestText('${i + 1}', style: const TextStyle(color: Colors.white, fontSize: 11)),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+                child: _buildPlayerNameList(),
               ),
               const SizedBox(height: 16),
               SizedBox(
@@ -859,6 +863,8 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
     _cdTimer?.cancel();
     _flashTimer?.cancel();
     FlutterRingtonePlayer().stop();
+    _playerScrollbarTimer?.cancel();
+    _playerScrollController.dispose();
     for (final c in _nameControllers) { c.dispose(); }
     super.dispose();
   }
