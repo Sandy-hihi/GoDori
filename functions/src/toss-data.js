@@ -163,6 +163,19 @@ function createFirestoreTossData(db) {
       const snap = await store(storeId).collection('orders').where('tossPos.posOrderId', '==', String(posOrderId)).limit(50).get();
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
+    // 102차: 운영자 '방 결제 대기' — 방마다 결제 대기 주문 수
+    async listRooms(storeId) {
+      const snap = await store(storeId).collection('roomStatus').get();
+      return snap.docs.map((d) => ({ room: d.id, ...plain(d.data()) }));
+    },
+    // 결제 대기·주문 내역 비우기 (정산 표시는 안 함 — 패드는 그대로)
+    async clearRoom(storeId, room) {
+      const ref = roomRef(storeId, room);
+      const d = await ref.get();
+      const before = d.exists ? d.data() : {};
+      await ref.set({ open: [], paidInCycle: false, cycle: [], updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return { open: Array.isArray(before.open) ? before.open.map(String) : [] };
+    },
     async addFakeOrder(merchantId, order) {
       const ref = db.collection('_tossSandbox').doc(String(merchantId)).collection('orders').doc(String(order.id));
       try {
@@ -370,6 +383,16 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
       if (!free) return null;
       order.tossPos = { ...t, state: 'claimed', claimedBy: String(serial), claimedAtMs: nowMs };
       return JSON.parse(JSON.stringify(order));
+    },
+    async listRooms(s) {
+      return [...rooms.entries()].filter(([k]) => k.startsWith(`${s}/`))
+        .map(([k, v]) => ({ room: k.split('/')[1], ...JSON.parse(JSON.stringify(v)) }));
+    },
+    async clearRoom(s, r) {
+      const k = `${s}/${r}`;
+      const cur = rooms.get(k) || {};
+      rooms.set(k, { ...cur, open: [], paidInCycle: false, cycle: [] });
+      return { open: Array.isArray(cur.open) ? cur.open.map(String) : [] };
     },
     async findOrdersByPosOrder(s, posOrderId) {
       return [...ordersMap.entries()]

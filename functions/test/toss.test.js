@@ -565,6 +565,26 @@ test('포스 플러그인: 포스 상품과 연결 안 된 메뉴가 있으면 �
   assert.match(t.error, /아메리카노, 감자튀김|감자튀김/);
 });
 
+test('방 결제 대기 비우기 (102차): 운영자만, 남은 방 목록 → 비우면 open·cycle 비고 정산 표시는 없음', async () => {
+  const { call, data } = make({ orders: { a: ORDER, b: { ...ORDER, room: '#4' } } });
+  await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'fake' } });
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
+  await call('POST', '/api/toss/send-order', { token: 'pad4', body: { orderId: 'b' } });
+  assert.equal((await call('GET', '/api/ops/toss/rooms', { token: 'admin', query: { storeId: 'platform6' } })).status, 403);
+  const list = await call('GET', '/api/ops/toss/rooms', { token: 'ops', query: { storeId: 'platform6' } });
+  assert.deepEqual(list.body.rooms.map((r) => [r.room, r.open]), [[3, 1], [4, 1]]);
+  assert.equal(list.body.rooms[0].orders[0].id, 'a');
+  assert.equal((await call('POST', '/api/ops/toss/room-clear', { token: 'ops', body: { storeId: 'platform6', room: 'x' } })).status, 400);
+  const c = await call('POST', '/api/ops/toss/room-clear', { token: 'ops', body: { storeId: 'platform6', room: 3 } });
+  assert.equal(c.body.cleared, 1);
+  const r3 = data.rooms.get('platform6/3');
+  assert.deepEqual(r3.open, []);
+  assert.deepEqual(r3.cycle, []);
+  assert.ok(!r3.settledAt);
+  const after = await call('GET', '/api/ops/toss/rooms', { token: 'ops', query: { storeId: 'platform6' } });
+  assert.deepEqual(after.body.rooms.map((r) => r.room), [4]);
+});
+
 test('웹훅 비밀값이 없으면 503', async () => {
   const { call } = make({ webhookSecret: '' });
   assert.equal((await call('POST', '/api/toss/webhook', { body: {}, rawBody: Buffer.from('{}') })).status, 503);

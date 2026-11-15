@@ -124,6 +124,18 @@ class OpsService {
     return [for (final p in (r['plugins'] as List? ?? const [])) Map<String, dynamic>.from(p as Map)];
   }
 
+  /// 방 결제 대기 (102차) — 결제 대기 주문이 남은 방 [{room, open, cycle, orders[{id, time, price, items, mode, state, posState, tableTitle}]}]
+  static Future<List<Map<String, dynamic>>> tossRooms(String storeId) async {
+    final r = await _call('GET', '/api/ops/toss/rooms', query: {'storeId': storeId});
+    return [for (final x in (r['rooms'] as List? ?? const [])) Map<String, dynamic>.from(x as Map)];
+  }
+
+  /// 그 방 결제 대기·주문 내역 비우기 (정산 표시 없이) → 비운 주문 수
+  static Future<int> tossRoomClear(String storeId, int room) async {
+    final r = await _call('POST', '/api/ops/toss/room-clear', body: {'storeId': storeId, 'room': room});
+    return (r['cleared'] as num?)?.toInt() ?? 0;
+  }
+
   /// 포스 플러그인 기기 승인·취소·지우기 (100차)
   static Future<void> tossPluginDevice(String merchantId, String serial, {bool? approved, bool remove = false}) =>
       _call('POST', '/api/ops/toss/plugin-device',

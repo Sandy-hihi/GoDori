@@ -22,6 +22,8 @@
 //   GET  /api/ops/toss/plugins    (운영자) 포스 플러그인 신호 목록 + 어느 매장과 연결된 가맹점인지 (96차)
 //   POST /api/ops/toss/config     (운영자) { storeId, printOrderSheet?, via?: 'plugin' | 'api' } (100차 via — 실제 포스에 주문을 넣는 길)
 //   POST /api/ops/toss/plugin-device (100차, 운영자) { merchantId, serial, approved: true|false } 또는 { …, remove: true }
+//   GET  /api/ops/toss/rooms?storeId=   (102차, 운영자) 결제 대기 주문이 남은 방 목록
+//   POST /api/ops/toss/room-clear { storeId, room }  (102차, 운영자) 그 방 결제 대기·주문 내역 비우기(정산 표시 없이 — 패드는 그대로)
 //   GET  /api/ops/toss/fake-orders?storeId=   (운영자) 가짜 포스에 들어온 주문
 //   POST /api/ops/toss/fake-complete  (운영자) { storeId, orderKey, id }  가짜 포스에서 '결제 완료' 흉내 (81차 — 진짜는 주문 완료 웹훅)
 //
@@ -663,6 +665,37 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       else throw httpError(400, 'INVALID', 'approved(true/false) 또는 remove가 필요해요.');
       authCache.clear();
       return { ok: true };
+    }
+    // 102차: 방 결제 대기 — 끝나지 않는 주문(예: 95차 Open API 시험 주문)이 남아 방이 정산되지 않을 때 운영자가 비움
+    if (path === '/api/ops/toss/rooms' && req.method === 'GET') {
+      const storeId = cleanStoreId((req.query || {}).storeId);
+      const list = await data.listRooms(storeId);
+      const rooms = [];
+      for (const r of list) {
+        const open = Array.isArray(r.open) ? r.open.map(String) : [];
+        const cycle = Array.isArray(r.cycle) ? r.cycle : [];
+        if (!open.length && !cycle.length) continue;
+        const orders = [];
+        for (const id of open.slice(0, 20)) {
+          const o = await data.getOrder(storeId, id);
+          const t = (o && o.tossPos) || {};
+          orders.push({
+            id, time: (o && o.time) || '', price: (o && o.price) || '', items: (o && o.items) || [],
+            mode: t.mode || '', state: t.state || '', posState: t.posState || '', sentAt: t.sentAt || null, tableTitle: t.tableTitle || '',
+          });
+        }
+        rooms.push({ room: Number(r.room) || r.room, open: open.length, cycle: cycle.length, orders, settledAt: r.settledAt || null });
+      }
+      rooms.sort((a, b) => Number(a.room) - Number(b.room));
+      return { rooms };
+    }
+    if (path === '/api/ops/toss/room-clear' && req.method === 'POST') {
+      const storeId = cleanStoreId(body.storeId);
+      const room = Number(body.room);
+      if (!Number.isInteger(room) || room < 1 || room > 999) throw httpError(400, 'INVALID_ROOM', '방 번호를 확인해 주세요.');
+      const r = await data.clearRoom(storeId, room);
+      console.log(`[토스] 운영자 방 결제 대기 비움 ${storeId} ${room}번 방 — 주문 ${r.open.length}건(${r.open.join(', ')})`);
+      return { ok: true, cleared: r.open.length };
     }
     if (path === '/api/ops/toss/fake-orders' && req.method === 'GET') {
       const storeId = cleanStoreId((req.query || {}).storeId);

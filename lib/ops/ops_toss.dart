@@ -39,6 +39,11 @@ class OpsTossRow extends StatelessWidget {
           TextButton(onPressed: () => _openLookup(context), child: const Text('포스 주문 확인')),
         if (link != null && link['mode'] == 'live')
           TextButton(onPressed: () => _openPlugin(context, link), child: const Text('포스 플러그인')),
+        if (link != null)
+          TextButton(
+            onPressed: () => showDialog(context: context, builder: (_) => _RoomsDialog(storeId: storeId)),
+            child: const Text('방 결제 대기'),
+          ),
       ]),
     );
   }
@@ -60,6 +65,143 @@ class OpsTossRow extends StatelessWidget {
   Future<void> _openPlugin(BuildContext context, Map<String, dynamic> link) async {
     final changed = await showDialog<bool>(context: context, builder: (_) => _PluginDialog(storeId: storeId, link: link));
     if (changed == true) onChanged();
+  }
+}
+
+/// 방 결제 대기 (102차): 포스로 보낸 뒤 아직 안 끝난 주문이 남은 방. 끝나지 않는 주문(예: 테이블 없이 보낸 예전 주문)이
+/// 남으면 그 방은 포스에서 결제해도 정산(패드 홈·기본 언어)이 안 됨 → [비우기]로 결제 대기·주문 내역을 비움(정산 표시는 안 함)
+class _RoomsDialog extends StatefulWidget {
+  final String storeId;
+  const _RoomsDialog({required this.storeId});
+
+  @override
+  State<_RoomsDialog> createState() => _RoomsDialogState();
+}
+
+class _RoomsDialogState extends State<_RoomsDialog> {
+  late Future<List<Map<String, dynamic>>> _future = OpsService.tossRooms(widget.storeId);
+  int? _busyRoom;
+  String? _message;
+
+  String _time(dynamic iso) {
+    final t = DateTime.tryParse('${iso ?? ''}')?.toLocal();
+    if (t == null) return '';
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${t.month}/${t.day} ${two(t.hour)}:${two(t.minute)}';
+  }
+
+  // 어디로 보낸 주문인지 (플러그인 테이블 / 예전 토스 서버 / 가짜 포스) + 포스 상태
+  String _where(Map<String, dynamic> o) {
+    final mode = '${o['mode'] ?? ''}';
+    final table = '${o['tableTitle'] ?? ''}';
+    final pos = '${o['posState'] ?? ''}';
+    final where = switch (mode) {
+      'plugin' => table.isEmpty ? '플러그인' : '플러그인 $table',
+      'live' => '토스 서버(테이블 없음)',
+      'fake' => '가짜 포스',
+      _ => '-',
+    };
+    return pos.isEmpty ? where : '$where · $pos';
+  }
+
+  Future<void> _clear(int room, int count) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('$room번 방 결제 대기 비우기'),
+        content: Text('결제 대기 주문 $count건과 손님 패드 \'주문 내역\'을 비워요. 포스 주문·고도리 주문 기록은 그대로예요.\n'
+            '정산(패드 홈으로)은 하지 않아요.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('취소')),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('비우기'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _busyRoom = room;
+      _message = null;
+    });
+    try {
+      final n = await OpsService.tossRoomClear(widget.storeId, room);
+      if (!mounted) return;
+      setState(() {
+        _message = '$room번 방 결제 대기 $n건을 비웠어요.';
+        _future = OpsService.tossRooms(widget.storeId);
+      });
+    } on OpsException catch (e) {
+      if (mounted) setState(() => _message = e.message);
+    } finally {
+      if (mounted) setState(() => _busyRoom = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('${widget.storeId} — 방 결제 대기'),
+      content: SizedBox(
+        width: 600,
+        child: FutureBuilder<List<Map<String, dynamic>>>(
+          future: _future,
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return const Padding(padding: EdgeInsets.all(24), child: LinearProgressIndicator());
+            }
+            if (snap.hasError) return Text('불러오지 못했어요: ${snap.error}', style: const TextStyle(color: Colors.red));
+            final rooms = snap.data ?? const [];
+            return SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('포스로 보낸 뒤 아직 결제·취소가 안 된 주문이 남은 방이에요. 이 주문이 다 끝나야 그 방이 정산돼요(패드 홈으로).',
+                    style: TextStyle(color: Colors.black54, fontSize: 13)),
+                if (_message != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_message!)),
+                const SizedBox(height: 8),
+                if (rooms.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('남은 방이 없어요.')),
+                for (final r in rooms)
+                  Builder(builder: (_) {
+                    final room = (r['room'] as num?)?.toInt() ?? int.tryParse('${r['room']}') ?? 0;
+                    final open = (r['open'] as num?)?.toInt() ?? 0;
+                    final orders = [for (final o in (r['orders'] as List? ?? const [])) Map<String, dynamic>.from(o as Map)];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Row(children: [
+                            Expanded(
+                              child: Text('$room번 방 · 결제 대기 $open건 · 주문 내역 ${r['cycle'] ?? 0}건',
+                                  style: const TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                            TextButton(
+                              onPressed: _busyRoom != null ? null : () => _clear(room, open),
+                              style: TextButton.styleFrom(foregroundColor: Colors.red),
+                              child: const Text('비우기'),
+                            ),
+                          ]),
+                          for (final o in orders)
+                            Text(
+                              '· ${_time(o['sentAt'])} ${o['price'] ?? ''}원 ${(o['items'] as List? ?? const []).join(', ')}'
+                              '  [${_where(o)}]',
+                              style: const TextStyle(fontSize: 12, color: Colors.black54),
+                            ),
+                        ]),
+                      ),
+                    );
+                  }),
+              ]),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => setState(() => _future = OpsService.tossRooms(widget.storeId)), child: const Text('새로고침')),
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('닫기')),
+      ],
+    );
   }
 }
 

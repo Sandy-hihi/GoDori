@@ -1257,6 +1257,25 @@ class _CategoryManageDialog extends StatefulWidget {
 
 class _CategoryManageDialogState extends State<_CategoryManageDialog> {
   final TextEditingController _newCategoryController = TextEditingController();
+  // 구독은 한 번만 (100차 메뉴 목록과 같은 이유 — build마다 새로 만들면 화살표를 누를 때마다 깜빡임)
+  late final Stream<DocumentSnapshot> _stream = StoreScope.col('settings').doc('categories').snapshots();
+  bool _moving = false; // 저장 중엔 화살표를 흐리게(연달아 눌러 순서가 꼬이지 않게)
+
+  Future<void> _move(List<dynamic> categories, int index, int delta) async {
+    final to = index + delta;
+    if (to < 0 || to >= categories.length) return;
+    final list = List<dynamic>.from(categories);
+    final item = list.removeAt(index);
+    list.insert(to, item);
+    setState(() => _moving = true);
+    try {
+      await StoreScope.col('settings').doc('categories').set({'list': list});
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('순서를 바꾸지 못했어요: $e')));
+    } finally {
+      if (mounted) setState(() => _moving = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -1272,14 +1291,12 @@ class _CategoryManageDialogState extends State<_CategoryManageDialog> {
         style: TextStyle(fontWeight: FontWeight.bold),
       ),
       content: SizedBox(
-        width: 400,
+        width: 480,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             StreamBuilder<DocumentSnapshot>(
-              stream: StoreScope.col('settings')
-                  .doc('categories')
-                  .snapshots(),
+              stream: _stream,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const CircularProgressIndicator();
@@ -1350,6 +1367,21 @@ class _CategoryManageDialogState extends State<_CategoryManageDialog> {
                                   trailing: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
+                                      // 101차: 순서 바꾸기 — 이 순서대로 관리자 웹 카테고리 칩·손님 패드 메뉴 탭이 나옴
+                                      IconButton(
+                                        tooltip: '위로',
+                                        icon: const Icon(Icons.arrow_upward, size: 20),
+                                        color: kAdminAccent,
+                                        onPressed: _moving || index == 0 ? null : () => _move(categories, index, -1),
+                                      ),
+                                      IconButton(
+                                        tooltip: '아래로',
+                                        icon: const Icon(Icons.arrow_downward, size: 20),
+                                        color: kAdminAccent,
+                                        onPressed: _moving || index == categories.length - 1
+                                            ? null
+                                            : () => _move(categories, index, 1),
+                                      ),
                                       IconButton(
                                         icon: const Icon(
                                           Icons.edit,
