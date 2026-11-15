@@ -9,7 +9,7 @@
 //   POST /api/toss/send-order     (패드·관리자) { orderId }  주문을 포스로 보내기. 패드는 주문 직후 자동, 관리자는 '다시 보내기'
 //   GET  /api/toss/status         (관리자) 연결 상태·메뉴 연결표·보내기 실패한 주문
 //   GET  /api/toss/catalog        (관리자) 포스 상품 목록 (메뉴 연결 화면용)
-//   POST /api/toss/menu-map       (관리자) { map: { 고도리 메뉴 ID: 토스 상품 ID | null } }
+//   POST /api/toss/menu-map       (관리자) { map: { 고도리 메뉴 ID: 토스 상품 ID | '상품ID:옵션ID=선택ID,…' (99차) | null } }
 //   GET  /api/ops/toss/overview   (운영자) 매장별 연결 상태 + 토스 '앱 설치' 매장 목록 + 진짜 키 등록 여부
 //   POST /api/ops/toss/link       (운영자) { storeId, mode: 'fake' | 'live', merchantId? }  매장 ↔ 포스 연결
 //   POST /api/ops/toss/unlink     (운영자) { storeId }
@@ -27,7 +27,7 @@
 // 가짜 연결(mode 'fake'): merchantId 'fake-<매장>', 상품은 그 매장 고도리 메뉴로 만든 가짜 포스 상품 (src/toss.js)
 
 const {
-  TossError, createFakeToss, fakeCatalogFromMenus, buildTossOrder, parseOrderKey, orderKeyOf, verifyWebhook, catalogView,
+  TossError, createFakeToss, fakeCatalogFromMenus, buildTossOrder, parseOrderKey, orderKeyOf, verifyWebhook, catalogView, parseMapEntry,
 } = require('./toss');
 const { cycleEntry } = require('./toss-data');
 
@@ -298,8 +298,9 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       if (!map || !Object.keys(map).length || Object.keys(map).length > 500) throw httpError(400, 'NOTHING', '바꿀 연결이 없어요.');
       const clean = {};
       for (const [k, v] of Object.entries(map)) {
+        // 99차: '상품ID' 또는 '상품ID:옵션ID=선택ID,…' (필수 옵션을 미리 골라 둔 연결)
         const itemId = v == null || v === '' ? null : String(v);
-        if (itemId != null && !/^\d{1,19}$/.test(itemId)) throw httpError(400, 'INVALID_ITEM', '포스 상품 ID가 올바르지 않아요.');
+        if (itemId != null && !parseMapEntry(itemId)) throw httpError(400, 'INVALID_ITEM', '포스 상품 ID가 올바르지 않아요.');
         clean[cleanMenuId(k)] = itemId;
       }
       await data.setMenuMap(user.store, clean);

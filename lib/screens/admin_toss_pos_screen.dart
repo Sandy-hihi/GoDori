@@ -107,7 +107,8 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
 
   String? _current(String menuId) => _edit.containsKey(menuId) ? _edit[menuId] : _saved[menuId];
   bool get _dirty => _edit.entries.any((e) => e.value != _saved[e.key]);
-  TossCatalogItem? _item(String? id) {
+  TossCatalogItem? _item(String? value) {
+    final id = TossMenuLink.parse(value)?.itemId;
     if (id == null) return null;
     for (final i in _catalog) {
       if (i.id == id) return i;
@@ -115,20 +116,58 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
     return null;
   }
 
+  // 99차: 포스 필수 옵션 중 고도리 메뉴 옵션으로 채워지지 않는 것 (예: 포스 '에이드'의 [에이드: 레모네이드·자몽…])
+  //   → 메뉴 연결에서 하나를 미리 골라 둬야 포스 상품으로 들어감
+  List<TossCatalogOption> _fixable(_Menu m, TossCatalogItem item) => [
+        for (final o in item.options)
+          if (o.required && !o.choices.any((c) => m.options.any((mo) => tossNormName(mo.name) == tossNormName(c.title)))) o,
+      ];
+
+  // 이름으로 짝 찾기: ① 포스 상품 이름이 같음 ② 포스 상품의 필수 옵션 하나와 같음
+  //   예: 고도리 '자몽 에이드' → 포스 '에이드' + [에이드: 자몽에이드],  '딸기 요거트 스무디' → '스무디' + [딸기 요거트]
+  String? _guess(_Menu m) {
+    final name = tossNormName(m.name);
+    if (name.isEmpty) return null;
+    // 고를 게 하나뿐인 필수 옵션(예: 에이드 [Only Ice: ICE])은 같이 골라 둠
+    String withSingles(TossCatalogItem item, Map<String, String> fixed) {
+      final all = {...fixed};
+      for (final o in _fixable(m, item)) {
+        if (!all.containsKey(o.id) && o.choices.length == 1 && o.choices.first.id.isNotEmpty) all[o.id] = o.choices.first.id;
+      }
+      return TossMenuLink(item.id, all).encode();
+    }
+
+    final same = _catalog.where((i) => tossNormName(i.title) == name).toList();
+    if (same.length == 1) return withSingles(same.first, const {});
+    if (same.length > 1) return null;
+    final hits = <String>[];
+    for (final i in _catalog) {
+      final t = tossNormName(i.title);
+      for (final o in i.options.where((o) => o.required)) {
+        for (final c in o.choices) {
+          final ct = tossNormName(c.title);
+          if (ct.isEmpty || c.id.isEmpty) continue;
+          if (name == ct || name == '$ct$t' || name == '$t$ct') hits.add(withSingles(i, {o.id: c.id}));
+        }
+      }
+    }
+    return hits.length == 1 ? hits.first : null;
+  }
+
   void _autoMatch() {
     var n = 0;
     setState(() {
       for (final m in _menus) {
         if (_current(m.id) != null) continue;
-        final same = _catalog.where((i) => i.title.trim() == m.name.trim()).toList();
-        if (same.length == 1) {
-          _edit[m.id] = same.first.id;
+        final g = _guess(m);
+        if (g != null) {
+          _edit[m.id] = g;
           n++;
         }
       }
     });
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(n == 0 ? '이름이 똑같은 포스 상품을 더 찾지 못했어요.' : '$n개 연결했어요. 확인하고 저장을 눌러 주세요.'),
+      content: Text(n == 0 ? '이름이 비슷한 포스 상품을 더 찾지 못했어요.' : '$n개 연결했어요. 확인하고 저장을 눌러 주세요.'),
     ));
   }
 
@@ -219,22 +258,68 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
     ]);
   }
 
-  // 연결한 포스 상품과 다른 점 (가격, 옵션 이름)
-  String? _mismatch(_Menu m, TossCatalogItem item) {
+  // 연결한 포스 상품과 다른 점 (가격, 옵션 이름, 안 고른 필수 옵션)
+  String? _mismatch(_Menu m, TossCatalogItem item, TossMenuLink link) {
     final notes = <String>[];
-    if (item.price != null && item.price != m.price) notes.add('가격 다름(포스 ${item.price}원)');
-    final posChoices = {for (final o in item.options) ...o.choices};
-    final missing = m.options.where((o) => !posChoices.contains(o.name)).map((o) => o.name).toList();
-    if (missing.isNotEmpty) notes.add('포스에 없는 옵션: ${missing.join(', ')} → 이 메뉴는 이름만 보냄');
+    var fixedPrice = 0;
+    for (final o in item.options) {
+      for (final c in o.choices) {
+        if (link.fixed[o.id] == c.id) fixedPrice += c.price;
+      }
+    }
+    if (item.price != null && item.price! + fixedPrice != m.price) notes.add('가격 다름(포스 ${item.price! + fixedPrice}원)');
+    final posChoices = {
+      for (final o in item.options)
+        if (!link.fixed.containsKey(o.id)) ...o.choices.map((c) => tossNormName(c.title)),
+    };
+    final missing = m.options.where((o) => !posChoices.contains(tossNormName(o.name))).map((o) => o.name).toList();
+    if (missing.isNotEmpty) notes.add('포스에 없는 옵션: ${missing.join(', ')} → 이 옵션을 고르면 이름만 보냄');
+    final unpicked = _fixable(m, item).where((o) => !link.fixed.containsKey(o.id)).map((o) => o.title).toList();
+    if (unpicked.isNotEmpty) notes.add('포스 필수 옵션을 골라 주세요: ${unpicked.join(', ')} (안 고르면 이름만 보냄)');
     if (item.soldOut) notes.add('포스에서 품절');
     return notes.isEmpty ? null : notes.join(' · ');
+  }
+
+  // 필수 옵션 미리 고르기 (99차)
+  Widget _fixedPicker(_Menu m, TossCatalogItem item, TossMenuLink link, TossCatalogOption o) {
+    final cur = link.fixed[o.id];
+    final valid = o.choices.any((c) => c.id == cur);
+    return Row(children: [
+      Text('${o.title}: ', style: const TextStyle(fontSize: 13, color: Colors.black54)),
+      const SizedBox(width: 6),
+      Expanded(
+        child: DropdownButton<String?>(
+          isExpanded: true,
+          isDense: true,
+          value: valid ? cur : null,
+          hint: const Text('하나 골라 주세요', style: TextStyle(fontSize: 13, color: _red)),
+          items: [
+            for (final c in o.choices.where((c) => c.id.isNotEmpty))
+              DropdownMenuItem<String?>(
+                value: c.id,
+                child: Text('${c.title}${c.price == 0 ? '' : ' (+${c.price}원)'}', style: const TextStyle(fontSize: 13)),
+              ),
+          ],
+          onChanged: (v) => setState(() {
+            final fixed = {...link.fixed};
+            if (v == null) {
+              fixed.remove(o.id);
+            } else {
+              fixed[o.id] = v;
+            }
+            _edit[m.id] = TossMenuLink(item.id, fixed).encode();
+          }),
+        ),
+      ),
+    ]);
   }
 
   Widget _menuRow(_Menu m) {
     final cur = _current(m.id);
     final item = _item(cur);
+    final link = TossMenuLink.parse(cur);
     final changed = _edit.containsKey(m.id) && _edit[m.id] != _saved[m.id];
-    final warn = item == null ? null : _mismatch(m, item);
+    final warn = item == null || link == null ? null : _mismatch(m, item, link);
     final missingItem = cur != null && item == null && _catalog.isNotEmpty;
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -255,7 +340,7 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               DropdownButton<String?>(
                 isExpanded: true,
-                value: item != null ? cur : null,
+                value: item?.id,
                 hint: Text(missingItem ? '연결한 상품이 포스에 없어요 — 다시 골라 주세요' : '연결 안 함 (이름·가격만 보냄)',
                     style: TextStyle(color: missingItem ? _red : Colors.black45)),
                 items: [
@@ -269,6 +354,9 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
                 ],
                 onChanged: _catalog.isEmpty ? null : (v) => setState(() => _edit[m.id] = v),
               ),
+              if (item != null && link != null)
+                for (final o in item.options.where((o) => o.required && (link.fixed.containsKey(o.id) || _fixable(m, item).contains(o))))
+                  _fixedPicker(m, item, link, o),
               if (warn != null) Text(warn, style: const TextStyle(color: Colors.orange, fontSize: 12)),
             ]),
           ),
@@ -282,12 +370,13 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
     return _card(
       title: '메뉴 연결  ($linkedCount / ${_menus.length})',
       subtitle: '고도리 메뉴마다 같은 포스 상품을 골라 주세요. 연결하면 포스 매출에 그 상품으로 잡혀요. '
-          '옵션은 포스 옵션과 이름이 같아야 같이 들어가요.',
+          '옵션은 포스 옵션과 이름이 같아야 같이 들어가요(띄어쓰기·아이스/ICE는 같게 봐요). '
+          '포스에서 한 상품에 묶인 메뉴(예: 에이드 › 자몽에이드)는 상품을 고른 뒤 아래에서 옵션을 골라 두세요.',
       action: Wrap(spacing: 8, children: [
         OutlinedButton.icon(
           onPressed: _catalog.isEmpty || _saving ? null : _autoMatch,
           icon: const Icon(Icons.auto_fix_high, size: 18),
-          label: const Text('이름이 같은 것 자동 연결'),
+          label: const Text('이름이 비슷한 것 자동 연결'),
         ),
         FilledButton.icon(
           onPressed: !_dirty || _saving ? null : _save,

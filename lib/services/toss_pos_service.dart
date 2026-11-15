@@ -22,7 +22,7 @@ class TossCatalogItem {
   final String category;
   final int? price;
   final bool soldOut;
-  final List<({String title, List<String> choices})> options;
+  final List<TossCatalogOption> options;
 
   const TossCatalogItem({
     required this.id,
@@ -41,12 +41,69 @@ class TossCatalogItem {
         soldOut: j['soldOut'] == true,
         options: [
           for (final o in (j['options'] as List? ?? const []))
-            (
-              title: '${(o as Map)['title'] ?? ''}',
-              choices: [for (final c in (o['choices'] as List? ?? const [])) '$c'],
+            TossCatalogOption(
+              id: '${(o as Map)['id'] ?? ''}',
+              title: '${o['title'] ?? ''}',
+              required: o['required'] == true,
+              choices: [
+                for (final c in (o['choices'] as List? ?? const []))
+                  c is Map
+                      ? TossCatalogChoice('${c['id'] ?? ''}', '${c['title'] ?? ''}', c['price'] is num ? (c['price'] as num).toInt() : 0)
+                      : TossCatalogChoice('', '$c', 0), // 99차 전 서버
+              ],
             ),
         ],
       );
+}
+
+/// 포스 상품 옵션 (99차: ID·필수 여부 — 필수 옵션은 메뉴 연결에서 미리 골라 둘 수 있음)
+class TossCatalogOption {
+  final String id;
+  final String title;
+  final bool required;
+  final List<TossCatalogChoice> choices;
+  const TossCatalogOption({required this.id, required this.title, required this.required, required this.choices});
+}
+
+class TossCatalogChoice {
+  final String id;
+  final String title;
+  final int price;
+  const TossCatalogChoice(this.id, this.title, this.price);
+}
+
+/// 메뉴 연결 값 (99차) — '상품ID' 또는 '상품ID:옵션ID=선택ID,…' (서버 functions/src/toss.js parseMapEntry 와 같은 모양)
+class TossMenuLink {
+  final String itemId;
+  final Map<String, String> fixed; // 옵션ID → 선택ID
+  const TossMenuLink(this.itemId, [this.fixed = const {}]);
+
+  static TossMenuLink? parse(String? v) {
+    if (v == null || v.isEmpty) return null;
+    final parts = v.split(':');
+    final fixed = <String, String>{};
+    if (parts.length > 1) {
+      for (final p in parts[1].split(',')) {
+        final kv = p.split('=');
+        if (kv.length == 2) fixed[kv[0]] = kv[1];
+      }
+    }
+    return TossMenuLink(parts[0], fixed);
+  }
+
+  String encode() => fixed.isEmpty ? itemId : '$itemId:${fixed.entries.map((e) => '${e.key}=${e.value}').join(',')}';
+}
+
+/// 이름 비교용 (서버 normName 과 같은 규칙): 띄어쓰기·대소문자·괄호 안 무시, 라뗴=라떼, 쉐이크=셰이크, 아이스=ICE
+String tossNormName(String s) {
+  const alias = {'아이스': 'ice', '차갑게': 'ice', '차가운': 'ice', '핫': 'hot', '따뜻하게': 'hot', '뜨겁게': 'hot', '따뜻한': 'hot'};
+  final t = s
+      .toLowerCase()
+      .replaceAll(RegExp(r'\([^)]*\)'), '')
+      .replaceAll('뗴', '떼')
+      .replaceAll('쉐이크', '셰이크')
+      .replaceAll(RegExp(r'\s+'), '');
+  return alias[t] ?? t;
 }
 
 class TossPosService {

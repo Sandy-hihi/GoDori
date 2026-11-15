@@ -17,6 +17,7 @@ import 'package:boardpad/widgets/admin_sidebar.dart';
 import 'package:boardpad/widgets/admin_colors.dart';
 import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/services/usage_meter.dart';
+import 'package:boardpad/utils/menu_bulk_text.dart';
 
 class AdminMenuManageScreen extends StatefulWidget {
   const AdminMenuManageScreen({super.key});
@@ -156,6 +157,121 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
   }
 
   // --- 💡 1. 세부 옵션 '그룹'을 만드는 보조 팝업창 ---
+  // 99차: 메뉴 한꺼번에 추가 — 글 형식은 lib/utils/menu_bulk_text.dart. 같은 이름(띄어쓰기 무시) 메뉴는 건너뜀
+  void _showBulkAddDialog(BuildContext context) {
+    final controller = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
+    var parsed = parseMenuBulkText('');
+    var saving = false;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          title: const Text('메뉴 한꺼번에 추가'),
+          content: SizedBox(
+            width: 760,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '한 줄에 메뉴 하나:  이름 | 가격 | 옵션\n'
+                  '"# 카테고리" 줄 아래 메뉴는 그 카테고리로 들어가요. 옵션은  그룹*: 선택, 선택+500; 그룹2: 선택  (* = 필수)\n'
+                  '이미 같은 이름의 메뉴가 있으면 건너뛰어요. 사진은 나중에 메뉴마다 넣어 주세요.',
+                  style: TextStyle(color: Colors.black54, height: 1.5, fontSize: 13),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  minLines: 12,
+                  maxLines: 18,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: '# 커피\n아메리카노 | 3500 | 온도*: ICE, HOT; 추가: 샷 추가+500',
+                  ),
+                  onChanged: (v) => setDialog(() => parsed = parseMenuBulkText(v)),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '메뉴 ${parsed.menus.length}개'
+                  '${parsed.menus.isEmpty ? '' : ' · 카테고리 ${parsed.menus.map((m) => m.category).toSet().length}개'}'
+                  '${parsed.errors.isEmpty ? '' : ' · 고칠 줄 ${parsed.errors.length}개'}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                if (parsed.errors.isNotEmpty)
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 110),
+                    child: SingleChildScrollView(
+                      child: Text(parsed.errors.join('\n'), style: const TextStyle(color: Colors.red, fontSize: 13)),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: saving ? null : () => Navigator.pop(dialogContext),
+              child: const Text('닫기', style: TextStyle(color: Colors.grey, fontSize: 16)),
+            ),
+            ElevatedButton(
+              onPressed: saving || parsed.menus.isEmpty || parsed.errors.isNotEmpty
+                  ? null
+                  : () async {
+                      setDialog(() => saving = true);
+                      try {
+                        final msg = await _bulkAddMenus(parsed.menus);
+                        if (dialogContext.mounted) Navigator.pop(dialogContext);
+                        messenger.showSnackBar(SnackBar(content: Text(msg)));
+                      } catch (e) {
+                        setDialog(() => saving = false);
+                        messenger.showSnackBar(SnackBar(content: Text('추가하지 못했어요: $e')));
+                      }
+                    },
+              style: ElevatedButton.styleFrom(backgroundColor: kAdminAccent, foregroundColor: Colors.white),
+              child: Text(saving ? '추가하는 중…' : '${parsed.menus.length}개 추가'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<String> _bulkAddMenus(List<MenuBulkLine> lines) async {
+    String key(String s) => s.replaceAll(RegExp(r'\s+'), '');
+    final existing = await StoreScope.col('menus').get();
+    final have = {for (final d in existing.docs) key('${d.data()['name'] ?? ''}')};
+    final toAdd = lines.where((l) => !have.contains(key(l.name))).toList();
+    final skipped = lines.length - toAdd.length;
+    if (toAdd.isEmpty) return '모두 이미 있는 메뉴라서 추가하지 않았어요.';
+    final catRef = StoreScope.col('settings').doc('categories');
+    final cats = List<String>.from((((await catRef.get()).data() ?? const {})['list'] as List?) ?? const []);
+    final newCats = toAdd.map((l) => l.category).where((c) => !cats.contains(c)).toSet().toList();
+    final base = DateTime.now().millisecondsSinceEpoch;
+    // 1ms씩 늦춰서 붙여 넣은 순서대로 보이게 (목록은 timestamp 순)
+    for (var i = 0; i < toAdd.length; i += 400) {
+      final batch = FirebaseFirestore.instance.batch();
+      for (var j = i; j < toAdd.length && j < i + 400; j++) {
+        final l = toAdd[j];
+        batch.set(StoreScope.col('menus').doc(), {
+          'category': l.category,
+          'name': l.name,
+          'price': l.price,
+          'imageUrl': '',
+          'optionGroups': l.optionGroups,
+          'isSoldOut': false,
+          'timestamp': Timestamp.fromMillisecondsSinceEpoch(base + j),
+        });
+      }
+      await batch.commit();
+    }
+    if (newCats.isNotEmpty) await catRef.set({'list': [...cats, ...newCats]});
+    TranslateSync.kick(); // 손님 패드 자동 번역
+    return '${toAdd.length}개 추가했어요.${skipped > 0 ? ' (이미 있는 $skipped개는 건너뜀)' : ''}'
+        '${newCats.isEmpty ? '' : ' 새 카테고리: ${newCats.join(', ')}'}';
+  }
+
   void _showAddOptionGroupDialog(
     BuildContext context,
     Function(Map<String, dynamic>) onGroupAdded,
@@ -827,6 +943,19 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                 horizontal: 20,
                                 vertical: 16,
                               ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          OutlinedButton.icon(
+                            onPressed: () => _showBulkAddDialog(context),
+                            icon: const Icon(Icons.playlist_add, color: kAdminAccent),
+                            label: const Text(
+                              '한꺼번에 추가',
+                              style: TextStyle(color: kAdminAccent, fontWeight: FontWeight.bold),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: kAdminAccent, width: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                             ),
                           ),
                           const SizedBox(width: 16),

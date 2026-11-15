@@ -211,6 +211,28 @@ function createFakeToss({ sandbox, now = () => Date.now() }) {
 // order: Firestore 주문 문서 { room '#3', price, notes, lines: [{ menuId, name, category, basePrice, quantity, options: [{ group, name, price }] }] }
 // menuMap: { 고도리 메뉴 ID: 토스 상품 ID }   catalogById: Map(토스 상품 ID → 상품)
 // → { body: { order, payments: [] }, warnings: [문구] }   (결제는 손님이 카운터 포스에서 → payments 비움)
+// ── 메뉴 연결 값 (99차) ──
+// '123' 또는 '123:45=678,46=679' (상품ID:옵션ID=선택ID — 포스 필수 옵션을 미리 골라 둠, 최대 10개)
+const MAP_ENTRY_RE = /^(\d{1,19})(?::(\d{1,19}=\d{1,19}(?:,\d{1,19}=\d{1,19}){0,9}))?$/;
+function parseMapEntry(v) {
+  const m = MAP_ENTRY_RE.exec(String(v == null ? '' : v));
+  if (!m) return null;
+  const fixed = m[2] ? m[2].split(',').map((p) => {
+    const [optionId, choiceId] = p.split('=');
+    return { optionId, choiceId };
+  }) : [];
+  return { itemId: m[1], fixed };
+}
+// 이름 비교: 띄어쓰기·대소문자·괄호 안 글자 무시, 흔한 오타·영한 표기 맞춤 (왕메리카노(32oz) = 왕메리카노, 라뗴 = 라떼, 아이스 = ICE)
+const NAME_ALIAS = { 아이스: 'ice', 차갑게: 'ice', 핫: 'hot', 따뜻하게: 'hot', 뜨겁게: 'hot', 따뜻한: 'hot', 차가운: 'ice' };
+function normName(s) {
+  const t = String(s == null ? '' : s).toLowerCase().replace(/\([^)]*\)/g, '').replace(/뗴/g, '떼').replace(/쉐이크/g, '셰이크').replace(/\s+/g, '');
+  return NAME_ALIAS[t] || t;
+}
+const sameName = (a, b) => normName(a) !== '' && normName(a) === normName(b);
+const isRequiredOption = (o) => !!o && (o.required === true || o.isRequired === true || asInt(o.minChoices) > 0 || asInt(o.minSelectCount) > 0);
+const choicePrice = (c) => Math.max(0, asInt(c && (c.priceValue != null ? c.priceValue : c.price && typeof c.price === 'object' ? c.price.priceValue : c.price)));
+
 function buildTossOrder({ storeId, orderId, order, menuMap = {}, catalogById = new Map(), nowIso = new Date().toISOString() }) {
   const lines = Array.isArray(order.lines) ? order.lines : [];
   if (!lines.length) {
@@ -227,28 +249,50 @@ function buildTossOrder({ storeId, orderId, order, menuMap = {}, catalogById = n
     total += (base + options.reduce((s, o) => s + Math.max(0, asInt(o.price)), 0)) * quantity;
     const itemPrice = { title: name, priceType: 'FIXED', priceUnit: 1, priceValue: base, isTaxFree: false, taxInclusive: true };
 
-    const itemId = menuMap[line.menuId];
-    const item = itemId ? catalogById.get(String(itemId)) : null;
-    if (itemId && !item) warnings.push(`'${name}'에 연결한 포스 상품이 포스에 없어요 — 이름만 보냈어요.`);
+    // 99차: 연결 값 = '상품ID' 또는 '상품ID:옵션ID=선택ID,…' (포스에서 한 상품에 필수 옵션으로 묶인 메뉴 — 예: 에이드 › 자몽에이드)
+    const entry = parseMapEntry(menuMap[line.menuId]);
+    const item = entry ? catalogById.get(entry.itemId) : null;
+    if (entry && !item) warnings.push(`'${name}'에 연결한 포스 상품이 포스에 없어요 — 이름만 보냈어요.`);
     if (item) {
+      const all = item.options || [];
       const picked = [];
-      let allFound = true;
-      for (const o of options) {
-        const opt = (item.options || []).find((x) => x.title === o.group && (x.choices || []).some((c) => c.title === o.name))
-          || (item.options || []).find((x) => (x.choices || []).some((c) => c.title === o.name));
-        const choice = opt && opt.choices.find((c) => c.title === o.name);
+      const fixedOpts = new Set();
+      let fixedPrice = 0;
+      let problem = '';
+      for (const f of entry.fixed) {
+        const opt = all.find((x) => String(x.id) === f.optionId);
+        const choice = opt && (opt.choices || []).find((c) => String(c.id) === f.choiceId);
         if (!choice) {
-          allFound = false;
+          problem = `'${name}'에 골라 둔 포스 옵션이 포스에 없어요 — 이름만 보냈어요. (메뉴 연결을 다시 해 주세요)`;
           break;
         }
-        picked.push({ optionId: String(opt.id), optionChoiceId: String(choice.id), price: Math.max(0, asInt(o.price)), quantity: 1 });
+        const p = choicePrice(choice);
+        fixedPrice += p;
+        fixedOpts.add(String(opt.id));
+        picked.push({ optionId: String(opt.id), optionChoiceId: String(choice.id), price: p, quantity: 1 });
       }
-      if (allFound) {
+      const free = all.filter((x) => !fixedOpts.has(String(x.id)));
+      for (const o of problem ? [] : options) {
+        const hit = (x) => (x.choices || []).find((c) => sameName(c.title, o.name));
+        const opt = free.find((x) => sameName(x.title, o.group) && hit(x)) || free.find(hit);
+        if (!opt) {
+          problem = `'${name}'의 옵션 '${o.name}'이 포스 옵션과 달라서 이름만 보냈어요.`;
+          break;
+        }
+        picked.push({ optionId: String(opt.id), optionChoiceId: String(hit(opt).id), price: Math.max(0, asInt(o.price)), quantity: 1 });
+      }
+      const missing = problem ? null : all.find((x) => isRequiredOption(x) && !picked.some((p) => p.optionId === String(x.id)));
+      if (missing) problem = `'${name}'에 포스 필수 옵션 '${missing.title}'이 빠져서 이름만 보냈어요. (관리자 웹 메뉴 연결에서 골라 두세요)`;
+      if (!problem) {
         const posPrice = item.price && item.price.priceValue;
-        if (posPrice != null && asInt(posPrice) !== base) warnings.push(`'${name}' 가격이 포스(${posPrice}원)와 고도리(${base}원)가 달라요.`);
-        return { diningOption: 'HERE', targetType: 'ITEM', targetId: String(item.id), itemPrice, quantity, optionChoices: picked };
+        if (posPrice != null && asInt(posPrice) + fixedPrice !== base) {
+          warnings.push(`'${name}' 가격이 포스(${asInt(posPrice) + fixedPrice}원)와 고도리(${base}원)가 달라요.`);
+        }
+        // 골라 둔 옵션 값만큼 상품 값에서 빼서 합계는 고도리 가격 그대로
+        const priced = { ...itemPrice, priceValue: Math.max(0, base - fixedPrice) };
+        return { diningOption: 'HERE', targetType: 'ITEM', targetId: String(item.id), itemPrice: priced, quantity, optionChoices: picked };
       }
-      warnings.push(`'${name}'의 옵션 이름이 포스 옵션과 달라서 이름만 보냈어요.`);
+      warnings.push(problem);
     }
     // 연결 안 된 메뉴 → 임의 상품(AD_HOC): 포스 매출에는 이 이름으로 잡힘
     return {
@@ -329,9 +373,12 @@ function catalogView(items) {
     price: i.price && i.price.priceValue != null ? asInt(i.price.priceValue) : null,
     soldOut: i.state === 'SOLD_OUT',
     enabled: i.enabled !== false,
+    // 99차: 옵션·선택에 ID·필수 여부·값 (메뉴 연결에서 필수 옵션을 미리 골라 두려고)
     options: (i.options || []).map((o) => ({
+      id: String(o.id),
       title: String(o.title || ''),
-      choices: (o.choices || []).map((c) => String(c.title || '')),
+      required: isRequiredOption(o),
+      choices: (o.choices || []).map((c) => ({ id: String(c.id), title: String(c.title || ''), price: choicePrice(c) })),
     })),
   }));
 }
@@ -350,4 +397,6 @@ module.exports = {
   signWebhook,
   verifyWebhook,
   catalogView,
+  parseMapEntry,
+  normName,
 };

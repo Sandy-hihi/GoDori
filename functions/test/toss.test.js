@@ -8,7 +8,7 @@ const { createMemoryStores } = require('../src/stores');
 const { createMemoryTossData } = require('../src/toss-data');
 const { createTossRoutes } = require('../src/toss-routes');
 const {
-  TossError, createTossClient, buildTossOrder, fakeCatalogFromMenus, signWebhook, verifyWebhook, parseOrderKey, orderKeyOf,
+  TossError, createTossClient, buildTossOrder, fakeCatalogFromMenus, signWebhook, verifyWebhook, parseOrderKey, orderKeyOf, parseMapEntry, normName,
 } = require('../src/toss');
 
 const MENUS = [
@@ -28,6 +28,41 @@ const ORDER = {
     line('m9', '쿠키', 2500, 1, [], '디저트'),
   ],
 };
+
+test('buildTossOrder: 포스에서 필수 옵션으로 묶인 메뉴 — 옵션을 골라 둔 연결 (99차)', () => {
+  // 실제 매장 포스: '에이드' 한 상품 + 필수 옵션 [Only Ice: ICE] [에이드: 레모네이드·자몽에이드…] [당도: 기본·더 달게]
+  const ade = {
+    id: '500', title: '에이드', price: { priceValue: 4500 }, state: 'ON_SALE',
+    options: [
+      { id: '51', title: 'Only Ice', minChoices: 1, maxChoices: 1, choices: [{ id: '511', title: 'ICE', priceValue: 0 }] },
+      { id: '52', title: '에이드', minChoices: 1, maxChoices: 1, choices: [{ id: '521', title: '레모네이드', priceValue: 0 }, { id: '522', title: '자몽에이드', priceValue: 300 }] },
+      { id: '53', title: '당도', minChoices: 1, maxChoices: 1, choices: [{ id: '531', title: '기본', priceValue: 0 }, { id: '532', title: '더 달게', priceValue: 0 }] },
+    ],
+  };
+  const cat = new Map([['500', ade]]);
+  const order = { room: '#2', price: '9600', notes: '', lines: [line('a1', '자몽 에이드', 4800, 2, [{ group: '얼음', name: '아이스', price: 0 }, { group: '당도', name: '더달게', price: 0 }])] };
+  // 자몽에이드 고정 + 고도리 옵션 '아이스'→ICE, '더달게'→더 달게 (띄어쓰기·영한 표기 무시)
+  const r = buildTossOrder({ storeId: 's', orderId: 'o', order, menuMap: { a1: '500:52=522' }, catalogById: cat });
+  const li = r.body.order.lineItems[0];
+  assert.equal(li.targetType, 'ITEM');
+  assert.deepEqual(li.optionChoices.map((c) => c.optionChoiceId), ['522', '511', '532']);
+  assert.equal(li.itemPrice.priceValue, 4500); // 4800 - 고정 옵션 300 → 합계는 고도리 그대로
+  assert.equal(r.body.order.chargePrice.totalAmount, 9600);
+  assert.deepEqual(r.warnings, []);
+  // 필수 옵션(당도)이 빠지면 이름만 + 안내
+  const o2 = { ...order, lines: [line('a1', '자몽 에이드', 4800, 2, [{ group: '얼음', name: '아이스', price: 0 }])] };
+  const r2 = buildTossOrder({ storeId: 's', orderId: 'o', order: o2, menuMap: { a1: '500:52=522' }, catalogById: cat });
+  assert.equal(r2.body.order.lineItems[0].targetType, 'AD_HOC');
+  assert.match(r2.warnings[0], /필수 옵션 '당도'/);
+  // 골라 둔 옵션이 포스에서 사라지면 이름만
+  const r3 = buildTossOrder({ storeId: 's', orderId: 'o', order, menuMap: { a1: '500:52=999' }, catalogById: cat });
+  assert.equal(r3.body.order.lineItems[0].targetType, 'AD_HOC');
+  // 연결 값 모양
+  assert.deepEqual(parseMapEntry('500:52=522,53=531'), { itemId: '500', fixed: [{ optionId: '52', choiceId: '522' }, { optionId: '53', choiceId: '531' }] });
+  assert.equal(parseMapEntry('500:52'), null);
+  assert.equal(normName(' 왕메리카노(32oz) '), normName('왕메리카노'));
+  assert.equal(normName('바닐라 라뗴'), normName('바닐라라떼'));
+});
 
 test('buildTossOrder: 연결된 메뉴는 포스 상품·옵션 ID로, 나머지는 임의 상품', () => {
   const catalog = fakeCatalogFromMenus(MENUS);
