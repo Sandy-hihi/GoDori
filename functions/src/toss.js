@@ -235,7 +235,8 @@ const choicePrice = (c) => Math.max(0, asInt(c && (c.priceValue != null ? c.pric
 
 // 100차: buildTossOrder의 Open API 줄 → 포스 플러그인 SDK order.add/addMenu 줄 (PluginOrderItemDto)
 //   ITEM: item.id·optionChoices[].id = 포스 상품·선택 ID, chargePrice = 상품 1개 값(옵션 값은 포스가 선택 ID로 더한다고 보고 뺌 — 시험으로 확인할 것)
-//   연결 안 된 메뉴(AD_HOC): 포스 상품 ID가 없음 → 이름·값만 보내고 옵션은 줄 메모로 (포스가 받는지는 시험으로 확인)
+//   연결 안 된 메뉴(AD_HOC): 포스 상품 ID가 없음 → 이름·값만 보내고 옵션은 줄 메모로
+//     ★100차 시험: 포스 SDK가 item.id(숫자)를 꼭 요구해서 포스가 받지 않음 → poll에서 미리 '연결 안 된 메뉴'로 실패 처리(이 모양은 안 쓰임)
 const safeId = (v) => {
   const n = Number(v);
   return Number.isSafeInteger(n) ? n : String(v);
@@ -247,10 +248,14 @@ function pluginLineItems(lineItems, catalogById = new Map()) {
       const item = catalogById.get(String(li.targetId)) || {};
       return {
         diningOption: 'HERE',
+        // 100차 시험: 포스 SDK가 zod로 검사 — item.id·category.id는 숫자, category는 꼭 있어야 함(Open API 상품 목록은 ID가 문자열)
         item: {
           id: safeId(li.targetId),
           title: String(item.title || (li.itemPrice && li.itemPrice.title) || ''),
-          ...(item.category ? { category: item.category } : {}),
+          category: {
+            id: safeId((item.category && item.category.id) != null ? item.category.id : 0),
+            title: String((item.category && item.category.title) || ''),
+          },
           ...(item.code ? { code: String(item.code) } : {}),
           type: 'ITEM',
         },

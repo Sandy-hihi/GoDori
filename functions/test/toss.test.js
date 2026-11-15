@@ -430,9 +430,11 @@ test('포스 플러그인 신호 (96차): 로그인 없이 저장, 크기 줄임
 test('포스 플러그인 2단계 (100차): 기기 승인 → 패드 주문 대기 → 플러그인이 가져가 테이블에 넣음 → 포스 완료로 방 정산', async () => {
   const catalog = fakeCatalogFromMenus(MENUS);
   const live = { mode: 'live', listCatalogItems: async () => catalog, createOrder: async () => { throw new Error('Open API로 보내면 안 됨'); } };
-  const { call, data, tick } = make({ live, orders: { a: ORDER, b: { ...ORDER, price: '5000' }, c: { ...ORDER, room: '#4' } } });
+  // 플러그인은 포스 상품과 연결된 메뉴만 넣음 → 쿠키(연결할 포스 상품 없음) 뺀 주문
+  const PORDER = { ...ORDER, lines: ORDER.lines.slice(0, 2), price: '9000' };
+  const { call, data, tick } = make({ live, orders: { a: PORDER, b: { ...PORDER, price: '5000' }, c: { ...PORDER, room: '#4' } } });
   await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'live', merchantId: '738910' } });
-  await call('POST', '/api/toss/menu-map', { token: 'admin', body: { map: { m1: catalog[0].id } } });
+  await call('POST', '/api/toss/menu-map', { token: 'admin', body: { map: { m1: catalog[0].id, m2: catalog[1].id } } });
   // 가짜 포스엔 플러그인 못 씀, 진짜에서만
   assert.equal((await call('POST', '/api/ops/toss/config', { token: 'ops', body: { storeId: 'platform6', via: 'x' } })).status, 400);
   assert.equal((await call('POST', '/api/ops/toss/config', { token: 'ops', body: { storeId: 'platform6', via: 'plugin' } })).status, 200);
@@ -445,8 +447,12 @@ test('포스 플러그인 2단계 (100차): 기기 승인 → 패드 주문 대�
   await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'b' } });
 
   // 기기 등록: 첫 신호에 열쇠, 승인 전엔 주문 못 받음
-  const dev = { merchantId: 738910, serial: 'POS1' };
-  const h1 = await call('POST', '/api/toss/plugin/hello', { body: { ...dev, version: '0.2.0' } });
+  const dev = { merchantId: 738910, serial: 'POS1', version: '0.2.0' };
+  // 예전 플러그인(0.1.x — 열쇠를 저장 못 함) 신호로는 기기를 등록하지 않음
+  const old = await call('POST', '/api/toss/plugin/hello', { body: { ...dev, version: '0.1.2' } });
+  assert.equal(old.body.deviceToken, undefined);
+  assert.deepEqual(await data.getPluginDevices('738910'), {});
+  const h1 = await call('POST', '/api/toss/plugin/hello', { body: { ...dev } });
   assert.equal(h1.body.approved, false);
   assert.ok(h1.body.deviceToken);
   const token = h1.body.deviceToken;
@@ -475,8 +481,10 @@ test('포스 플러그인 2단계 (100차): 기기 승인 → 패드 주문 대�
   assert.equal(oa.lineItems[0].item.id, Number(catalog[0].id));
   assert.equal(oa.lineItems[0].quantity.value, 1);
   assert.equal(oa.lineItems[0].optionChoices.length, 2);
-  assert.equal(oa.lineItems[1].item.id, undefined); // 연결 안 된 메뉴는 이름만
   assert.equal(oa.lineItems[1].item.title, '감자튀김');
+  // 포스 SDK 검사: category는 {id: 숫자, title}
+  assert.equal(String(oa.lineItems[0].item.category.id), String(fakeCatalogFromMenus(MENUS)[0].category.id)); // 안전한 정수면 숫자(가짜 포스 ID는 커서 문자열)
+  assert.equal(oa.lineItems[0].item.category.title, '음료');
   assert.equal((await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token } })).body.orders.length, 0);
 
   // 결과: a는 새 주문, b는 같은 테이블 열린 주문에 덧붙임, 남의 주문엔 못 씀
@@ -523,10 +531,12 @@ test('포스 플러그인 2단계 (100차): 기기 승인 → 패드 주문 대�
 
 test('포스 플러그인: 결제 없이 완료(남은 금액 있음)는 결제로 안 봄, 취소도 정산 아님', async () => {
   const live = { mode: 'live', listCatalogItems: async () => fakeCatalogFromMenus(MENUS), createOrder: async () => ({ id: '1' }) };
-  const { call, data } = make({ live, orders: { a: ORDER } });
+  const cat = fakeCatalogFromMenus(MENUS);
+  const { call, data } = make({ live, orders: { a: { ...ORDER, lines: ORDER.lines.slice(0, 1), price: '4000' } } });
   await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'live', merchantId: '738910' } });
+  await call('POST', '/api/toss/menu-map', { token: 'admin', body: { map: { m1: cat[0].id } } });
   await call('POST', '/api/ops/toss/config', { token: 'ops', body: { storeId: 'platform6', via: 'plugin' } });
-  const dev = { merchantId: '738910', serial: 'P' };
+  const dev = { merchantId: '738910', serial: 'P', version: '0.2.0' };
   const token = (await call('POST', '/api/toss/plugin/hello', { body: dev })).body.deviceToken;
   await call('POST', '/api/ops/toss/plugin-device', { token: 'ops', body: { merchantId: '738910', serial: 'P', approved: true } });
   await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
@@ -536,6 +546,23 @@ test('포스 플러그인: 결제 없이 완료(남은 금액 있음)는 결제�
   assert.equal(r.body.settled, false);
   assert.equal((await data.getOrder('platform6', 'a')).tossPos.posState, 'CANCELLED');
   assert.ok(!data.rooms.get('platform6/3').settledAt);
+});
+
+test('포스 플러그인: 포스 상품과 연결 안 된 메뉴가 있으면 가져갈 때 바로 실패(포스 SDK가 상품 ID를 요구)', async () => {
+  const live = { mode: 'live', listCatalogItems: async () => fakeCatalogFromMenus(MENUS), createOrder: async () => ({ id: '1' }) };
+  const { call, data } = make({ live, orders: { a: ORDER } });
+  await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'live', merchantId: '738910' } });
+  await call('POST', '/api/ops/toss/config', { token: 'ops', body: { storeId: 'platform6', via: 'plugin' } });
+  const dev = { merchantId: '738910', serial: 'P', version: '0.2.1' };
+  const token = (await call('POST', '/api/toss/plugin/hello', { body: dev })).body.deviceToken;
+  await call('POST', '/api/ops/toss/plugin-device', { token: 'ops', body: { merchantId: '738910', serial: 'P', approved: true } });
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
+  const p = await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token } });
+  assert.equal(p.body.orders.length, 0);
+  const t = (await data.getOrder('platform6', 'a')).tossPos;
+  assert.equal(t.state, 'failed');
+  assert.equal(t.code, 'NOT_MAPPED');
+  assert.match(t.error, /아메리카노, 감자튀김|감자튀김/);
 });
 
 test('웹훅 비밀값이 없으면 503', async () => {

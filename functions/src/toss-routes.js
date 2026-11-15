@@ -262,6 +262,12 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       try {
         if (!catalogById) catalogById = new Map((await catalogOf(cfg)).map((i) => [String(i.id), i]));
         const { body: built, warnings } = buildTossOrder({ storeId, orderId: o.id, order, menuMap: cfg.menuMap || {}, catalogById, nowIso });
+        // 포스 플러그인은 포스 상품 ID 없는 줄(연결 안 된 메뉴·옵션 이름이 달라 이름만 보내는 줄)을 받지 않음 (SDK가 item.id 숫자를 요구)
+        const unmapped = built.order.lineItems.filter((li) => li.targetType !== 'ITEM').map((li) => (li.item && li.item.title) || '?');
+        if (unmapped.length) {
+          throw new TossError(400, 'NOT_MAPPED', `포스 상품과 연결되지 않은 메뉴가 있어요: ${unmapped.join(', ')}`
+            + `${warnings.length ? ` (${warnings.join(' / ')})` : ''} — 관리자 웹 토스 POS 설정 '메뉴 연결'에서 연결한 뒤 다시 보내 주세요.`);
+        }
         out.push({
           orderId: o.id, orderKey: built.order.orderKey, room: roomOf(order), memo: built.order.memo,
           price: built.order.chargePrice ? built.order.chargePrice.totalAmount : null,
@@ -423,7 +429,10 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     let deviceToken;
     let approved = false;
     let deviceProblem = '';
-    if (info.serial) {
+    // 열쇠를 저장하지 못하는 예전 플러그인(0.1.x)의 신호로는 기기를 등록하지 않음 (100차 시험: 0.1.2 신호로 만든 기기를
+    // 승인했더니 0.2.0은 열쇠가 없어 '승인됐는데 열쇠가 안 맞음'에 걸림)
+    const canKeepToken = /^(\d+)\.(\d+)/.test(info.version) && !/^0\.[01]\./.test(info.version);
+    if (info.serial && canKeepToken) {
       const auth = await pluginDevice({ merchantId, serial: info.serial, token: body.token });
       const at = new Date(now()).toISOString();
       if (auth.ok) {
