@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -8,6 +9,59 @@ import 'package:boardpad/services/toss_pos_service.dart';
 const _navy = Color(0xFF1E2B3C);
 const _toss = Color(0xFF3182F6);
 const _red = Color(0xFFD64545);
+
+// ── 105차: 메뉴 연결 찾기 도우미 ──
+const _cho = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+
+// 한글 글자를 초성으로 (예: '카페 라떼' → 'ㅋㅍ ㄹㄸ')
+String _initials(String s) {
+  final b = StringBuffer();
+  for (final r in s.runes) {
+    if (r >= 0xAC00 && r <= 0xD7A3) {
+      b.write(_cho[(r - 0xAC00) ~/ 588]);
+    } else {
+      b.writeCharCode(r);
+    }
+  }
+  return b.toString();
+}
+
+// 찾기: 띄어쓰기·대소문자 무시, 초성만 치면 초성으로 (예: 'ㅊㅋㄹㄸ' → 초코 라떼)
+bool _matches(String text, String query) {
+  final q = query.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+  if (q.isEmpty) return true;
+  final t = text.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+  if (t.contains(q)) return true;
+  final onlyCho = q.runes.every((r) => r >= 0x3131 && r <= 0x314E);
+  return onlyCho && _initials(t).contains(q);
+}
+
+// 이름이 얼마나 비슷한지 0~1 (두 글자씩 묶어 겹치는 비율)
+double _similar(String a, String b) {
+  a = tossNormName(a);
+  b = tossNormName(b);
+  if (a.isEmpty || b.isEmpty) return 0;
+  if (a == b) return 1;
+  if (a.length < 2 || b.length < 2) return a.contains(b) || b.contains(a) ? 0.5 : 0;
+  List<String> pairs(String s) => [for (var i = 0; i + 1 < s.length; i++) s.substring(i, i + 2)];
+  final x = pairs(a);
+  final y = pairs(b);
+  final total = x.length + y.length;
+  var hit = 0;
+  for (final g in x) {
+    final k = y.indexOf(g);
+    if (k >= 0) {
+      hit++;
+      y.removeAt(k);
+    }
+  }
+  return 2 * hit / total;
+}
+
+String _itemLabel(TossCatalogItem i) =>
+    '${i.title}${i.price == null ? '' : ' · ${i.price}원'}${i.category.isEmpty ? '' : '  (${i.category})'}${i.soldOut ? '  [품절]' : ''}';
+
+typedef _Suggestion = ({String value, TossCatalogItem item, String? note});
 
 /// 관리자 웹: 토스 POS 연동 (64차) — '매장 설정 → 기능 사용 → 토스 POS 연동 설정'에서 들어옴
 ///   ① 연결 상태(운영자가 연결: 가짜 포스(개발용) 또는 실제 포스)
@@ -46,6 +100,19 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
   Map<String, List<TossSetPart>> _setsSaved = {}; // 103차 서버에 저장된 세트 구성표
   Map<String, List<TossSetPart>> _sets = {}; // 화면에서 바꾸는 중
   bool _savingSets = false;
+  // 105차: 메뉴 연결 목록 — 고도리 카테고리 순서, 상태 칩, 찾기, 접기
+  List<String> _categoryOrder = const [];
+  String _filter = 'unlinked'; // unlinked · warn · linked · all
+  String _query = '';
+  final _queryCtrl = TextEditingController();
+  final Set<String> _collapsed = {};
+  final Set<String> _touched = {}; // 이번에 바꾼 메뉴는 칩과 상관없이 계속 보여 줌(골랐다고 바로 사라지지 않게)
+
+  @override
+  void dispose() {
+    _queryCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -62,6 +129,11 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
     try {
       final status = await TossPosService.status();
       final snap = await StoreScope.col('menus').get();
+      var order = const <String>[];
+      try {
+        final cat = await StoreScope.col('settings').doc('categories').get();
+        order = [for (final c in (cat.data()?['list'] as List? ?? const [])) '$c'];
+      } catch (_) {}
       final menus = [
         for (final d in snap.docs)
           _Menu(
@@ -95,6 +167,9 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
         _edit = {};
         _setsSaved = TossSetPart.mapFrom(status['setMap']);
         _sets = _copySets(_setsSaved);
+        _categoryOrder = order;
+        _touched.clear();
+        if (_filter == 'unlinked' && _menus.every((m) => _saved[m.id] != null)) _filter = 'all';
         _loading = false;
       });
     } on TossPosException catch (e) {
@@ -171,6 +246,7 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
         final g = _guess(m);
         if (g != null) {
           _edit[m.id] = g;
+          _touched.add(m.id);
           n++;
         }
       }
@@ -605,21 +681,21 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              DropdownButton<String?>(
-                isExpanded: true,
-                value: item?.id,
-                hint: Text(missingItem ? '연결한 상품이 포스에 없어요 — 다시 골라 주세요' : '연결 안 함 (이름·가격만 보냄)',
-                    style: TextStyle(color: missingItem ? _red : Colors.black45)),
-                items: [
-                  const DropdownMenuItem<String?>(value: null, child: Text('연결 안 함 (이름·가격만 보냄)')),
-                  for (final i in _catalog)
-                    DropdownMenuItem<String?>(
-                      value: i.id,
-                      child: Text('${i.title}${i.price == null ? '' : ' · ${i.price}원'}${i.category.isEmpty ? '' : '  (${i.category})'}${i.soldOut ? '  [품절]' : ''}',
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                ],
-                onChanged: _catalog.isEmpty ? null : (v) => setState(() => _edit[m.id] = v),
+              // 105차: 드롭다운 대신 누르면 포스 상품 고르기 창(찾기·추천·카테고리별)
+              InkWell(
+                onTap: _catalog.isEmpty ? null : () => _openPicker(m),
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 10),
+                    suffixIcon: Icon(Icons.search, size: 20),
+                    suffixIconConstraints: BoxConstraints(minWidth: 28, minHeight: 20),
+                  ),
+                  child: item != null
+                      ? Text(_itemLabel(item), overflow: TextOverflow.ellipsis)
+                      : Text(missingItem ? '연결한 상품이 포스에 없어요 — 다시 골라 주세요' : '연결 안 함 (이름·가격만 보냄)',
+                          overflow: TextOverflow.ellipsis, style: TextStyle(color: missingItem ? _red : Colors.black45)),
+                ),
               ),
               if (item != null && link != null)
                 for (final o in item.options.where((o) => o.required && (link.fixed.containsKey(o.id) || _fixable(m, item).contains(o))))
@@ -630,6 +706,188 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
         ],
       ),
     );
+  }
+
+  // 105차: 메뉴 한 줄의 상태 — unlinked(연결 안 함) · warn(가격 다름·옵션·품절·없는 상품) · linked(문제 없음)
+  String _stateOf(_Menu m) {
+    final cur = _current(m.id);
+    if (cur == null) return 'unlinked';
+    final item = _item(cur);
+    final link = TossMenuLink.parse(cur);
+    if (item == null || link == null) return _catalog.isEmpty ? 'linked' : 'warn';
+    return _mismatch(m, item, link) == null ? 'linked' : 'warn';
+  }
+
+  // 105차: 추천 — 자동 연결과 같은 짝(옵션까지) 먼저, 그다음 이름이 비슷한 포스 상품(필수 옵션 이름도 봄)
+  List<_Suggestion> _suggest(_Menu m) {
+    final out = <_Suggestion>[];
+    final g = _guess(m);
+    final gi = _item(g);
+    final gl = TossMenuLink.parse(g);
+    if (g != null && gi != null && gl != null) {
+      final picks = [
+        for (final o in gi.options)
+          for (final c in o.choices)
+            if (gl.fixed[o.id] == c.id) c.title,
+      ];
+      out.add((value: g, item: gi, note: picks.isEmpty ? null : '옵션 ${picks.join(', ')} 같이 골라 둠'));
+    }
+    final scored = <(double, TossCatalogItem)>[];
+    for (final i in _catalog) {
+      if (i.id == gi?.id) continue;
+      var s = _similar(m.name, i.title);
+      for (final o in i.options.where((o) => o.required)) {
+        for (final c in o.choices) {
+          s = math.max(s, _similar(m.name, c.title) * 0.9);
+        }
+      }
+      if (s >= 0.4) scored.add((s, i));
+    }
+    scored.sort((a, b) => b.$1.compareTo(a.$1));
+    for (final s in scored.take(4 - out.length)) {
+      out.add((value: s.$2.id, item: s.$2, note: null));
+    }
+    return out;
+  }
+
+  Future<void> _openPicker(_Menu m) async {
+    final cur = _current(m.id);
+    final curItem = _item(cur)?.id;
+    final usedBy = <String, List<String>>{};
+    for (final o in _menus) {
+      if (o.id == m.id) continue;
+      final id = _item(_current(o.id))?.id;
+      if (id != null) (usedBy[id] ??= []).add(o.name);
+    }
+    final picked = await showDialog<({String? value})>(
+      context: context,
+      builder: (_) => _PosItemPicker(
+        menuName: m.name,
+        menuPrice: m.price,
+        catalog: _catalog,
+        currentId: curItem,
+        suggestions: _suggest(m),
+        usedBy: usedBy,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    var v = picked.value;
+    if (v != null && v == curItem) v = cur; // 같은 상품을 다시 고르면 미리 골라 둔 옵션은 그대로
+    setState(() {
+      _edit[m.id] = v;
+      _touched.add(m.id);
+    });
+  }
+
+  // 105차: 위에 찾기·상태 칩, 아래에 고도리 카테고리별 묶음(누르면 접기·펴기, 연결 n/m)
+  List<Widget> _menuList() {
+    final states = {for (final m in _menus) m.id: _stateOf(m)};
+    int count(String s) => s == 'all' ? _menus.length : states.values.where((v) => v == s).length;
+    final searching = _query.trim().isNotEmpty;
+    bool visible(_Menu m) =>
+        (_filter == 'all' || states[m.id] == _filter || _touched.contains(m.id)) &&
+        (!searching || _matches(m.name, _query) || _matches(m.category, _query));
+    // 카테고리 순서 = 메뉴 관리 [카테고리 관리] 순서, 거기 없는 건 뒤에 가나다순(카테고리 없음은 맨 끝)
+    final cats = [for (final c in _categoryOrder) if (_menus.any((m) => m.category == c)) c];
+    final rest = {for (final m in _menus) if (!cats.contains(m.category)) m.category}.toList()
+      ..sort((a, b) => a.isEmpty ? 1 : (b.isEmpty ? -1 : a.compareTo(b)));
+    cats.addAll(rest);
+
+    Widget chip(String key, String label) {
+      final on = _filter == key;
+      return ChoiceChip(
+        label: Text('$label ${count(key)}'),
+        selected: on,
+        showCheckmark: false,
+        selectedColor: _navy,
+        labelStyle: TextStyle(color: on ? Colors.white : _navy, fontWeight: on ? FontWeight.bold : FontWeight.normal),
+        onSelected: (_) => setState(() {
+          _filter = key;
+          _touched.clear();
+        }),
+      );
+    }
+
+    final out = <Widget>[
+      Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        SizedBox(
+          width: 280,
+          child: TextField(
+            controller: _queryCtrl,
+            onChanged: (v) => setState(() => _query = v),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: '메뉴 찾기 (초성도 돼요: ㅊㅋㄹㄸ)',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      onPressed: () {
+                        _queryCtrl.clear();
+                        setState(() => _query = '');
+                      },
+                    ),
+              border: const OutlineInputBorder(),
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        chip('unlinked', '미연결'),
+        chip('warn', '확인 필요'),
+        chip('linked', '연결 완료'),
+        chip('all', '전체'),
+      ]),
+      const SizedBox(height: 4),
+    ];
+    var shown = 0;
+    for (final c in cats) {
+      final all = _menus.where((m) => m.category == c).toList();
+      final rows = all.where(visible).toList();
+      if (rows.isEmpty) continue;
+      shown += rows.length;
+      final done = all.where((m) => states[m.id] != 'unlinked').length;
+      final open = searching || !_collapsed.contains(c);
+      out.add(InkWell(
+        onTap: searching
+            ? null
+            : () => setState(() {
+                  if (!_collapsed.remove(c)) _collapsed.add(c);
+                }),
+        child: Container(
+          margin: const EdgeInsets.only(top: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(color: const Color(0xFFF4F6F8), borderRadius: BorderRadius.circular(8)),
+          child: Row(children: [
+            Icon(open ? Icons.expand_more : Icons.chevron_right, size: 20, color: _navy),
+            const SizedBox(width: 6),
+            Text(c.isEmpty ? '카테고리 없음' : c, style: const TextStyle(fontWeight: FontWeight.bold, color: _navy)),
+            const SizedBox(width: 10),
+            Text('연결 $done / ${all.length}',
+                style: TextStyle(fontSize: 13, color: done == all.length ? const Color(0xFF27AE60) : Colors.black45)),
+            const Spacer(),
+            if (rows.length != all.length) Text('${rows.length}개 보임', style: const TextStyle(fontSize: 12, color: Colors.black38)),
+          ]),
+        ),
+      ));
+      if (open) out.addAll(rows.map(_menuRow));
+    }
+    if (_menus.isNotEmpty && shown == 0) {
+      out.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Text(
+          searching
+              ? '찾는 메뉴가 없어요.'
+              : _filter == 'unlinked'
+                  ? '연결 안 한 메뉴가 없어요 👍'
+                  : _filter == 'warn'
+                      ? '확인할 메뉴가 없어요 👍'
+                      : '해당하는 메뉴가 없어요.',
+          style: const TextStyle(color: Colors.black45),
+        ),
+      ));
+    }
+    return out;
   }
 
   Widget _menuCard() {
@@ -660,7 +918,7 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
         else if (_catalog.isEmpty)
           const Text('포스에 상품이 없거나 아직 연결 전이에요.', style: TextStyle(color: Colors.black45)),
         if (_menus.isEmpty) const Text('고도리 메뉴가 없어요.', style: TextStyle(color: Colors.black45)),
-        for (final m in _menus) _menuRow(m),
+        ..._menuList(),
       ],
     );
   }
@@ -736,6 +994,163 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
                     ],
                   ),
                 ),
+    );
+  }
+}
+
+/// 105차: 포스 상품 고르기 창 — 찾기(초성도), 추천, 포스 카테고리별 묶음, 다른 메뉴에 이미 연결된 상품 표시
+///   닫으면 null, 고르면 (value: 상품ID 또는 '상품ID:옵션ID=선택ID,…'), '연결 안 함'이면 (value: null)
+class _PosItemPicker extends StatefulWidget {
+  final String menuName;
+  final int menuPrice;
+  final List<TossCatalogItem> catalog;
+  final String? currentId;
+  final List<_Suggestion> suggestions;
+  final Map<String, List<String>> usedBy;
+  const _PosItemPicker({
+    required this.menuName,
+    required this.menuPrice,
+    required this.catalog,
+    required this.currentId,
+    required this.suggestions,
+    required this.usedBy,
+  });
+
+  @override
+  State<_PosItemPicker> createState() => _PosItemPickerState();
+}
+
+class _PosItemPickerState extends State<_PosItemPicker> {
+  final _ctrl = TextEditingController();
+  final _focus = FocusNode();
+  String _q = '';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _pick(String? v) => Navigator.of(context).pop((value: v));
+
+  List<TossCatalogItem> get _hits => [
+        for (final i in widget.catalog)
+          if (_matches(i.title, _q) || _matches(i.category, _q)) i,
+      ];
+
+  Widget _header(String t) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+        child: Text(t, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black45)),
+      );
+
+  Widget _tile(TossCatalogItem i, {String? value, String? note}) {
+    final selected = i.id == widget.currentId;
+    final used = widget.usedBy[i.id];
+    final sub = [
+      ?note,
+      if (used != null) '이미 연결: ${used.join(', ')}',
+    ].join(' · ');
+    return ListTile(
+      dense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+      selected: selected,
+      selectedColor: _toss,
+      selectedTileColor: const Color(0xFFEAF2FE),
+      title: Text('${i.title}${i.price == null ? '' : ' · ${i.price}원'}', style: const TextStyle(fontSize: 15)),
+      subtitle: sub.isEmpty ? null : Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: Colors.black45)),
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (i.soldOut) const Text('품절', style: TextStyle(color: _red, fontSize: 12)),
+        if (selected) const Padding(padding: EdgeInsets.only(left: 8), child: Icon(Icons.check, color: _toss, size: 20)),
+      ]),
+      onTap: () => _pick(value ?? i.id),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hits = _hits;
+    final searching = _q.trim().isNotEmpty;
+    final groups = <String, List<TossCatalogItem>>{};
+    for (final i in hits) {
+      (groups[i.category.isEmpty ? '분류 없음' : i.category] ??= []).add(i);
+    }
+    final size = MediaQuery.sizeOf(context);
+    return Dialog(
+      backgroundColor: Colors.white,
+      child: SizedBox(
+        width: math.min(560.0, size.width - 48),
+        height: size.height * 0.75,
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('포스 상품 고르기', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _navy)),
+              const SizedBox(height: 4),
+              Text('고도리 메뉴: ${widget.menuName} · ${widget.menuPrice}원', style: const TextStyle(fontSize: 13, color: Colors.black54)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _ctrl,
+                focusNode: _focus,
+                onChanged: (v) => setState(() => _q = v),
+                onSubmitted: (_) {
+                  final h = _hits;
+                  if (h.length == 1) _pick(h.first.id);
+                },
+                decoration: const InputDecoration(
+                  isDense: true,
+                  hintText: '포스 상품 찾기 (초성도 돼요)',
+                  prefixIcon: Icon(Icons.search, size: 20),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ]),
+          ),
+          Expanded(
+            child: ListView(children: [
+              if (!searching)
+                ListTile(
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+                  selected: widget.currentId == null,
+                  selectedColor: _toss,
+                  selectedTileColor: const Color(0xFFEAF2FE),
+                  leading: const Icon(Icons.link_off, size: 20),
+                  title: const Text('연결 안 함 (이름·가격만 보냄)', style: TextStyle(fontSize: 15)),
+                  onTap: () => _pick(null),
+                ),
+              if (!searching && widget.suggestions.isNotEmpty) ...[
+                _header('추천 — 이름이 비슷해요'),
+                for (final s in widget.suggestions) _tile(s.item, value: s.value, note: s.note),
+              ],
+              for (final e in groups.entries) ...[
+                _header('${e.key}  ${e.value.length}'),
+                for (final i in e.value) _tile(i),
+              ],
+              if (hits.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text('찾는 포스 상품이 없어요.', style: TextStyle(color: Colors.black45)),
+                ),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 12, 8),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('닫기')),
+            ),
+          ),
+        ]),
+      ),
     );
   }
 }
