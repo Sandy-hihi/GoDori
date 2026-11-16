@@ -138,3 +138,37 @@ test('Google 번역기: 요청 모양·100개씩 나누기·꺼져 있을 때 �
   });
   await assert.rejects(off(['a'], 'en'), /꺼져 있어요/);
 });
+
+// 104차: 고정 번역표 + 카테고리 번역
+test('고정 번역표에 있는 말은 구글에 안 보내고, 이미 틀리게 번역된 것도 고침', async () => {
+  const data = createMemoryTranslateData({
+    menus: { s: {
+      w: { name: '왕메리카노', price: 4000,
+        translations: { _src: JSON.stringify({ name: '왕메리카노' }), en: { name: 'King Americano' }, zh: { name: '王美式' }, ja: { name: '王メリカノ' } } },
+      v: { name: '바닐라 라뗴', price: 5000 },
+    } },
+    settings: { s: { categories: { list: ['커피', '하이볼/캔맥주'] } } },
+  });
+  const tr = fakeTranslator();
+  const t = createTranslateRoutes({ data, translator: tr, httpError });
+  const r = await t.syncStore('s');
+  assert.equal(data.menus.s.w.translations.ja.name, 'ジャンボアメリカーノ');
+  assert.equal(data.menus.s.v.translations.ja.name, 'バニララテ'); // 띄어쓰기·'뗴' 오타 무시
+  assert.deepEqual(tr.calls.map((c) => c.texts), [['커피'], ['커피'], ['커피']]); // 표에 없는 것만 구글로
+  const cat = data.settings.s.categories;
+  assert.equal(cat.translations.ja['커피'], '[ja]커피');
+  assert.equal(cat.translations.ja['하이볼/캔맥주'], 'ハイボール／缶ビール');
+  assert.equal(r.categories, 1);
+
+  // 다시 부르면 아무것도 안 함, 순서만 바꿔도 안 함
+  cat.list = ['하이볼/캔맥주', '커피'];
+  const r2 = await t.syncStore('s');
+  assert.equal(tr.calls.length, 3);
+  assert.deepEqual([r2.menus, r2.categories], [0, 0]);
+
+  // 카테고리를 지우고 새로 넣으면 새 것만 번역, 지운 것의 번역은 정리
+  cat.list = ['커피', '디저트'];
+  await t.syncStore('s');
+  assert.deepEqual(tr.calls.slice(3).map((c) => c.texts), [['디저트'], ['디저트'], ['디저트']]);
+  assert.deepEqual(Object.keys(cat.translations.en).sort(), ['디저트', '커피'].sort());
+});

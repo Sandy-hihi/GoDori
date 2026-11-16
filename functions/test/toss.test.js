@@ -565,6 +565,45 @@ test('포스 플러그인: 포스 상품과 연결 안 된 메뉴가 있으면 �
   assert.match(t.error, /아메리카노, 감자튀김|감자튀김/);
 });
 
+test('세트 구성품 (103차): 관리자가 세트 → 구성품 저장 → 포스 플러그인이 poll 때 받음(번호가 같으면 안 보냄)', async () => {
+  const live = { mode: 'live', listCatalogItems: async () => fakeCatalogFromMenus(MENUS), createOrder: async () => ({ id: '1' }) };
+  const { call } = make({ live });
+  await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'live', merchantId: '738910' } });
+  const dev = { merchantId: '738910', serial: 'P', version: '0.3.0' };
+  const token = (await call('POST', '/api/toss/plugin/hello', { body: dev })).body.deviceToken;
+  await call('POST', '/api/ops/toss/plugin-device', { token: 'ops', body: { merchantId: '738910', serial: 'P', approved: true } });
+  const save = (map) => call('POST', '/api/toss/set-map', { token: 'admin', body: { map } });
+  // 잘못된 값
+  assert.equal((await save({ abc: [{ entry: '1', qty: 1 }] })).status, 400);
+  assert.equal((await save({ 500: [{ entry: '500', qty: 1 }] })).status, 400);
+  assert.equal((await save({ 500: [{ entry: '11', qty: 0 }] })).status, 400);
+  assert.equal((await save({ 500: [{ entry: 'x', qty: 1 }] })).status, 400);
+  assert.equal((await call('POST', '/api/toss/set-map', { token: 'pad3', body: { map: {} } })).status, 403);
+  // 저장: 떡볶이 닭껍질 세트(500) → 떡볶이(11, 옵션 7=71) 1개 + 닭껍질튀김(12) 2개, 구성품 없는 세트는 빠짐
+  const ok = await save({ 500: [{ entry: '11:7=71', qty: 1 }, { entry: '12', qty: 2 }], 501: [] });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(Object.keys(ok.body.setMap), ['500']);
+  assert.deepEqual((await call('GET', '/api/toss/status', { token: 'admin' })).body.setMap['500'][1], { entry: '12', qty: 2 });
+  // 플러그인 방식이 아니어도(직원이 포스에서 직접 누른 세트) 구성표는 받음
+  const p1 = await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token } });
+  assert.equal(p1.status, 200);
+  assert.deepEqual(p1.body.sets, [{ setId: 500, parts: [{ itemId: 11, qty: 1, choices: [{ id: 71, quantity: 1 }] }, { itemId: 12, qty: 2, choices: [] }] }]);
+  assert.ok(p1.body.setMapRev > 0);
+  const p2 = await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token, setMapRev: p1.body.setMapRev } });
+  assert.equal(p2.body.sets, undefined);
+  // 옵션 조건 (세트에서 [떡볶이] 로제 → 로제 떡볶이)
+  assert.equal((await save({ 500: [{ entry: '12', qty: 1, when: '7' }] })).status, 400);
+  const w = await save({ 500: [{ entry: '12', qty: 1 }, { entry: '13', qty: 1, when: '8=81' }, { entry: '14', qty: 1, when: '8=82' }] });
+  assert.equal(w.status, 200);
+  assert.deepEqual(w.body.setMap['500'][1], { entry: '13', qty: 1, when: '8=81' });
+  const pw = await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token, setMapRev: p1.body.setMapRev } });
+  assert.deepEqual(pw.body.sets[0].parts.map((x) => x.whenChoice), [undefined, 81, 82]);
+  // 비우기 → 빈 목록을 다시 보냄
+  await call('POST', '/api/toss/set-map', { token: 'admin', body: { map: {} } });
+  const p3 = await call('POST', '/api/toss/plugin/poll', { body: { ...dev, token, setMapRev: p1.body.setMapRev } });
+  assert.deepEqual(p3.body.sets, []);
+});
+
 test('방 결제 대기 비우기 (102차): 운영자만, 남은 방 목록 → 비우면 open·cycle 비고 정산 표시는 없음', async () => {
   const { call, data } = make({ orders: { a: ORDER, b: { ...ORDER, room: '#4' } } });
   await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'fake' } });

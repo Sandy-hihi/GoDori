@@ -94,6 +94,28 @@ class TossMenuLink {
   String encode() => fixed.isEmpty ? itemId : '$itemId:${fixed.entries.map((e) => '${e.key}=${e.value}').join(',')}';
 }
 
+/// 세트 구성품 (103차) — entry는 메뉴 연결과 같은 모양('상품ID' 또는 '상품ID:옵션ID=선택ID,…'), qty 1~20
+///   when: '' = 항상, '옵션ID=선택ID' = 세트에서 그 옵션 선택을 골랐을 때만 (예: [떡볶이] 로제 → 로제 떡볶이)
+///   서버 functions/src/toss.js cleanSetMap 과 같은 규칙
+class TossSetPart {
+  final String entry;
+  final int qty;
+  final String when;
+  const TossSetPart(this.entry, this.qty, [this.when = '']);
+
+  TossSetPart copyWith({String? entry, int? qty, String? when}) => TossSetPart(entry ?? this.entry, qty ?? this.qty, when ?? this.when);
+
+  Map<String, dynamic> toJson() => {'entry': entry, 'qty': qty, if (when.isNotEmpty) 'when': when};
+
+  static Map<String, List<TossSetPart>> mapFrom(Object? raw) => {
+        for (final e in ((raw as Map?) ?? const {}).entries)
+          '${e.key}': [
+            for (final p in (e.value as List? ?? const []))
+              if (p is Map) TossSetPart('${p['entry'] ?? ''}', int.tryParse('${p['qty'] ?? 1}') ?? 1, '${p['when'] ?? ''}'),
+          ],
+      };
+}
+
 /// 이름 비교용 (서버 normName 과 같은 규칙): 띄어쓰기·대소문자·괄호 안 무시, 라뗴=라떼, 쉐이크=셰이크, 아이스=ICE
 String tossNormName(String s) {
   const alias = {'아이스': 'ice', '차갑게': 'ice', '차가운': 'ice', '핫': 'hot', '따뜻하게': 'hot', '뜨겁게': 'hot', '따뜻한': 'hot'};
@@ -147,6 +169,14 @@ class TossPosService {
   static Future<List<TossCatalogItem>> catalog() async {
     final r = await _call('GET', '/api/toss/catalog');
     return [for (final i in (r['items'] as List? ?? const [])) TossCatalogItem.fromJson(Map<String, dynamic>.from(i as Map))];
+  }
+
+  /// 103차: 세트 구성품 표 (포스 세트 상품 ID → 구성품) 통째로 저장. 바뀐 뒤 전체 표
+  static Future<Map<String, List<TossSetPart>>> saveSetMap(Map<String, List<TossSetPart>> map) async {
+    final r = await _call('POST', '/api/toss/set-map', body: {
+      'map': {for (final e in map.entries) e.key: [for (final p in e.value) p.toJson()]},
+    });
+    return TossSetPart.mapFrom(r['setMap']);
   }
 
   /// 메뉴 연결 바꾸기 — 값이 null이면 연결 끊기. 바뀐 뒤 전체 연결표

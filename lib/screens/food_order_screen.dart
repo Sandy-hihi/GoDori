@@ -35,6 +35,24 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
   bool _isSubmitting = false;
   String? _selectedCategory;
 
+  // 카테고리 번역 (104차) — settings/categories.translations[언어][원래 이름]. 없으면 원래 이름
+  Map _catTranslations = const {};
+  String _catLabel(String c) {
+    GuestLocaleScope.maybeWatch(context);
+    final v = (_catTranslations[GuestLanguage.instance.code] as Map?)?[c];
+    return v is String && v.trim().isNotEmpty ? v : c;
+  }
+
+  // 장바구니 줄 이름 (104차) — 고른 언어로. 키·주문 기록은 원래(한국어) 이름 그대로
+  String _cartLabel(String cartKey) {
+    final item = cart[cartKey]!;
+    final menu = item['menuData'];
+    if (menu is! Map) return cartKey;
+    final picked = [for (final o in (item['picked'] as List? ?? const [])) if (o is Map) guestField(context, o, 'name')];
+    final name = guestField(context, menu, 'name');
+    return picked.isEmpty ? name : '$name (${picked.join(', ')})';
+  }
+
   // 음식 수령 방식 (매장 설정 — 방으로 가져다 드림 / 카운터 수령 / 카운터 결제 후 수령, 58차)
   OrderFlow _flow = OrderFlow.fallback;
   StreamSubscription<OrderFlow>? _flowSub;
@@ -119,7 +137,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
   // 장바구니 담기 (옵션 및 합산 가격 반영)
   // optionDetails: 고른 옵션 [{group: 옵션 그룹 이름, name, price}] — 토스 POS로 보낼 때 씀(64차)
   void _addToCartWithOptions(Map<String, dynamic> menu, List<String> selectedOptions, int additionalPrice,
-      {List<Map<String, dynamic>> optionDetails = const []}) {
+      {List<Map<String, dynamic>> optionDetails = const [], List<Map<String, dynamic>> picked = const []}) {
     String baseName = menu['name'] ?? '이름 없음';
     int finalPrice = _price(menu['price']) + additionalPrice;
     String optionsText = selectedOptions.isNotEmpty ? '(${selectedOptions.join(', ')})' : '';
@@ -137,10 +155,12 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
           'category': (menu['category'] ?? '').toString(),
           'basePrice': _price(menu['price']),
           'options': optionDetails,
+          'menuData': menu, // 화면 표시용(번역) — 주문에는 안 보냄
+          'picked': picked,
         };
       }
     });
-    padSnack(context, '$cartKey 담았어요');
+    padSnack(context, '${_cartLabel(cartKey)} 담았어요');
   }
 
   // 수량 조절 및 삭제
@@ -417,7 +437,9 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                                 });
                               }
                             }
-                            _addToCartWithOptions(menu, finalOptions, additionalPrice, optionDetails: details);
+                            _addToCartWithOptions(menu, finalOptions, additionalPrice,
+                                optionDetails: details,
+                                picked: [for (final e in selectedOptionsMap.entries) ...e.value]);
                             Navigator.pop(context);
                           },
                           style: FilledButton.styleFrom(
@@ -515,9 +537,10 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
       builder: (context, catSnap) {
         List<String> categories = [];
         if (catSnap.hasData && catSnap.data!.exists) {
-          categories = List<dynamic>.from((catSnap.data!.data() as Map? ?? {})['list'] ?? [])
-              .map((e) => e.toString())
-              .toList();
+          final catDoc = catSnap.data!.data() as Map? ?? {};
+          categories = List<dynamic>.from(catDoc['list'] ?? []).map((e) => e.toString()).toList();
+          final tr = catDoc['translations'];
+          _catTranslations = tr is Map ? tr : const {};
         }
         return StreamBuilder<QuerySnapshot>(
           stream: _menuStream,
@@ -575,7 +598,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
               key: _pillKeys.putIfAbsent(c, () => GlobalKey()),
               padding: const EdgeInsets.only(right: 8),
               child: PadPill(
-                label: c,
+                label: _catLabel(c),
                 fontSize: 16,
                 selected: c == _selectedCategory,
                 onTap: () => _jumpTo(c),
@@ -630,7 +653,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
-                      GuestText(it.cat, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
+                      GuestText(_catLabel(it.cat), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
                       const SizedBox(width: 8),
                       GuestText('${byCategory[it.cat]!.length}',
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kMuted)),
@@ -846,7 +869,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          GuestText(cartKey,
+                          GuestText(_cartLabel(cartKey),
                               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kInk)),
                           const SizedBox(height: 6),
                           Row(

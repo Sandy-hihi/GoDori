@@ -74,7 +74,8 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                 categories[index] = newName;
                 await StoreScope.col('settings')
                     .doc('categories')
-                    .set({'list': categories});
+                    .set({'list': categories}, SetOptions(merge: true));
+                TranslateSync.kick(); // 카테고리 번역 (104차)
 
                 // 2. 해당 카테고리를 가진 메뉴들도 일괄 업데이트
                 final menus = await StoreScope.col('menus')
@@ -288,7 +289,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
       }
       await batch.commit();
     }
-    if (newCats.isNotEmpty) await catRef.set({'list': [...cats, ...newCats]});
+    if (newCats.isNotEmpty) await catRef.set({'list': [...cats, ...newCats]}, SetOptions(merge: true)); // 번역(translations)은 남김 (104차)
     TranslateSync.kick(); // 손님 패드 자동 번역
     return '${toAdd.length}개 추가했어요.${skipped > 0 ? ' (이미 있는 $skipped개는 건너뜀)' : ''}'
         '${newCats.isEmpty ? '' : ' 새 카테고리: ${newCats.join(', ')}'}';
@@ -1269,7 +1270,7 @@ class _CategoryManageDialogState extends State<_CategoryManageDialog> {
     list.insert(to, item);
     setState(() => _moving = true);
     try {
-      await StoreScope.col('settings').doc('categories').set({'list': list});
+      await StoreScope.col('settings').doc('categories').set({'list': list}, SetOptions(merge: true)); // 순서만 — 번역 유지 (104차)
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('순서를 바꾸지 못했어요: $e')));
     } finally {
@@ -1331,7 +1332,8 @@ class _CategoryManageDialogState extends State<_CategoryManageDialog> {
                               categories.add(text);
                               await StoreScope.col('settings')
                                   .doc('categories')
-                                  .set({'list': categories});
+                                  .set({'list': categories}, SetOptions(merge: true));
+                              TranslateSync.kick(); // 카테고리 번역 (104차)
                               _newCategoryController.clear();
                             }
                           },
@@ -1401,7 +1403,8 @@ class _CategoryManageDialogState extends State<_CategoryManageDialog> {
                                           categories.removeAt(index);
                                           await StoreScope.col('settings')
                                               .doc('categories')
-                                              .set({'list': categories});
+                                              .set({'list': categories}, SetOptions(merge: true));
+                                          TranslateSync.kick(); // 카테고리 번역 (104차)
                                         },
                                       ),
                                     ],

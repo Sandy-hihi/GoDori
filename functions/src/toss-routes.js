@@ -15,6 +15,9 @@
 //   GET  /api/toss/status         (관리자) 연결 상태·메뉴 연결표·보내기 실패한 주문
 //   GET  /api/toss/catalog        (관리자) 포스 상품 목록 (메뉴 연결 화면용)
 //   POST /api/toss/menu-map       (관리자) { map: { 고도리 메뉴 ID: 토스 상품 ID | '상품ID:옵션ID=선택ID,…' (99차) | null } }
+//   POST /api/toss/set-map        (103차, 관리자) { map: { 포스 세트 상품 ID: [{ entry: '상품ID[:옵션ID=선택ID,…]', qty }] } } 통째로 바꿈
+//                                 → 포스 플러그인이 poll 때 받아서(setMapRev가 바뀌었을 때만) 세트가 든 포스 주문에 구성품을 0원 줄로 덧붙임
+//                                   (토스가 구성품 재고를 줄이게 — 토스 API로는 재고를 직접 못 바꿈)
 //   GET  /api/ops/toss/overview   (운영자) 매장별 연결 상태 + 토스 '앱 설치' 매장 목록 + 진짜 키 등록 여부
 //   POST /api/ops/toss/link       (운영자) { storeId, mode: 'fake' | 'live', merchantId? }  매장 ↔ 포스 연결
 //   POST /api/ops/toss/unlink     (운영자) { storeId }
@@ -36,7 +39,7 @@
 
 const {
   TossError, createFakeToss, fakeCatalogFromMenus, buildTossOrder, parseOrderKey, orderKeyOf, verifyWebhook, catalogView, parseMapEntry,
-  pluginLineItems,
+  pluginLineItems, cleanSetMap, setMapForPlugin,
 } = require('./toss');
 const { cycleEntry, CLAIM_TIMEOUT_MS } = require('./toss-data');
 const crypto = require('crypto');
@@ -241,11 +244,19 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     return v;
   }
 
+  // 103차: 세트 구성표 — 플러그인이 가진 번호(setMapRev)와 다를 때만 보냄
+  function setsFor(cfg, body) {
+    const rev = Number(cfg.setMapRev) || 0;
+    if (Number(body.setMapRev) === rev) return {};
+    return { setMapRev: rev, sets: setMapForPlugin(cfg.setMap || {}) };
+  }
+
   async function pluginPoll(body, ctx) {
     const auth = await pluginAuth(body);
     ctx.rate(`toss-plugin-poll:${auth.merchantId}:${auth.serial}`, 60, 60 * 1000, '포스 플러그인 주문 확인');
     const link = await pluginStore(auth.merchantId);
-    if (!link || link.cfg.via !== 'plugin') return { orders: [], pollMs: PLUGIN_IDLE_MS, idle: true };
+    if (!link) return { orders: [], pollMs: PLUGIN_IDLE_MS, idle: true };
+    if (link.cfg.via !== 'plugin') return { orders: [], pollMs: PLUGIN_IDLE_MS, idle: true, ...setsFor(link.cfg, body) };
     const { storeId, cfg } = link;
     const nowMs = now();
     const nowIso = new Date(nowMs).toISOString();
@@ -284,7 +295,7 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
         }, { countAttempt: true });
       }
     }
-    return { orders: out, pollMs: PLUGIN_POLL_MS };
+    return { orders: out, pollMs: PLUGIN_POLL_MS, ...setsFor(cfg, body) };
   }
 
   async function pluginAck(body, ctx) {
@@ -495,6 +506,7 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
         merchantName: cfg.merchantName || '',
         printOrderSheet: cfg.printOrderSheet === true,
         menuMap: cfg.menuMap || {},
+        setMap: cfg.setMap || {},
         failed,
       };
     }
@@ -519,6 +531,20 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       }
       await data.setMenuMap(user.store, clean);
       return { ok: true, menuMap: ((await data.getConfig(user.store)) || {}).menuMap || {} };
+    }
+    if (path === '/api/toss/set-map' && req.method === 'POST') {
+      await linkedConfig(user.store);
+      let clean;
+      try {
+        clean = cleanSetMap(body.map);
+      } catch (e) {
+        if (e instanceof TossError) throw httpError(400, e.code, e.message);
+        throw e;
+      }
+      const before = (await data.getConfig(user.store)) || {};
+      await data.setSetMap(user.store, clean, Math.max(now(), (Number(before.setMapRev) || 0) + 1));
+      linkCache.clear(); // 포스 플러그인이 다음 확인 때 바로 받게
+      return { ok: true, setMap: ((await data.getConfig(user.store)) || {}).setMap || {} };
     }
     throw httpError(404, 'NOT_FOUND', '없는 주소예요.');
   }

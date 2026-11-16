@@ -409,6 +409,55 @@ function verifyWebhook({ secret, headers, rawBody, now = Date.now(), toleranceMs
   });
 }
 
+// ── 세트 구성품 (103차) ──
+// 토스 포스는 세트 상품을 팔면 세트 상품 재고만 줄이고 구성품(떡볶이·닭껍질튀김) 재고는 그대로 → 사장님이 손으로 줄였음.
+// 토스 API로는 재고를 직접 못 바꿔서(플러그인 SDK·Open API 상품은 읽기만), 포스 플러그인이 세트가 든 포스 주문에
+// 구성품을 0원 줄로 덧붙여 토스가 구성품 재고를 줄이게 함(세트 상품 자체는 토스에서 재고 관리를 꺼 둠).
+// setMap: { 포스 세트 상품 ID: [{ entry: '상품ID' 또는 '상품ID:옵션ID=선택ID,…'(메뉴 연결과 같은 모양), qty: 1~20, when?: '옵션ID=선택ID' }] (1~20개) } — 최대 100세트
+//   when(103차 추가): 세트 줄에서 그 옵션 선택을 골랐을 때만 빼는 구성품 (예: [떡볶이] 로제 → 로제 떡볶이). 없으면 항상
+const SET_MAX = 100;
+const SET_PARTS_MAX = 20;
+const WHEN_RE = /^(\d{1,19})=(\d{1,19})$/;
+function cleanSetMap(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new TossError(400, 'INVALID_SET_MAP', '세트 구성이 올바르지 않아요.');
+  const keys = Object.keys(raw);
+  if (keys.length > SET_MAX) throw new TossError(400, 'TOO_MANY_SETS', `세트는 ${SET_MAX}개까지 정할 수 있어요.`);
+  const out = {};
+  for (const setId of keys) {
+    if (!/^\d{1,19}$/.test(setId)) throw new TossError(400, 'INVALID_SET', '세트 상품 ID가 올바르지 않아요.');
+    const parts = raw[setId];
+    if (!Array.isArray(parts) || !parts.length) continue; // 구성품이 없으면 세트에서 뺌
+    if (parts.length > SET_PARTS_MAX) throw new TossError(400, 'TOO_MANY_PARTS', `세트 하나에 구성품은 ${SET_PARTS_MAX}개까지예요.`);
+    out[setId] = parts.map((p) => {
+      const entry = String((p && p.entry) || '');
+      const parsed = parseMapEntry(entry);
+      const qty = asInt(p && p.qty);
+      if (!parsed) throw new TossError(400, 'INVALID_PART', '구성품 상품 ID가 올바르지 않아요.');
+      if (parsed.itemId === setId) throw new TossError(400, 'SELF_PART', '세트 상품을 자기 구성품으로 넣을 수 없어요.');
+      if (qty < 1 || qty > 20) throw new TossError(400, 'INVALID_QTY', '구성품 개수는 1~20개예요.');
+      const when = String((p && p.when) || '');
+      if (when && !WHEN_RE.test(when)) throw new TossError(400, 'INVALID_WHEN', '구성품 조건(옵션 선택)이 올바르지 않아요.');
+      return when ? { entry, qty, when } : { entry, qty };
+    });
+  }
+  return out;
+}
+// 플러그인에 보낼 모양: [{ setId, parts: [{ itemId(숫자), qty, choices: [{ id(숫자), quantity: 1 }], whenChoice?(숫자 — 세트 줄의 옵션 선택 ID) }] }]
+function setMapForPlugin(setMap) {
+  return Object.entries(setMap || {}).map(([setId, parts]) => ({
+    setId: safeId(setId),
+    parts: (parts || []).map((p) => {
+      const e = parseMapEntry(p.entry);
+      if (!e) return null;
+      const w = WHEN_RE.exec(String(p.when || ''));
+      return {
+        itemId: safeId(e.itemId), qty: asInt(p.qty) || 1, choices: e.fixed.map((f) => ({ id: safeId(f.choiceId), quantity: 1 })),
+        ...(w ? { whenChoice: safeId(w[2]) } : {}),
+      };
+    }).filter(Boolean),
+  })).filter((s) => s.parts.length);
+}
+
 // 관리자 웹 메뉴 연결 화면에 보낼 모양 (필요한 칸만)
 function catalogView(items) {
   return (items || []).map((i) => ({
@@ -445,4 +494,6 @@ module.exports = {
   parseMapEntry,
   normName,
   pluginLineItems,
+  cleanSetMap,
+  setMapForPlugin,
 };

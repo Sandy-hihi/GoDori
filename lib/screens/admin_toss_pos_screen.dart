@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import 'package:boardpad/services/store_scope.dart';
@@ -12,6 +14,8 @@ const _red = Color(0xFFD64545);
 ///   ② 메뉴 연결: 고도리 메뉴 ↔ 포스 상품. 연결한 메뉴는 포스 상품으로 들어가고(옵션은 이름이 같아야 함),
 ///      연결 안 한 메뉴는 이름·가격만 '임의 상품'으로 들어감
 ///   ③ 포스로 못 보낸 주문 → 다시 보내기
+///   ④ 세트 구성품(103차): 포스 세트 상품 → 구성품. 포스 플러그인이 세트가 든 포스 주문에 구성품을 0원 줄로 덧붙여
+///      토스가 구성품 재고를 줄이게 함(토스는 세트 상품 재고만 줄이고, 토스 API로는 재고를 직접 못 바꿈)
 class AdminTossPosScreen extends StatefulWidget {
   const AdminTossPosScreen({super.key});
 
@@ -39,6 +43,9 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
   Map<String, String?> _edit = {}; // 화면에서 바꾸는 중
   bool _saving = false;
   final Set<String> _retrying = {};
+  Map<String, List<TossSetPart>> _setsSaved = {}; // 103차 서버에 저장된 세트 구성표
+  Map<String, List<TossSetPart>> _sets = {}; // 화면에서 바꾸는 중
+  bool _savingSets = false;
 
   @override
   void initState() {
@@ -86,6 +93,8 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
         _catalogError = catalogError;
         _saved = {for (final e in ((status['menuMap'] as Map?) ?? const {}).entries) '${e.key}': '${e.value}'};
         _edit = {};
+        _setsSaved = TossSetPart.mapFrom(status['setMap']);
+        _sets = _copySets(_setsSaved);
         _loading = false;
       });
     } on TossPosException catch (e) {
@@ -188,6 +197,264 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  // ── 세트 구성품 (103차) ──
+  Map<String, List<TossSetPart>> _copySets(Map<String, List<TossSetPart>> m) => {for (final e in m.entries) e.key: [...e.value]};
+  String _setsKey(Map<String, List<TossSetPart>> m) =>
+      jsonEncode({for (final e in m.entries) e.key: [for (final p in e.value) p.toJson()]});
+  bool get _setsDirty => _setsKey(_sets) != _setsKey(_setsSaved);
+  TossCatalogItem? _byId(String id) {
+    for (final i in _catalog) {
+      if (i.id == id) return i;
+    }
+    return null;
+  }
+
+  Future<void> _saveSets() async {
+    // 상품을 안 고른 구성품 줄은 빼고 보냄(구성품이 하나도 없는 세트는 서버가 뺌)
+    final clean = {
+      for (final e in _sets.entries) e.key: [for (final p in e.value) if (p.entry.isNotEmpty) p],
+    };
+    setState(() => _savingSets = true);
+    try {
+      final saved = await TossPosService.saveSetMap(clean);
+      if (!mounted) return;
+      setState(() {
+        _setsSaved = saved;
+        _sets = _copySets(saved);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('세트 구성품을 저장했어요. 포스 플러그인이 1분 안에 받아 가요.'),
+      ));
+    } on TossPosException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _savingSets = false);
+    }
+  }
+
+  void _putPart(String setId, int i, TossSetPart p) => setState(() {
+        final l = [...?_sets[setId]];
+        l[i] = p;
+        _sets[setId] = l;
+      });
+
+  Widget _partOptionPicker(TossCatalogItem item, TossMenuLink link, TossCatalogOption o, ValueChanged<String> onEntry) {
+    final cur = link.fixed[o.id];
+    final valid = o.choices.any((c) => c.id == cur);
+    return Row(children: [
+      Text('${o.title}: ', style: const TextStyle(fontSize: 13, color: Colors.black54)),
+      const SizedBox(width: 6),
+      Expanded(
+        child: DropdownButton<String?>(
+          isExpanded: true,
+          isDense: true,
+          value: valid ? cur : null,
+          hint: const Text('포스 필수 옵션 — 하나 골라 주세요', style: TextStyle(fontSize: 13, color: Colors.orange)),
+          items: [
+            for (final c in o.choices.where((c) => c.id.isNotEmpty))
+              DropdownMenuItem<String?>(value: c.id, child: Text(c.title, style: const TextStyle(fontSize: 13))),
+          ],
+          onChanged: _savingSets
+              ? null
+              : (v) {
+                  final fixed = {...link.fixed};
+                  if (v == null) {
+                    fixed.remove(o.id);
+                  } else {
+                    fixed[o.id] = v;
+                  }
+                  onEntry(TossMenuLink(item.id, fixed).encode());
+                },
+        ),
+      ),
+    ]);
+  }
+
+  // 구성품 조건: 항상 / 세트 상품의 포스 옵션 선택을 골랐을 때만 (예: [떡볶이] 로제 → 로제 떡볶이)
+  Widget _whenPicker(String setId, int i, TossSetPart part) {
+    final setItem = _byId(setId);
+    final choices = <(String, String)>[
+      if (setItem != null)
+        for (final o in setItem.options)
+          for (final c in o.choices)
+            if (o.id.isNotEmpty && c.id.isNotEmpty) ('${o.id}=${c.id}', '[${o.title}] ${c.title}'),
+    ];
+    final valid = part.when.isEmpty || choices.any((c) => c.$1 == part.when);
+    return Row(children: [
+      const Text('조건: ', style: TextStyle(fontSize: 13, color: Colors.black54)),
+      const SizedBox(width: 6),
+      Expanded(
+        child: DropdownButton<String>(
+          isExpanded: true,
+          isDense: true,
+          value: valid ? part.when : null,
+          hint: const Text('고른 옵션이 포스에 없어요 — 다시 골라 주세요', style: TextStyle(fontSize: 13, color: _red)),
+          items: [
+            const DropdownMenuItem<String>(value: '', child: Text('항상 (세트를 팔면 언제나)', style: TextStyle(fontSize: 13))),
+            for (final c in choices)
+              DropdownMenuItem<String>(value: c.$1, child: Text('${c.$2} 을(를) 골랐을 때만', style: const TextStyle(fontSize: 13))),
+          ],
+          onChanged: _savingSets || choices.isEmpty ? null : (v) => _putPart(setId, i, part.copyWith(when: v ?? '')),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _partRow(String setId, int i) {
+    final part = _sets[setId]![i];
+    final link = TossMenuLink.parse(part.entry);
+    final item = link == null ? null : _byId(link.itemId);
+    final gone = part.entry.isNotEmpty && item == null;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 12, right: 8),
+          child: Icon(Icons.subdirectory_arrow_right, size: 18, color: Colors.black26),
+        ),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            DropdownButton<String?>(
+              isExpanded: true,
+              value: item?.id,
+              hint: Text(gone ? '고른 상품이 포스에 없어요 — 다시 골라 주세요' : '구성품 고르기 (예: 떡볶이)',
+                  style: TextStyle(color: gone ? _red : Colors.black45)),
+              items: [
+                for (final c in _catalog)
+                  if (c.id != setId)
+                    DropdownMenuItem<String?>(
+                      value: c.id,
+                      child: Text('${c.title}${c.category.isEmpty ? '' : '  (${c.category})'}', overflow: TextOverflow.ellipsis),
+                    ),
+              ],
+              onChanged: _savingSets ? null : (v) => _putPart(setId, i, part.copyWith(entry: v ?? '')),
+            ),
+            if (item != null && link != null)
+              for (final o in item.options.where((o) => o.required))
+                _partOptionPicker(item, link, o, (entry) => _putPart(setId, i, part.copyWith(entry: entry))),
+            _whenPicker(setId, i, part),
+          ]),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          tooltip: '하나 줄이기',
+          onPressed: _savingSets || part.qty <= 1 ? null : () => _putPart(setId, i, part.copyWith(qty: part.qty - 1)),
+          icon: const Icon(Icons.remove_circle_outline, size: 20),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: SizedBox(width: 36, child: Text('${part.qty}개', textAlign: TextAlign.center)),
+        ),
+        IconButton(
+          tooltip: '하나 늘리기',
+          onPressed: _savingSets || part.qty >= 20 ? null : () => _putPart(setId, i, part.copyWith(qty: part.qty + 1)),
+          icon: const Icon(Icons.add_circle_outline, size: 20),
+        ),
+        IconButton(
+          tooltip: '이 구성품 빼기',
+          onPressed: _savingSets
+              ? null
+              : () => setState(() {
+                    _sets[setId] = [...?_sets[setId]]..removeAt(i);
+                  }),
+          icon: const Icon(Icons.close, size: 20, color: Colors.black45),
+        ),
+      ]),
+    );
+  }
+
+  Widget _setBlock(String setId) {
+    final item = _byId(setId);
+    final parts = _sets[setId] ?? const <TossSetPart>[];
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+      decoration: BoxDecoration(border: Border.all(color: const Color(0xFFE6E8EB)), borderRadius: BorderRadius.circular(12)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.inventory_2_outlined, size: 18, color: _navy),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              item == null ? '포스에 없는 세트 상품이에요 ($setId) — 지워 주세요' : '${item.title}${item.price == null ? '' : ' · ${item.price}원'}',
+              style: TextStyle(fontWeight: FontWeight.bold, color: item == null ? _red : Colors.black87),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: _savingSets ? null : () => setState(() => _sets.remove(setId)),
+            style: TextButton.styleFrom(foregroundColor: _red),
+            icon: const Icon(Icons.delete_outline, size: 18),
+            label: const Text('세트 지우기'),
+          ),
+        ]),
+        if (parts.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(left: 26, top: 4),
+            child: Text('구성품이 없으면 저장할 때 빠져요.', style: TextStyle(color: Colors.black45, fontSize: 13)),
+          ),
+        for (var i = 0; i < parts.length; i++) _partRow(setId, i),
+        TextButton.icon(
+          onPressed: _savingSets || parts.length >= 20 ? null : () => setState(() => _sets[setId] = [...parts, const TossSetPart('', 1)]),
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('구성품 추가'),
+        ),
+      ]),
+    );
+  }
+
+  Widget _setCard() {
+    final candidates = [for (final i in _catalog) if (!_sets.containsKey(i.id)) i];
+    return _card(
+      title: '세트 구성품 (재고 차감)  (${_sets.length})',
+      subtitle: '토스 포스는 세트를 팔면 세트 상품 재고만 줄이고 구성품 재고는 그대로예요. '
+          '세트마다 구성품을 정해 두면, 세트가 든 포스 주문(패드 주문·포스에서 직접 누른 주문 모두)에 '
+          '포스 플러그인이 구성품을 0원으로 같이 넣어서 구성품 재고가 줄어요. 매출 금액은 그대로예요.\n'
+          '• 토스에서 세트 상품의 재고 관리는 꺼 두세요.  • 결제 전에 세트를 빼면 0원 구성품 줄도 포스에서 같이 빼 주세요.\n'
+          '• 고른 맛에 따라 다른 재고를 빼려면(예: 로제 떡볶이·매콤 떡볶이) 토스에 맛별 상품을 따로 만들고, 구성품마다 \'조건\'에서 그 옵션을 골라 주세요.',
+      action: FilledButton.icon(
+        onPressed: !_setsDirty || _savingSets ? null : _saveSets,
+        style: FilledButton.styleFrom(backgroundColor: _navy, disabledBackgroundColor: _navy.withValues(alpha: 0.35), disabledForegroundColor: Colors.white70),
+        icon: const Icon(Icons.save_outlined, size: 18),
+        label: const Text('저장'),
+      ),
+      children: [
+        if (_status['mode'] != 'live')
+          const Text('실제 토스 포스에 고도리 포스 플러그인이 설치·승인돼 있어야 동작해요. (지금은 가짜 포스에 연결돼 있어요)',
+              style: TextStyle(color: Colors.orange)),
+        if (_catalog.isEmpty)
+          const Text('포스 상품을 불러와야 세트를 정할 수 있어요.', style: TextStyle(color: Colors.black45))
+        else ...[
+          for (final id in _sets.keys.toList()) _setBlock(id),
+          const SizedBox(height: 12),
+          Row(children: [
+            const Icon(Icons.add_box_outlined, size: 20, color: _navy),
+            const SizedBox(width: 8),
+            Expanded(
+              child: DropdownButton<String?>(
+                isExpanded: true,
+                value: null,
+                hint: const Text('세트 추가 — 포스의 세트 상품을 고르세요 (예: 떡볶이 닭껍질 세트)'),
+                items: [
+                  for (final c in candidates)
+                    DropdownMenuItem<String?>(
+                      value: c.id,
+                      child: Text('${c.title}${c.category.isEmpty ? '' : '  (${c.category})'}', overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+                onChanged: _savingSets || candidates.isEmpty
+                    ? null
+                    : (v) {
+                        if (v == null) return;
+                        setState(() => _sets[v] = [const TossSetPart('', 1)]);
+                      },
+              ),
+            ),
+          ]),
+        ],
+      ],
+    );
   }
 
   Future<void> _retry(String orderId) async {
@@ -464,6 +731,7 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
                     children: [
                       _statusCard(),
                       if (ready) _menuCard(),
+                      if (ready) _setCard(),
                       if (ready) _failedCard(),
                     ],
                   ),

@@ -92,7 +92,7 @@ const guestMessages = <String, List<String>> {
   "게임도구": [
     "Game tools",
     "游戏工具",
-    "ゲームツール"
+    "ゲーム道具"
   ],
   "전체": [
     "All",

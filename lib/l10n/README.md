@@ -31,6 +31,12 @@ Supported fields at display sites:
 - Games: `title`, `players`, `time`, `genre`, `tags`.
 - Menu cards and option dialogs: `name`; option groups: `groupName`; options: `name`.
 - Notice and event items: `title`, `content` (including localized image URLs).
+- Menu categories (`settings/categories`): `translations: { en: { "<원래 이름>": "번역" }, zh, ja }`.
+  The cart shows localized menu/option names; cart keys and order payloads keep Korean names.
+
+Automatic translation (server `functions/src/translate.js`) uses Google Translate, except for
+words in its `GLOSSARY` (fixed translations for store-coined names such as 왕메리카노).
+Add a GLOSSARY entry when a menu name comes out wrong.
 
 Missing or empty translations fall back to the original field. Images and videos
 with embedded Korean text need separately translated assets. Player names, cafe

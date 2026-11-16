@@ -63,6 +63,10 @@ function createFirestoreTossData(db) {
       }
       await cfgRef(storeId).update(update);
     },
+    // 103차: 세트 구성품 표 통째로 바꾸기 (rev = 바꾼 시각 ms — 포스 플러그인이 바뀐 걸 알아보는 번호)
+    async setSetMap(storeId, setMap, rev) {
+      await cfgRef(storeId).update({ setMap, setMapRev: rev, updatedAt: FieldValue.serverTimestamp() });
+    },
     async getOrder(storeId, orderId) {
       const d = await orderRef(storeId, orderId).get();
       return d.exists ? d.data() : null;
@@ -304,6 +308,9 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
         else c.menuMap[k] = v;
       }
       configs.set(s, c);
+    },
+    async setSetMap(s, setMap, rev) {
+      configs.set(s, { ...(configs.get(s) || {}), setMap: JSON.parse(JSON.stringify(setMap)), setMapRev: rev });
     },
     async getOrder(s, o) {
       const v = ordersMap.get(`${s}/${o}`);
