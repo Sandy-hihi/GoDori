@@ -91,6 +91,19 @@ void main() {
     expect(other.single.containsKey('libraryId'), isFalse);
   });
 
+  test('기본 선택(107차)은 true일 때만 저장하고 메뉴 복사본에도 들어감', () {
+    final g = OptionLibGroup(id: 'gSweet', name: '당도', isRequired: true, options: [
+      OptionLibChoice(name: '기본', isDefault: true),
+      OptionLibChoice(name: '더 달게', price: 300),
+    ], categories: ['라떼']);
+    final back = OptionLibGroup.fromJson(g.toJson());
+    expect(back.options[0].isDefault, isTrue);
+    expect(back.options[1].isDefault, isFalse);
+    final copy = g.menuCopy();
+    expect((copy['options'] as List)[0], {'name': '기본', 'price': 0, 'isDefault': true});
+    expect((copy['options'] as List)[1].containsKey('isDefault'), isFalse);
+  });
+
   test('저장 모양 왕복', () {
     final g = OptionLibGroup.fromJson(shot().toJson());
     expect(g.id, 'gShot');

@@ -286,12 +286,16 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
 
     // 그룹별 선택된 옵션 (필수는 품절 아닌 첫 번째 항목 자동 선택)
     // 106차: 선택지 품절(soldOut — 흐리게, 못 고름), 그룹마다 최대 고르기 개수(maxSelect, 기본 1 = 하나만)
+    // 107차: 기본 선택(isDefault)인 선택지는 처음부터 골라 둠(품절이면 빼고, maxSelect개까지) — 없고 필수면 첫 선택지
     bool optSoldOut(dynamic o) => o is Map && o['soldOut'] == true;
     int maxOf(dynamic g) => (int.tryParse('${(g as Map)['maxSelect'] ?? 1}') ?? 1).clamp(1, 99).toInt();
     Map<int, List<Map<String, dynamic>>> selectedOptionsMap = {};
     for (int i = 0; i < optionGroups.length; i++) {
       final open = [for (final o in (optionGroups[i]['options'] as List? ?? const [])) if (o is Map && !optSoldOut(o)) o];
-      if (optionGroups[i]['isRequired'] == true && open.isNotEmpty) {
+      final defaults = open.where((o) => o['isDefault'] == true).take(maxOf(optionGroups[i])).toList();
+      if (defaults.isNotEmpty) {
+        selectedOptionsMap[i] = [for (final o in defaults) Map<String, dynamic>.from(o)];
+      } else if (optionGroups[i]['isRequired'] == true && open.isNotEmpty) {
         selectedOptionsMap[i] = [Map<String, dynamic>.from(open.first)];
       } else {
         selectedOptionsMap[i] = [];

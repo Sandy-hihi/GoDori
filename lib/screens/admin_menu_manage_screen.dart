@@ -13,7 +13,6 @@ import 'admin_event_manage_screen.dart';
 import 'admin_notice_manage_screen.dart';
 
 import 'package:boardpad/widgets/app_network_image.dart';
-import 'package:boardpad/widgets/arrow_scroll_row.dart';
 import 'package:flutter/foundation.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
 import 'package:boardpad/widgets/admin_colors.dart';
@@ -371,6 +370,10 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                       '세부 선택지 추가',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
+                    const Text(
+                      "'기본'에 체크한 선택지는 손님 패드에서 처음부터 골라져 있어요.",
+                      style: TextStyle(fontSize: 12, color: Colors.black45),
+                    ),
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -437,9 +440,30 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
                                   children: [
-                                    Text(
-                                      ' ✔️ ${entry.value['name']} (+${entry.value['price']}원)',
+                                    Expanded(
+                                      child: Text(
+                                        ' ✔️ ${entry.value['name']} (+${entry.value['price']}원)',
+                                      ),
                                     ),
+                                    // 107차: 기본 선택 (손님 패드에서 처음부터 골라져 있음)
+                                    Checkbox(
+                                      value: entry.value['isDefault'] == true,
+                                      activeColor: kAdminAccent,
+                                      visualDensity: VisualDensity.compact,
+                                      onChanged: (v) => setGroupState(() {
+                                        if (v == true && maxSelect == 1) {
+                                          for (final o in tempOptions) {
+                                            o.remove('isDefault');
+                                          }
+                                        }
+                                        if (v == true) {
+                                          entry.value['isDefault'] = true;
+                                        } else {
+                                          entry.value.remove('isDefault');
+                                        }
+                                      }),
+                                    ),
+                                    const Text('기본', style: TextStyle(fontSize: 12)),
                                     IconButton(
                                       icon: const Icon(
                                         Icons.remove_circle,
@@ -470,6 +494,11 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                       return;
                     }
                     final maxN = maxSelect.clamp(1, tempOptions.length).toInt();
+                    // 기본 선택은 고를 수 있는 개수까지만 (앞에서부터) — 107차
+                    var nDef = 0;
+                    for (final o in tempOptions) {
+                      if (o['isDefault'] == true && ++nDef > maxN) o.remove('isDefault');
+                    }
                     onGroupAdded({
                       'groupName': groupNameController.text.trim(),
                       'isRequired': isRequired,
@@ -755,7 +784,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                                   .map(
                                                     (opt) => Chip(
                                                       label: Text(
-                                                        '${opt['name']} (+${opt['price']}원)',
+                                                        '${opt['name']} (+${opt['price']}원)${opt['isDefault'] == true ? ' · 기본' : ''}',
                                                         style: const TextStyle(
                                                           fontSize: 12,
                                                         ),
@@ -850,7 +879,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                         for (final o in g.options)
                                           Chip(
                                             label: Text(
-                                              '${o.name} (+${o.price}원)${o.soldOut ? ' · 품절' : ''}',
+                                              '${o.name} (+${o.price}원)${o.isDefault ? ' · 기본' : ''}${o.soldOut ? ' · 품절' : ''}',
                                               style: TextStyle(fontSize: 12, color: o.soldOut ? Colors.red : null),
                                             ),
                                             backgroundColor: Colors.white,
@@ -979,6 +1008,75 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
           },
         );
       },
+    );
+  }
+
+  // ── 107차: 카테고리 고르기 (넓은 화면 = 왼쪽 세로 목록, 좁은 화면 = 드롭다운) ──
+  int _countOf(String cat, Map<String, int> counts, int total) => cat == '전체' ? total : (counts[cat] ?? 0);
+
+  Widget _categoryPanel(List<String> cats, Map<String, int> counts, int total) {
+    return Container(
+      width: 210,
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+      clipBehavior: Clip.antiAlias,
+      child: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          for (final cat in cats) _categoryTile(cat, _countOf(cat, counts, total)),
+        ],
+      ),
+    );
+  }
+
+  Widget _categoryTile(String cat, int n) {
+    final on = _selectedCategory == cat;
+    return Material(
+      color: on ? kAdminAccent : Colors.transparent,
+      child: InkWell(
+        onTap: () => setState(() => _selectedCategory = cat),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+          child: Row(children: [
+            Expanded(
+              child: Text(
+                cat,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: on ? Colors.white : Colors.black87,
+                  fontWeight: on ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '$n',
+              style: TextStyle(fontSize: 13, color: on ? Colors.white70 : (n == 0 ? Colors.black26 : Colors.black45)),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _categoryDropdown(List<String> cats, Map<String, int> counts, int total) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          isExpanded: true,
+          value: _selectedCategory,
+          items: [
+            for (final c in cats) DropdownMenuItem(value: c, child: Text('$c  ${_countOf(c, counts, total)}')),
+          ],
+          onChanged: (v) => setState(() => _selectedCategory = v ?? '전체'),
+        ),
+      ),
     );
   }
 
@@ -1160,7 +1258,10 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  StreamBuilder<DocumentSnapshot>(
+                  // 107차: 카테고리 = 옆으로 늘어선 칩 → 왼쪽 세로 목록(메뉴 개수) — 카테고리가 많아도 아래로 스크롤.
+                  //        좁은 화면은 드롭다운. 순서는 [카테고리 관리] 순서, 목록에 없는 카테고리의 메뉴는 뒤에 가나다순
+                  Expanded(
+                    child: StreamBuilder<DocumentSnapshot>(
                     stream: _categoryStream,
                     builder: (context, catSnap) {
                       final List<String> catList =
@@ -1170,48 +1271,27 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                   [],
                             )
                           : [];
-                      final allCats = ['전체', ...catList];
-                      if (!allCats.contains(_selectedCategory)) {
-                        _selectedCategory = '전체';
-                      }
-                      // 카테고리가 많아 넘치면 좌우 화살표로 넘김
-                      return ArrowScrollRow(
-                          children: allCats.map((cat) {
-                            final isSelected = _selectedCategory == cat;
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: ChoiceChip(
-                                label: Text(cat),
-                                selected: isSelected,
-                                // 체크 표시가 생기면서 칩 폭이 바뀌어 글자가 잘리지 않게 (선택은 남색 배경으로 구분)
-                                showCheckmark: false,
-                                selectedColor: kAdminAccent,
-                                labelStyle: TextStyle(
-                                  color: isSelected
-                                      ? Colors.white
-                                      : Colors.black87,
-                                  fontWeight: isSelected
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                ),
-                                onSelected: (_) =>
-                                    setState(() => _selectedCategory = cat),
-                              ),
-                            );
-                          }).toList(),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: Material(
+                      return StreamBuilder<QuerySnapshot>(
+                        stream: _menuStream,
+                        builder: (context, snapshot) {
+                          final counts = <String, int>{};
+                          for (final d in snapshot.data?.docs ?? const <QueryDocumentSnapshot>[]) {
+                            final c = '${(d.data() as Map?)?['category'] ?? ''}';
+                            counts[c] = (counts[c] ?? 0) + 1;
+                          }
+                          final extra = counts.keys.where((c) => c.isNotEmpty && !catList.contains(c)).toList()..sort();
+                          final allCats = ['전체', ...catList, ...extra];
+                          if (!allCats.contains(_selectedCategory)) {
+                            _selectedCategory = '전체';
+                          }
+                          final total = snapshot.data?.docs.length ?? 0;
+                          final list = Material(
                       // 91차: 흰 Container → Material — 안의 ListTile 눌림 효과가 보이게 (콘솔 'ListTile background color or ink splashes may be invisible')
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(12),
                       clipBehavior: Clip.antiAlias,
-                      child: StreamBuilder<QuerySnapshot>(
-                        stream: _menuStream,
-                        builder: (context, snapshot) {
+                      child: Builder(
+                        builder: (context) {
                           if (snapshot.connectionState ==
                               ConnectionState.waiting) {
                             return const Center(
@@ -1391,7 +1471,29 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                           );
                         },
                       ),
-                    ),
+                          );
+                          if (narrow) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _categoryDropdown(allCats, counts, total),
+                                const SizedBox(height: 12),
+                                Expanded(child: list),
+                              ],
+                            );
+                          }
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _categoryPanel(allCats, counts, total),
+                              const SizedBox(width: 16),
+                              Expanded(child: list),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  ),
                   ),
                 ],
               ),

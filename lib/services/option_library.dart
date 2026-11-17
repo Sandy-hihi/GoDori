@@ -11,23 +11,28 @@ import 'package:boardpad/services/store_scope.dart';
 ///   메뉴 전용 옵션(libraryId 없음)은 그대로 두고 앞에, 목록에서 온 옵션은 뒤에(목록 순서대로) 둠
 ///   붙는 곳 = categories(그 카테고리 메뉴 전부) + menuIds(개별 메뉴) − excludeMenuIds('이 메뉴에서 빼기')
 ///   maxSelect: 한 그룹에서 고를 수 있는 개수(1 = 하나만, 기본). soldOut: 그 선택지 품절(손님 패드에서 못 고름)
+///   isDefault(107차): 손님 패드에서 처음부터 골라져 있는 선택지(그룹마다 maxSelect개까지). 없고 필수면 품절 아닌 첫 선택지
 class OptionLibChoice {
   String name;
   int price;
   bool soldOut;
+  bool isDefault; // 107차: 손님 패드 옵션 창을 열 때 처음부터 골라져 있음 (예: 당도 '기본')
   final String uid; // 화면에서 줄을 알아보는 값 (저장 안 함)
 
-  OptionLibChoice({required this.name, this.price = 0, this.soldOut = false, String? uid}) : uid = uid ?? _newId('c');
+  OptionLibChoice({required this.name, this.price = 0, this.soldOut = false, this.isDefault = false, String? uid})
+      : uid = uid ?? _newId('c');
 
   factory OptionLibChoice.fromJson(Map m) => OptionLibChoice(
         name: '${m['name'] ?? ''}'.trim(),
         price: int.tryParse('${m['price'] ?? 0}') ?? 0,
         soldOut: m['soldOut'] == true,
+        isDefault: m['isDefault'] == true,
       );
 
-  Map<String, dynamic> toJson() => {'name': name.trim(), 'price': price, if (soldOut) 'soldOut': true};
+  Map<String, dynamic> toJson() =>
+      {'name': name.trim(), 'price': price, if (soldOut) 'soldOut': true, if (isDefault) 'isDefault': true};
 
-  OptionLibChoice copy() => OptionLibChoice(name: name, price: price, soldOut: soldOut, uid: uid);
+  OptionLibChoice copy() => OptionLibChoice(name: name, price: price, soldOut: soldOut, isDefault: isDefault, uid: uid);
 }
 
 class OptionLibGroup {

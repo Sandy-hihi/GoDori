@@ -101,6 +101,7 @@ class _OptionLibraryDialogState extends State<OptionLibraryDialog> {
       final names = opts.map((o) => o.name.trim()).toList();
       if (names.toSet().length != names.length) return '$label에 이름이 같은 선택지가 있어요.';
       if (g.maxSelect > opts.length) return '$label의 최대 고르기 개수가 선택지 수보다 많아요.';
+      if (opts.where((o) => o.isDefault).length > g.maxSelect) return '$label의 기본 선택이 고를 수 있는 개수보다 많아요.';
     }
     return null;
   }
@@ -270,7 +271,12 @@ class _OptionLibraryDialogState extends State<OptionLibraryDialog> {
           maxSelect: (int.tryParse('${s['maxSelect'] ?? 1}') ?? 1).clamp(1, 99).toInt(),
           options: [
             for (final o in (s['options'] as List? ?? const []))
-              if (o is Map) OptionLibChoice(name: '${o['name'] ?? ''}'.trim(), price: int.tryParse('${o['price'] ?? 0}') ?? 0),
+              if (o is Map)
+                OptionLibChoice(
+                  name: '${o['name'] ?? ''}'.trim(),
+                  price: int.tryParse('${o['price'] ?? 0}') ?? 0,
+                  isDefault: o['isDefault'] == true,
+                ),
           ],
           categories: cats,
           menuIds: ids.toList(),
@@ -473,6 +479,33 @@ class _OptionLibraryDialogState extends State<OptionLibraryDialog> {
           ),
         ),
         const SizedBox(width: 8),
+        // 107차: 기본 선택 — 손님 패드 옵션 창을 열면 처음부터 골라져 있음
+        Tooltip(
+          message: '손님 패드에서 처음부터 골라져 있어요',
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Checkbox(
+              value: o.isDefault,
+              activeColor: kAdminAccent,
+              visualDensity: VisualDensity.compact,
+              onChanged: (v) => setState(() {
+                if (v == true) {
+                  if (g.maxSelect == 1) {
+                    for (final x in g.options) {
+                      x.isDefault = false;
+                    }
+                  } else if (g.options.where((x) => x.isDefault).length >= g.maxSelect) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('기본 선택은 ${g.maxSelect}개까지예요. 다른 것을 먼저 풀어 주세요.')));
+                    return;
+                  }
+                }
+                o.isDefault = v == true;
+              }),
+            ),
+            Text('기본', style: TextStyle(fontSize: 13, color: o.isDefault ? kAdminAccent : Colors.black45)),
+          ]),
+        ),
+        const SizedBox(width: 8),
         Text('품절', style: TextStyle(fontSize: 13, color: o.soldOut ? Colors.red : Colors.black45)),
         Switch(
           value: o.soldOut,
@@ -545,11 +578,19 @@ class _OptionLibraryDialogState extends State<OptionLibraryDialog> {
                 for (var n = 1; n <= maxChoices; n++)
                   DropdownMenuItem(value: n, child: Text(n == 1 ? '1개 (하나만)' : '최대 $n개')),
               ],
-              onChanged: (v) => setState(() => g.maxSelect = v ?? 1),
+              onChanged: (v) => setState(() {
+                g.maxSelect = v ?? 1;
+                // 기본 선택이 고를 수 있는 개수보다 많으면 앞에서부터 남김 (107차)
+                var n = 0;
+                for (final o in g.options) {
+                  if (o.isDefault && ++n > g.maxSelect) o.isDefault = false;
+                }
+              }),
             ),
           ]),
         ]),
-        _section('선택지', '품절을 켜면 손님 패드에서 흐리게 보이고 고를 수 없어요. ↑↓ 순서대로 보여요.'),
+        _section('선택지',
+            "'기본'을 켜면 손님 패드에서 처음부터 골라져 있어요(필수인데 기본이 없으면 첫 선택지). 품절을 켜면 흐리게 보이고 고를 수 없어요. ↑↓ 순서대로 보여요."),
         for (var i = 0; i < g.options.length; i++) _choiceRow(g, i),
         Align(
           alignment: Alignment.centerLeft,
