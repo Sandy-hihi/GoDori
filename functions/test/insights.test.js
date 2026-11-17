@@ -135,6 +135,69 @@ test('운영자: 매장별·전체 매장 통계', async () => {
   assert.equal(splendor.stores, 2);
 });
 
+// 112차: 룰 영상 재생 통계 — 운영자만, 매장 하나·전체 매장
+test('운영자: 룰 영상 재생 통계', async () => {
+  const stores = createMemoryStores({
+    platform6: { name: '플랫폼6', account: {} },
+    cafe2: { name: '두번째', account: {} },
+    waiting: { name: '대기', account: {}, status: 'pending' },
+  });
+  const data = createMemoryInsights({
+    games: { platform6: { g1: '스플렌더', g2: '루미큐브', g3: '카탄' }, cafe2: { k9: '스플 렌더' } },
+    video: {
+      platform6: [
+        { date: '2026-11-06', plays: 4, games: { g2: 3, gone: 1 } },
+        { date: '2026-11-04', plays: 2 }, // games 칸 없는 예전 기록
+        { date: '2026-01-01', plays: 9, games: { g1: 9 } },
+      ],
+      cafe2: [{ date: '2026-11-05', plays: 5, games: { k9: 5 } }],
+    },
+    videoTotals: {
+      platform6: [
+        { gameId: 'g1', title: '스플렌더', plays: 9, lastPlayedAt: '2026-01-01T03:00:00.000Z' },
+        { gameId: 'g2', title: '루미큐브', plays: 3, lastPlayedAt: '2026-11-06T04:00:00.000Z' },
+        { gameId: 'gone', title: '지운 게임', plays: 1, lastPlayedAt: null },
+      ],
+      cafe2: [{ gameId: 'k9', title: '스플 렌더', plays: 20, lastPlayedAt: '2026-11-05T01:00:00.000Z' }],
+    },
+    videoGames: { platform6: ['g2', 'g3'], cafe2: ['k9'] },
+  });
+  const now = () => Date.UTC(2026, 10, 6, 5, 0); // 한국 11-06 14시
+  const insights = createInsightRoutes({ data, stores, now, httpError: (status, code, message) => Object.assign(new Error(message), { status, code }) });
+  const h = createHandler({ bgg: {}, stores, verifyIdToken: fakeVerify, createToken: async () => 'x', attempts: createMemoryAttempts(), insights, now });
+  const call = (query, token = 'ops') => h({ method: 'GET', path: '/api/ops/video-stats', query, headers: { authorization: `Bearer ${token}` } });
+
+  assert.equal((await call({ storeId: 'platform6' }, 'admin')).status, 403); // 매장 관리자는 못 봄
+  assert.equal((await call({ storeId: 'nope' })).status, 404);
+
+  const week = (await call({ storeId: 'platform6', days: '7' })).body;
+  assert.equal(week.from, '2026-10-31');
+  assert.equal(week.daily.length, 7);
+  assert.deepEqual(week.daily.map((d) => d.plays), [0, 0, 0, 0, 2, 0, 4]);
+  assert.equal(week.total, 6);
+  assert.deepEqual(week.games.map((g) => [g.title, g.plays, g.allTime]), [['루미큐브', 3, 3], ['지운 게임 (지운 게임)', 1, 1]]);
+  assert.equal(week.videoGames, 2);
+  assert.deepEqual(week.unwatched, ['카탄']);
+
+  const ever = (await call({ storeId: 'platform6', days: '0' })).body;
+  assert.equal(ever.days, 0);
+  assert.equal(ever.daily.length, 0);
+  assert.equal(ever.total, 13);
+  assert.equal(ever.games[0].title, '스플렌더');
+
+  const all = (await call({ storeId: 'all', days: '7' })).body;
+  assert.equal(all.storeCount, 2); // 승인 대기 매장은 빠짐
+  assert.equal(all.total, 11);
+  const splendor = all.games.find((g) => g.title === '스플 렌더' || g.title === '스플렌더');
+  assert.equal(splendor.plays, 5);
+  assert.equal(splendor.stores, 1);
+  assert.deepEqual(all.perStore.map((s) => [s.storeId, s.total]), [['platform6', 6], ['cafe2', 5]]);
+  const allEver = (await call({ storeId: 'all', days: '0' })).body;
+  const sp = allEver.games.find((g) => g.id === '스플렌더');
+  assert.equal(sp.plays, 29); // 두 매장 이름이 띄어쓰기만 달라도 합침
+  assert.equal(sp.stores, 2);
+});
+
 test('통계 서버가 없으면 503', async () => {
   const stores = createMemoryStores({ platform6: { name: 'p', account: {} } });
   const h = createHandler({ bgg: {}, stores, verifyIdToken: fakeVerify, createToken: async () => 'x', attempts: createMemoryAttempts() });

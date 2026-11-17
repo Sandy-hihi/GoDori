@@ -7,6 +7,7 @@ import 'package:boardpad/services/order_flow_service.dart';
 import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/services/usage_meter.dart';
 import 'package:boardpad/widgets/toss_send_badge.dart';
+import 'package:boardpad/screens/admin_room_board_screen.dart';
 
 class AdminOrderScreen extends StatefulWidget {
   const AdminOrderScreen({super.key});
@@ -110,6 +111,16 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
         title: const Text('주문현황', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
+          // 112차: 방 현황판 (방마다 이용 중·주문·결제 대기 — 읽기 전용, 뒤로 가기로 돌아옴)
+          TextButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AdminRoomBoardScreen(pad: true)),
+            ),
+            icon: const Icon(Icons.meeting_room_outlined, color: Colors.white),
+            label: const Text('방 현황판', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(width: 8),
           // 지금 매장의 음식 수령 방식 (관리자 웹 '매장 설정'에서 바꿈). 이미 들어온 주문은 주문할 때의 방식대로
           StreamBuilder<OrderFlow>(
             stream: OrderFlowService.watch(),

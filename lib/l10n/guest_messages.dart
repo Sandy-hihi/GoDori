@@ -1519,5 +1519,10 @@ const guestMessages = <String, List<String>> {
     "No options available",
     "暂无可选项",
     "選べるオプションがありません"
+  ],
+  "품절된 메뉴가 장바구니에 있어요. 빼고 다시 주문해 주세요.": [
+    "Your cart has a sold-out item. Please remove it and order again.",
+    "购物车中有已售罄的菜品，请删除后重新下单。",
+    "カートに品切れのメニューがあります。削除してからもう一度注文してください。"
   ]
 };

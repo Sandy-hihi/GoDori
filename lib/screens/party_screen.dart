@@ -11,6 +11,7 @@ import 'food_order_screen.dart';
 import '../widgets/home/home_theme.dart';
 import '../widgets/pad_shell.dart';
 import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/services/sold_out_schedule.dart';
 import 'package:boardpad/services/game_catalog.dart';
 
 class PartyScreen extends StatefulWidget {
@@ -435,18 +436,15 @@ class _PartyScreenState extends State<PartyScreen> {
   void _loadMenus() {
     _menus ??=
         widget.menuCatalog ??
-        StoreScope.col('menus')
-            .get()
-            .then(
-              (snapshot) => snapshot.docs
-                  .where(
-                    (doc) =>
-                        doc.data()['isSoldOut'] != true &&
-                        doc.data()['isSoldOut'] != 'true',
-                  )
-                  .map((doc) => {...doc.data(), 'id': doc.id})
-                  .toList(),
-            );
+        // 112차: 자동 품절 시간에 걸린 메뉴도 뺌
+        SoldOutSchedule.load().then(
+          (rules) => StoreScope.col('menus').get().then(
+                (snapshot) => snapshot.docs
+                    .where((doc) => !SoldOutSchedule.menuSoldOut(doc.data(), doc.id, rules))
+                    .map((doc) => {...doc.data(), 'id': doc.id})
+                    .toList(),
+              ),
+        );
     _menus!.ignore();
   }
 

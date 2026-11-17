@@ -12,6 +12,7 @@ import 'package:boardpad/screens/food_order_screen.dart';
 import 'package:boardpad/screens/game_list_screen.dart';
 import 'package:boardpad/services/ai_service.dart';
 import 'package:boardpad/services/staff_call_service.dart';
+import 'package:boardpad/services/sold_out_schedule.dart';
 import 'package:boardpad/utils/game_meta.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
@@ -704,10 +705,30 @@ class _FinderWidget extends StatelessWidget {
   }
 }
 
-class _MenuPickWidget extends StatelessWidget {
+class _MenuPickWidget extends StatefulWidget {
   final String? menuId;
   final int? roomNumber;
   const _MenuPickWidget({this.menuId, this.roomNumber});
+
+  @override
+  State<_MenuPickWidget> createState() => _MenuPickWidgetState();
+}
+
+// 112차: 자동 품절 시간도 보려고 Stateful로 — 구독은 한 번만(100차 규칙), 고른 메뉴가 바뀔 때만 다시
+class _MenuPickWidgetState extends State<_MenuPickWidget> {
+  String? get menuId => widget.menuId;
+  int? get roomNumber => widget.roomNumber;
+  late Stream<DocumentSnapshot<Map<String, dynamic>>> _menuStream = _watchMenu();
+  late final Stream<List<SoldOutRule>> _rulesStream = SoldOutSchedule.watchTicking();
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>> _watchMenu() =>
+      menuId == null ? const Stream.empty() : StoreScope.col('menus').doc(menuId).snapshots();
+
+  @override
+  void didUpdateWidget(covariant _MenuPickWidget old) {
+    super.didUpdateWidget(old);
+    if (old.menuId != widget.menuId) _menuStream = _watchMenu();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -720,15 +741,17 @@ class _MenuPickWidget extends StatelessWidget {
         ),
       );
     }
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: StoreScope.col('menus').doc(menuId).snapshots(),
+    return StreamBuilder<List<SoldOutRule>>(
+      stream: _rulesStream,
+      builder: (context, rulesSnap) => StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _menuStream,
       builder: (context, snapshot) {
         final m = snapshot.data?.data();
         final name = (m?['name'] ?? '').toString();
         final price = m?['price'];
         final priceText = price == null ? '' : '${price.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',')}원';
         final imageUrl = m?['imageUrl']?.toString();
-        final soldOut = m?['isSoldOut'] == true || m?['isSoldOut'] == 'true';
+        final soldOut = m != null && SoldOutSchedule.menuSoldOut(m, menuId!, rulesSnap.data ?? const []);
         return Material(
           color: kCreamCard,
           borderRadius: BorderRadius.circular(22),
@@ -775,6 +798,7 @@ class _MenuPickWidget extends StatelessWidget {
           ),
         );
       },
+      ),
     );
   }
 }

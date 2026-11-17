@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'ops_insights.dart';
 import 'ops_service.dart';
 import 'ops_toss.dart';
+import 'ops_video_stats.dart';
 import 'ops_videos.dart';
 
 /// 운영자 페이지 (48차, 49차부터 따로 사이트) — https://godori-ops.web.app (lib/main_ops.dart)
@@ -189,7 +190,7 @@ class _OpsHome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Scaffold(
         appBar: AppBar(
           backgroundColor: _ink,
@@ -207,10 +208,12 @@ class _OpsHome extends StatelessWidget {
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white60,
             indicatorColor: _orange,
-            tabs: [Tab(text: '매장'), Tab(text: '매장 통계'), Tab(text: '이용 통계'), Tab(text: '공용 룰 영상'), Tab(text: '설정')],
+            // 112차: '룰 영상 통계'(관리자 웹에서 옮김)
+            tabs: [Tab(text: '매장'), Tab(text: '매장 통계'), Tab(text: '룰 영상 통계'), Tab(text: '이용 통계'), Tab(text: '공용 룰 영상'), Tab(text: '설정')],
           ),
         ),
-        body: const TabBarView(children: [_StoresTab(), OpsInsightsTab(), _UsageTab(), OpsSharedVideosTab(), _SettingsTab()]),
+        body: const TabBarView(
+            children: [_StoresTab(), OpsInsightsTab(), OpsVideoStatsTab(), _UsageTab(), OpsSharedVideosTab(), _SettingsTab()]),
       ),
     );
   }

@@ -151,12 +151,13 @@ service cloud.firestore {
         allow write: if isAdmin();
       }
 
-      // ── 룰 영상 재생 통계 (서버 함수 /api/video/play-url 이 기록, 관리자 웹이 읽음) ──
+      // ── 룰 영상 재생 통계 (서버 함수 /api/video/play-url 이 기록) ──
+      // 112차: 운영자 페이지에서만 봄(서버 /api/ops/video-stats) — 매장 관리자도 앱에서 직접 못 읽음
       match /videoStats/{gameId} {
-        allow read: if isAdmin();
+        allow read, write: if false;
       }
       match /videoStatsDaily/{day} {
-        allow read: if isAdmin();
+        allow read, write: if false;
       }
 
       // ── 설정 문서 ──
@@ -164,7 +165,7 @@ service cloud.firestore {
         allow read: if true;
         // 관리자 페이지가 수정하는 문서만, 그 매장 관리자만 쓰기 허용. storeInfo는 콘솔 전용.
         allow write: if isAdmin()
-                     && docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout', 'optionLibrary']; // optionLibrary = 옵션 목록(106차)
+                     && docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout', 'optionLibrary', 'soldOutSchedule']; // optionLibrary = 옵션 목록(106차), soldOutSchedule = 자동 품절 시간(112차)
         // 방 개수 (관리자 웹 '매장 설정'): 1 ~ 30 사이 숫자만
         allow write: if isAdmin()
                      && docId == 'rooms'

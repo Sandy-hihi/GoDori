@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:boardpad/models/order_flow.dart';
 import 'package:boardpad/services/order_flow_service.dart';
 import 'package:boardpad/services/store_features.dart';
+import 'package:boardpad/services/sold_out_schedule.dart';
 import 'package:boardpad/services/toss_pos_service.dart';
 import 'package:boardpad/services/insight_service.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
@@ -60,6 +61,9 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
   // 토스 POS 연동(59·64차)을 켠 매장이면 주문 직후 서버에 '포스로 보내기'를 부탁함
   bool _tossPos = false;
   StreamSubscription<StoreFeatures>? _featuresSub;
+  // 112차: 관리자 웹 '자동 품절' 시간 — 바뀌면 바로, 시간이 넘어가면 30초 안에 품절 표시가 바뀜
+  List<SoldOutRule> _soldOutRules = const [];
+  StreamSubscription<List<SoldOutRule>>? _soldOutSub;
 
   // ── 인피니티 스크롤: 모든 카테고리를 한 목록에 이어 붙이고, 마지막 카테고리 다음에 다시 처음 카테고리가
   //    끝없이 반복됨. 위 버튼과 스크롤 위치를 서로 맞춤 ──
@@ -88,6 +92,9 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
       if (mounted) setState(() => _flow = f);
     });
     _featuresSub = StoreFeaturesService.watch().listen((f) => _tossPos = f.tossPos);
+    _soldOutSub = SoldOutSchedule.watchTicking().listen((r) {
+      if (mounted) setState(() => _soldOutRules = r);
+    });
     if (widget.initialMenuId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _openInitialMenu());
     }
@@ -99,6 +106,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
     _scroll.dispose();
     _flowSub?.cancel();
     _featuresSub?.cancel();
+    _soldOutSub?.cancel();
     super.dispose();
   }
 
@@ -108,7 +116,9 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
       final doc = await StoreScope.col('menus').doc(widget.initialMenuId).get();
       if (!mounted) return;
       final menu = doc.data();
-      if (menu == null || menu['isSoldOut'] == true || menu['isSoldOut'] == 'true') {
+      final rules = await SoldOutSchedule.load(); // 112차: 자동 품절 시간도 (구독 첫 값보다 먼저 열릴 수 있어서)
+      if (!mounted) return;
+      if (menu == null || SoldOutSchedule.menuSoldOut(menu, doc.id, rules)) {
         padSnack(context, '선택한 메뉴가 없어졌거나 품절이에요. 다른 메뉴를 골라 주세요.');
         return;
       }
@@ -120,7 +130,9 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
     }
   }
 
-  static bool _isSoldOut(Map<String, dynamic> m) => m['isSoldOut'] == true || m['isSoldOut'] == 'true';
+  // 손으로 켠 품절(isSoldOut) 또는 자동 품절 시간(112차). m['_id'] = 메뉴 ID
+  bool _isSoldOut(Map<String, dynamic> m) =>
+      SoldOutSchedule.menuSoldOut(m, (m['_id'] ?? '').toString(), _soldOutRules);
 
   static int _price(dynamic v) => v is int ? v : int.tryParse((v ?? '').toString()) ?? 0;
 
@@ -187,6 +199,15 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
 
   // 주문 보내기 (orders 컬렉션 — 관리자 대시보드가 실시간으로 받음)
   Future<void> _submitOrder() async {
+    // 112차: 담은 뒤에 자동 품절 시간이 된 메뉴가 있으면 주문하지 않음 (장바구니에서 빼 달라고)
+    final checkAt = DateTime.now();
+    final soldOutInCart = cart.values.any((item) => SoldOutSchedule.activeFor(
+            _soldOutRules, (item['menuId'] ?? '').toString(), (item['category'] ?? '').toString(), checkAt) !=
+        null);
+    if (soldOutInCart) {
+      padSnack(context, '품절된 메뉴가 장바구니에 있어요. 빼고 다시 주문해 주세요.', error: true);
+      return;
+    }
     setState(() => _isSubmitting = true);
     try {
       List<String> orderItems = [];

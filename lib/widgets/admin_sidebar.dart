@@ -1,13 +1,50 @@
 import 'package:flutter/material.dart';
 import 'package:boardpad/screens/admin_web_login_screen.dart';
+import 'package:boardpad/screens/admin_menu_manage_screen.dart';
+import 'package:boardpad/screens/admin_game_manage_screen.dart';
+import 'package:boardpad/screens/admin_event_manage_screen.dart';
+import 'package:boardpad/screens/admin_notice_manage_screen.dart';
+import 'package:boardpad/screens/admin_home_layout_screen.dart';
+import 'package:boardpad/screens/admin_store_settings_screen.dart';
+import 'package:boardpad/screens/admin_room_board_screen.dart';
 import 'package:boardpad/services/admin_session.dart';
 
-/// currentScreen: 'menu' | 'game' | 'event' | 'notice' | 'home' | 'store'
+/// currentScreen: 'menu' | 'game' | 'event' | 'notice' | 'home' | 'store' | 'rooms'
+/// 112차: 'rooms'(방 현황판)는 사이드바가 직접 엶(AdminSidebar.go) — (룰 영상 통계는 운영자 페이지로 옮김)
+/// 예전 화면들의 onNavigate 목록을 고치지 않아도 되게. 새 화면은 onNavigate에 AdminSidebar.go를 넘김
 class AdminSidebar extends StatelessWidget {
   final String currentScreen;
   final void Function(String screen) onNavigate;
 
   const AdminSidebar({super.key, required this.currentScreen, required this.onNavigate});
+
+  static const _selfOpened = {'rooms'};
+
+  /// 관리자 웹 화면 바꾸기 (애니메이션 없이 바꿔 끼움)
+  static void go(BuildContext context, String screen) {
+    final Widget? target = switch (screen) {
+      'menu' => const AdminMenuManageScreen(),
+      'game' => const AdminGameManageScreen(),
+      'event' => const AdminEventManageScreen(),
+      'notice' => const AdminNoticeManageScreen(),
+      'home' => const AdminHomeLayoutScreen(),
+      'store' => const AdminStoreSettingsScreen(),
+      'rooms' => const AdminRoomBoardScreen(),
+      _ => null,
+    };
+    if (target == null) return;
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, _, _) => target,
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
+  }
+
+  void _open(BuildContext context, String screen) =>
+      _selfOpened.contains(screen) ? go(context, screen) : onNavigate(screen);
 
   // 화면 폭이 이보다 좁으면(폰·아이패드 세로) 글자 없는 아이콘 줄(64px)로 접음 (81차)
   static const double compactBelow = 900;
@@ -28,13 +65,22 @@ class AdminSidebar extends StatelessWidget {
                 style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
           ),
           const Divider(color: Colors.white24),
-          _buildItem(Icons.restaurant_menu, '음식 메뉴 관리', 'menu'),
-          _buildItem(Icons.casino, '보드게임 관리', 'game'),
-          _buildItem(Icons.campaign, '이벤트 관리', 'event'),
-          _buildItem(Icons.info_outline, '공지 관리', 'notice'),
-          _buildItem(Icons.dashboard_customize_outlined, '홈 화면 꾸미기', 'home'),
-          _buildItem(Icons.storefront_outlined, '매장 설정', 'store'),
-          const Spacer(),
+          // 112차: 메뉴가 늘어서 화면이 낮으면 넘치지 않게 스크롤
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+              _buildItem(Icons.restaurant_menu, '음식 메뉴 관리', 'menu'),
+              _buildItem(Icons.casino, '보드게임 관리', 'game'),
+              _buildItem(Icons.campaign, '이벤트 관리', 'event'),
+              _buildItem(Icons.info_outline, '공지 관리', 'notice'),
+              _buildItem(Icons.dashboard_customize_outlined, '홈 화면 꾸미기', 'home'),
+              _buildItem(Icons.storefront_outlined, '매장 설정', 'store'),
+              const Divider(color: Colors.white24),
+              _buildItem(Icons.meeting_room_outlined, '방 현황판', 'rooms'),
+              ],
+            ),
+          ),
           const Divider(color: Colors.white24),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.white54),
@@ -70,7 +116,7 @@ class AdminSidebar extends StatelessWidget {
         child: Material(
           color: selected ? Colors.white12 : Colors.transparent,
           child: InkWell(
-            onTap: selected ? null : () => onNavigate(screen),
+            onTap: selected ? null : () => _open(context, screen),
             child: SizedBox(
               height: 56,
               child: Center(child: Icon(icon, color: selected ? Colors.white : Colors.white54)),
@@ -92,13 +138,21 @@ class AdminSidebar extends StatelessWidget {
               const Text('고도리', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               const Divider(color: Colors.white24, height: 1),
-              item(Icons.restaurant_menu, '음식 메뉴 관리', 'menu'),
-              item(Icons.casino, '보드게임 관리', 'game'),
-              item(Icons.campaign, '이벤트 관리', 'event'),
-              item(Icons.info_outline, '공지 관리', 'notice'),
-              item(Icons.dashboard_customize_outlined, '홈 화면 꾸미기', 'home'),
-              item(Icons.storefront_outlined, '매장 설정', 'store'),
-              const Spacer(),
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                  item(Icons.restaurant_menu, '음식 메뉴 관리', 'menu'),
+                  item(Icons.casino, '보드게임 관리', 'game'),
+                  item(Icons.campaign, '이벤트 관리', 'event'),
+                  item(Icons.info_outline, '공지 관리', 'notice'),
+                  item(Icons.dashboard_customize_outlined, '홈 화면 꾸미기', 'home'),
+                  item(Icons.storefront_outlined, '매장 설정', 'store'),
+                  const Divider(color: Colors.white24, height: 1),
+                  item(Icons.meeting_room_outlined, '방 현황판', 'rooms'),
+                      ],
+                ),
+              ),
               const Divider(color: Colors.white24, height: 1),
               Tooltip(
                 message: '로그아웃',
@@ -117,12 +171,14 @@ class AdminSidebar extends StatelessWidget {
 
   Widget _buildItem(IconData icon, String label, String screen) {
     final bool selected = currentScreen == screen;
-    return ListTile(
-      leading: Icon(icon, color: selected ? Colors.white : Colors.white54),
-      title: Text(label, style: TextStyle(color: selected ? Colors.white : Colors.white54)),
-      selected: selected,
-      selectedTileColor: Colors.white12,
-      onTap: selected ? () {} : () => onNavigate(screen),
+    return Builder(
+      builder: (context) => ListTile(
+        leading: Icon(icon, color: selected ? Colors.white : Colors.white54),
+        title: Text(label, style: TextStyle(color: selected ? Colors.white : Colors.white54)),
+        selected: selected,
+        selectedTileColor: Colors.white12,
+        onTap: selected ? () {} : () => _open(context, screen),
+      ),
     );
   }
 }

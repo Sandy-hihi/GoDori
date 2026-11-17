@@ -15,6 +15,9 @@ import 'admin_notice_manage_screen.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
+import 'package:boardpad/widgets/admin_busy_dialog.dart';
+import 'package:boardpad/services/sold_out_schedule.dart';
+import 'admin_sold_out_schedule_dialog.dart';
 import 'package:boardpad/widgets/admin_colors.dart';
 import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/services/usage_meter.dart';
@@ -39,9 +42,22 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
   late final Stream<QuerySnapshot> _menuStream = StoreScope.col('menus').orderBy('timestamp').snapshots().metered();
   late final Stream<DocumentSnapshot> _categoryStream = StoreScope.col('settings').doc('categories').snapshots();
 
+  // 112차: 자동 품절 시간 — 목록에 '자동 품절 중'·시간 표시 (30초마다 다시 계산)
+  List<SoldOutRule> _soldOutRules = const [];
+  StreamSubscription<List<SoldOutRule>>? _soldOutSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _soldOutSub = SoldOutSchedule.watchTicking().listen((r) {
+      if (mounted) setState(() => _soldOutRules = r);
+    });
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
+    _soldOutSub?.cancel();
     super.dispose();
   }
 
@@ -54,46 +70,67 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
     final TextEditingController editController = TextEditingController(
       text: oldName,
     );
+    // 112차: 저장 중엔 [수정 완료] 흐리게·[취소]·바깥 누르기 막고 한 번만 닫음 (100차 규칙)
+    var saving = false;
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('카테고리 수정'),
-        content: TextField(
-          controller: editController,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final newName = editController.text.trim();
-              if (newName.isNotEmpty && newName != oldName) {
-                // 1. settings/categories 목록 업데이트
-                categories[index] = newName;
-                await StoreScope.col('settings')
-                    .doc('categories')
-                    .set({'list': categories}, SetOptions(merge: true));
-                TranslateSync.kick(); // 카테고리 번역 (104차)
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialog) => PopScope(
+          canPop: !saving,
+          child: AlertDialog(
+            title: const Text('카테고리 수정'),
+            content: TextField(
+              controller: editController,
+              decoration: const InputDecoration(border: OutlineInputBorder()),
+            ),
+            actions: [
+              TextButton(
+                onPressed: saving ? null : () => Navigator.pop(context),
+                child: const Text('취소'),
+              ),
+              ElevatedButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        final newName = editController.text.trim();
+                        if (newName.isNotEmpty && newName != oldName) {
+                          setDialog(() => saving = true);
+                          try {
+                            // 1. settings/categories 목록 업데이트
+                            final next = List<dynamic>.of(categories)..[index] = newName;
+                            await StoreScope.col('settings')
+                                .doc('categories')
+                                .set({'list': next}, SetOptions(merge: true));
+                            categories[index] = newName;
+                            TranslateSync.kick(); // 카테고리 번역 (104차)
 
-                // 2. 해당 카테고리를 가진 메뉴들도 일괄 업데이트
-                final menus = await StoreScope.col('menus')
-                    .where('category', isEqualTo: oldName)
-                    .get();
-                final batch = FirebaseFirestore.instance.batch();
-                for (final doc in menus.docs) {
-                  batch.update(doc.reference, {'category': newName});
-                }
-                await batch.commit();
-                await OptionLibrary.renameCategory(oldName, newName); // 106차: 옵션 목록의 붙는 카테고리도
-              }
-              if (context.mounted) Navigator.pop(context);
-            },
-            child: const Text('수정 완료'),
+                            // 2. 해당 카테고리를 가진 메뉴들도 일괄 업데이트
+                            final menus = await StoreScope.col('menus')
+                                .where('category', isEqualTo: oldName)
+                                .get();
+                            final batch = FirebaseFirestore.instance.batch();
+                            for (final doc in menus.docs) {
+                              batch.update(doc.reference, {'category': newName});
+                            }
+                            await batch.commit();
+                            await OptionLibrary.renameCategory(oldName, newName); // 106차: 옵션 목록의 붙는 카테고리도
+                            await SoldOutSchedule.renameCategory(oldName, newName); // 112차: 자동 품절의 붙는 카테고리도
+                          } catch (e) {
+                            if (context.mounted) {
+                              setDialog(() => saving = false);
+                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('바꾸지 못했어요: $e')));
+                            }
+                            return;
+                          }
+                        }
+                        if (context.mounted) Navigator.pop(context);
+                      },
+                style: busyButtonStyle(kAdminAccent),
+                child: const Text('수정 완료'),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     ).then((_) => editController.dispose());
   }
@@ -1224,6 +1261,20 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                             ),
                           ),
                           const SizedBox(width: 16),
+                          // 112차: 특정 시간 자동 품절 (주방 마감 등)
+                          OutlinedButton.icon(
+                            onPressed: () => SoldOutScheduleDialog.open(context),
+                            icon: const Icon(Icons.schedule, color: kAdminAccent),
+                            label: const Text(
+                              '자동 품절',
+                              style: TextStyle(color: kAdminAccent, fontWeight: FontWeight.bold),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: kAdminAccent, width: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
                           OutlinedButton.icon(
                             onPressed: () => _showBulkAddDialog(context),
                             icon: const Icon(Icons.playlist_add, color: kAdminAccent),
@@ -1333,6 +1384,12 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                               final menu = doc.data() as Map<String, dynamic>;
                               final options =
                                   menu['optionGroups'] as List<dynamic>? ?? [];
+                              // 112차: 자동 품절 — 붙은 규칙·지금 걸린 규칙
+                              final autoRules = SoldOutSchedule.rulesFor(
+                                  _soldOutRules, doc.id, (menu['category'] ?? '').toString());
+                              final autoNow = SoldOutSchedule.activeFor(
+                                  autoRules, doc.id, (menu['category'] ?? '').toString(), DateTime.now());
+                              final manualSoldOut = menu['isSoldOut'] == true;
 
                               return ListTile(
                                 contentPadding: EdgeInsets.symmetric(
@@ -1403,8 +1460,20 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                     ],
                                   ],
                                 ),
-                                subtitle: Text(
-                                  '${menu['category']} | ${menu['price']}원',
+                                subtitle: Text.rich(
+                                  TextSpan(children: [
+                                    TextSpan(text: '${menu['category']} | ${menu['price']}원'),
+                                    for (final r in autoRules.where((r) => r.enabled))
+                                      TextSpan(
+                                        text: '  ⏰ ${r.timeLabel}${r.days.isEmpty ? '' : ' (${r.daysLabel})'}',
+                                        style: TextStyle(
+                                          color: identical(r, autoNow) ? Colors.orange.shade800 : Colors.black45,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                  ]),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                                 trailing: Row(
                                   mainAxisSize: MainAxisSize.min,
@@ -1426,15 +1495,19 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                     ),
                                     if (!narrow) ...[
                                       Text(
-                                        (menu['isSoldOut'] ?? false)
-                                            ? '품절'
-                                            : '판매중',
-                                        style: TextStyle(
-                                          color: (menu['isSoldOut'] ?? false)
-                                              ? Colors.red
-                                              : Colors.black87,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                          manualSoldOut
+                                              ? '품절'
+                                              : autoNow != null
+                                                  ? '자동 품절'
+                                                  : '판매중',
+                                          style: TextStyle(
+                                            color: manualSoldOut
+                                                ? Colors.red
+                                                : autoNow != null
+                                                    ? Colors.orange.shade800
+                                                    : Colors.black87,
+                                            fontWeight: FontWeight.bold,
+                                          ),
                                       ),
                                       const SizedBox(width: 24),
                                     ],
@@ -1658,13 +1731,21 @@ class _CategoryManageDialogState extends State<_CategoryManageDialog> {
                                           Icons.delete,
                                           color: Colors.redAccent,
                                         ),
-                                        onPressed: () async {
-                                          categories.removeAt(index);
-                                          await StoreScope.col('settings')
-                                              .doc('categories')
-                                              .set({'list': categories}, SetOptions(merge: true));
-                                          TranslateSync.kick(); // 카테고리 번역 (104차)
-                                        },
+                                        // 112차: 확인 창을 거쳐 지움 — 지우는 동안 버튼 잠금 (100차 규칙)
+                                        onPressed: () => showBusyConfirm(
+                                          context,
+                                          title: '카테고리 삭제',
+                                          message: "'$cat' 카테고리를 목록에서 지울까요?\n"
+                                              '이 카테고리의 메뉴는 지워지지 않지만, 다른 카테고리로 옮기기 전까지 손님 패드에 안 보여요.',
+                                          errorText: '지우지 못했어요',
+                                          action: () async {
+                                            final next = List<dynamic>.of(categories)..removeAt(index);
+                                            await StoreScope.col('settings')
+                                                .doc('categories')
+                                                .set({'list': next}, SetOptions(merge: true));
+                                            TranslateSync.kick(); // 카테고리 번역 (104차)
+                                          },
+                                        ),
                                       ),
                                     ],
                                   ),

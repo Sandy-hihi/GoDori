@@ -14,6 +14,7 @@ import 'package:boardpad/utils/mp4_info.dart';
 import 'package:boardpad/utils/game_meta.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
+import 'package:boardpad/widgets/admin_busy_dialog.dart';
 import 'package:boardpad/widgets/admin_colors.dart';
 import 'package:boardpad/widgets/game_admin/game_edit_dialog.dart';
 import 'package:boardpad/widgets/game_admin/game_form.dart';
@@ -83,7 +84,6 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
   // 한 게임에 대한 작업이 진행 중인지 (BGG 갱신 등)
   final Set<String> _rowBusy = {};
   final Map<String, double> _videoProgress = {}; // 룰 영상 올리는 중 (문서 id → 0~1)
-  final Map<String, int> _videoPlays = {}; // 룰 영상 재생 횟수 (videoStats, 서버가 기록)
   Map<String, String> _sharedVideos = {}; // 92차 공용 룰 영상 (BGG 번호 → 화질 '1080p·720p'), 매장 영상이 없으면 패드가 이걸 틂
 
   @override
@@ -96,8 +96,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
         });
       }
     });
-    _loadVideoPlays();
-    _loadSharedVideos();
+    _loadSharedVideos(); // 112차: 룰 영상 재생 횟수는 운영자 페이지 '룰 영상 통계'로 옮김 (사장님 화면에서 뺌)
   }
 
   // 공용 룰 영상 목록 (shared/ruleVideos, 운영자가 올림 — 화면 열 때 문서 1개만 읽음)
@@ -114,21 +113,6 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
         }..removeWhere((k, q) => q.isEmpty);
       });
     } catch (_) {} // 규칙 배포 전이거나 없으면 그냥 안 보임
-  }
-
-  // 룰 영상 재생 횟수 (화면 열 때 한 번만 읽음)
-  Future<void> _loadVideoPlays() async {
-    try {
-      final snap = await StoreScope.col('videoStats').get();
-      if (!mounted) return;
-      setState(() {
-        for (final d in snap.docs) {
-          _videoPlays[d.id] = asInt(d.data()['plays']) ?? 0;
-        }
-      });
-    } catch (_) {
-      // 보안 규칙(videoStats 읽기)을 배포하기 전이면 권한이 없음 → 횟수만 안 보임
-    }
   }
 
   @override
@@ -368,22 +352,40 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                                   tooltip: '수정',
                                   onPressed: () async {
                                     final editCtrl = TextEditingController(text: g);
+                                    // 112차: 저장 중엔 [저장] 흐리게·[취소]·바깥 누르기 막고 한 번만 닫음 (100차 규칙)
+                                    var saving = false;
                                     await showDialog(
                                       context: ctx,
-                                      builder: (ectx) => AlertDialog(
-                                        title: const Text('장르 수정', style: TextStyle(fontWeight: FontWeight.bold)),
-                                        content: TextField(controller: editCtrl, autofocus: true, decoration: adminInput('장르 이름')),
-                                        actions: [
-                                          TextButton(onPressed: () => Navigator.pop(ectx), child: const Text('취소', style: TextStyle(color: Colors.grey))),
-                                          ElevatedButton(
-                                            onPressed: () async {
-                                              await _editGenre(g, editCtrl.text);
-                                              if (ectx.mounted) Navigator.pop(ectx);
-                                            },
-                                            style: ElevatedButton.styleFrom(backgroundColor: kAdminAccent, foregroundColor: Colors.white),
-                                            child: const Text('저장'),
+                                      builder: (ectx) => StatefulBuilder(
+                                        builder: (ectx, setEdit) => PopScope(
+                                          canPop: !saving,
+                                          child: AlertDialog(
+                                            title: const Text('장르 수정', style: TextStyle(fontWeight: FontWeight.bold)),
+                                            content: TextField(controller: editCtrl, autofocus: true, decoration: adminInput('장르 이름')),
+                                            actions: [
+                                              TextButton(
+                                                  onPressed: saving ? null : () => Navigator.pop(ectx),
+                                                  child: const Text('취소', style: TextStyle(color: Colors.grey))),
+                                              ElevatedButton(
+                                                onPressed: saving
+                                                    ? null
+                                                    : () async {
+                                                        setEdit(() => saving = true);
+                                                        try {
+                                                          await _editGenre(g, editCtrl.text);
+                                                        } catch (e) {
+                                                          if (ectx.mounted) setEdit(() => saving = false);
+                                                          _toast('장르를 바꾸지 못했어요: $e', error: true);
+                                                          return;
+                                                        }
+                                                        if (ectx.mounted) Navigator.pop(ectx);
+                                                      },
+                                                style: busyButtonStyle(kAdminAccent),
+                                                child: const Text('저장'),
+                                              ),
+                                            ],
                                           ),
-                                        ],
+                                        ),
                                       ),
                                     );
                                     editCtrl.dispose();
@@ -394,22 +396,14 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                                   icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
                                   tooltip: '삭제',
                                   onPressed: () async {
-                                    final ok = await showDialog<bool>(
-                                      context: ctx,
-                                      builder: (dctx) => AlertDialog(
-                                        title: const Text('장르 삭제', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
-                                        content: Text("'$g' 장르를 목록에서 지울까요? 이미 이 장르가 붙은 게임의 정보는 그대로 남아요."),
-                                        actions: [
-                                          TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('취소', style: TextStyle(color: Colors.grey))),
-                                          ElevatedButton(
-                                            onPressed: () => Navigator.pop(dctx, true),
-                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-                                            child: const Text('삭제'),
-                                          ),
-                                        ],
-                                      ),
+                                    // 112차: 지우는 동안 버튼 잠금 (게임이 많으면 오래 걸림)
+                                    await showBusyConfirm(
+                                      ctx,
+                                      title: '장르 삭제',
+                                      message: "'$g' 장르를 목록에서 지울까요? 이미 이 장르가 붙은 게임의 정보는 그대로 남아요.",
+                                      errorText: '장르를 지우지 못했어요',
+                                      action: () => _deleteGenre(g),
                                     );
-                                    if (ok == true) await _deleteGenre(g);
                                     setDlg(() {});
                                   },
                                 ),
@@ -866,31 +860,15 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
   Future<void> _removeRuleVideo(GameDoc doc, String quality) async {
     final title = (doc.data()['title'] ?? '이 게임').toString();
     final what = quality == 'all' ? '룰 영상(전부)' : '${quality}p 영상';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('룰 영상 삭제', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: Text("'$title'의 $what을 지울까요?\n저장소의 파일도 함께 지워져요."),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소', style: TextStyle(color: Colors.grey))),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-            child: const Text('삭제'),
-          ),
-        ],
-      ),
+    // 112차: 확인 창 안에서 지우고(버튼 잠금 — 100차 규칙), 끝나면 한 번만 닫힘
+    final ok = await showBusyConfirm(
+      context,
+      title: '룰 영상 삭제',
+      message: "'$title'의 $what을 지울까요?\n저장소의 파일도 함께 지워져요.",
+      errorText: '영상을 지우지 못했어요',
+      action: () => RuleVideoService.remove(doc.id, quality: quality),
     );
-    if (ok != true) return;
-    setState(() => _rowBusy.add(doc.id));
-    try {
-      await RuleVideoService.remove(doc.id, quality: quality);
-      _toast('$what을 지웠어요.');
-    } catch (e) {
-      _toast('영상을 지우지 못했어요: $e', error: true);
-    } finally {
-      if (mounted) setState(() => _rowBusy.remove(doc.id));
-    }
+    if (ok) _toast('$what을 지웠어요.');
   }
 
   // 예전 방식(Firebase Storage, ruleVideoUrl)으로 올린 영상 지우기 — 41차 기준 0개지만 남아 있을 때를 위해
@@ -911,40 +889,28 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
   Future<void> _confirmDelete(GameDoc doc) async {
     final data = doc.data();
     final title = (data['title'] ?? '이 게임').toString();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('게임 삭제', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
-        content: Text("'$title' 게임을 정말 삭제할까요?\n삭제하면 되돌릴 수 없어요."),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소', style: TextStyle(color: Colors.grey))),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-            child: const Text('삭제'),
-          ),
-        ],
-      ),
+    // 112차: 확인 창 안에서 지움 — 그동안 [삭제] 흐리게·[취소]·바깥 누르기 막음, 실패하면 창에 이유가 남음
+    final ok = await showBusyConfirm(
+      context,
+      title: '게임 삭제',
+      message: "'$title' 게임을 정말 삭제할까요?\n삭제하면 되돌릴 수 없어요.",
+      errorText: '삭제하지 못했어요',
+      action: () async {
+        // 저장소(R2)의 룰 영상 파일부터 지움. 실패하면 파일이 주인 없이 남지 않게 게임 삭제를 멈춤
+        if (RuleVideoService.hasVideo(data)) {
+          try {
+            await RuleVideoService.remove(doc.id);
+          } catch (e) {
+            throw Exception('룰 영상 파일을 지우지 못해서 게임 삭제를 멈췄어요 ($e)');
+          }
+        }
+        await deleteStorageUrl((data['imageUrl'] ?? '').toString());
+        await deleteStorageUrl((data['rulebookImageUrl'] ?? '').toString());
+        await deleteStorageUrl((data['ruleVideoUrl'] ?? '').toString());
+        await doc.reference.delete();
+      },
     );
-    if (ok != true) return;
-    // 저장소(R2)의 룰 영상 파일부터 지움. 실패하면 파일이 주인 없이 남지 않게 게임 삭제를 멈춤
-    if (RuleVideoService.hasVideo(data)) {
-      try {
-        await RuleVideoService.remove(doc.id);
-      } catch (e) {
-        _toast('룰 영상 파일을 지우지 못해서 게임 삭제를 멈췄어요: $e', error: true);
-        return;
-      }
-    }
-    try {
-      await deleteStorageUrl((data['imageUrl'] ?? '').toString());
-      await deleteStorageUrl((data['rulebookImageUrl'] ?? '').toString());
-      await deleteStorageUrl((data['ruleVideoUrl'] ?? '').toString());
-      await doc.reference.delete();
-      _toast('삭제했어요.$_refreshHint');
-    } catch (e) {
-      _toast('삭제에 실패했어요. 다시 시도해 주세요.', error: true);
-    }
+    if (ok) _toast('삭제했어요.$_refreshHint');
   }
 
   Future<void> _openEdit(GameDoc doc) async {
@@ -1299,7 +1265,6 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
     final hasRulebook = (g['rulebookImageUrl'] ?? '').toString().isNotEmpty;
     final hasLegacyVideo = (g['ruleVideoUrl'] ?? '').toString().isNotEmpty;
     final r2Videos = RuleVideoService.videosOf(g);
-    final plays = _videoPlays[doc.id] ?? 0;
     final hasYoutube = (g['videoUrl'] ?? '').toString().trim().isNotEmpty;
     final videoProgress = _videoProgress[doc.id];
     final imageUrl = (g['imageUrl'] ?? '').toString();
@@ -1315,7 +1280,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
       if (videoProgress != null)
         '영상 올리는 중 ${(videoProgress * 100).toStringAsFixed(0)}%'
       else if (r2Videos.isNotEmpty)
-        '룰 영상 ${r2Videos.keys.map((q) => '${q}p').join('·')}${plays > 0 ? ' · 재생 $plays회' : ''}'
+        '룰 영상 ${r2Videos.keys.map((q) => '${q}p').join('·')}'
       else if (hasLegacyVideo)
         '매장 영상 있음 (예전 방식)'
       else if (geekId.isNotEmpty && _sharedVideos.containsKey(geekId))

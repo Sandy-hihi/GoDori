@@ -268,7 +268,7 @@ class _OpsInsightsTabState extends State<OpsInsightsTab> {
     final gameBox = _box(
       '많이 찾는 게임',
       '상세 조회 = 손님이 패드에서 게임을 눌러 상세를 연 횟수(같은 패드에서 30초 안에 다시 연 건 1번) · '
-          '룰 영상 = 패드에서 룰 영상을 튼 횟수${all ? ' · 전체 매장은 게임 이름으로 합침' : ''}',
+          '룰 영상 = 패드에서 룰 영상을 재생한 횟수${all ? ' · 전체 매장은 게임 이름으로 합침' : ''}',
       [_gameTable(d)],
     );
 

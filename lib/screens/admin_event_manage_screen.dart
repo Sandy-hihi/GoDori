@@ -15,6 +15,7 @@ import 'admin_notice_manage_screen.dart';
 
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
+import 'package:boardpad/widgets/admin_busy_dialog.dart';
 import 'package:boardpad/widgets/admin_colors.dart';
 import 'package:boardpad/services/store_scope.dart';
 
@@ -47,7 +48,10 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        // 112차: 저장 중엔 바깥 누르기·뒤로 가기로 안 닫힘(PopScope), [취소]도 흐리게
+        builder: (context, setDialogState) => PopScope(
+          canPop: !isUploading,
+          child: AlertDialog(
           title: Text(
             existing != null ? '이벤트 수정' : '이벤트 추가',
             style: const TextStyle(fontWeight: FontWeight.bold),
@@ -202,11 +206,11 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: isUploading ? null : () => Navigator.pop(context),
               child: const Text('취소', style: TextStyle(color: Colors.grey)),
             ),
-            StatefulBuilder(
-              builder: (context, setButtonState) => ElevatedButton(
+            Builder(
+              builder: (context) => ElevatedButton(
                 onPressed: isUploading
                     ? null
                     : () async {
@@ -220,7 +224,7 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                           );
                           return;
                         }
-                        setButtonState(() => isUploading = true);
+                        setDialogState(() => isUploading = true);
                         try {
                           String content = '';
                           if (selectedType == 'text') {
@@ -272,7 +276,7 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                             );
                           }
                         } catch (e) {
-                          setButtonState(() => isUploading = false);
+                          setDialogState(() => isUploading = false);
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
@@ -283,63 +287,37 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                           }
                         }
                       },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: kAdminAccent,
-                  foregroundColor: Colors.white,
+                // 처리 중엔 글자는 그대로, 버튼만 흐리게 (100차)
+                style: busyButtonStyle(kAdminAccent),
+                child: Text(
+                  existing != null ? '수정하기' : '추가하기',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                child: isUploading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : Text(
-                        existing != null ? '수정하기' : '추가하기',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
               ),
             ),
           ],
+        ),
         ),
       ),
     );
   }
 
+  // 112차: 처리 중 버튼 잠그기(100차 규칙) — 지우는 동안 [삭제] 흐리게·[취소]·바깥 누르기 막음, 끝나면 한 번만 닫힘
   Future<void> _deleteEvent(
     BuildContext context,
     int index,
     List<dynamic> items,
   ) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('삭제 확인'),
-        content: Text('"${(items[index] as Map)['title']}" 이벤트를 삭제할까요?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('삭제'),
-          ),
-        ],
-      ),
+    await showBusyConfirm(
+      context,
+      title: '삭제 확인',
+      message: '"${(items[index] as Map)['title']}" 이벤트를 삭제할까요?',
+      errorText: '삭제하지 못했어요',
+      action: () async {
+        final newItems = List.from(items)..removeAt(index);
+        await StoreScope.col('settings').doc('events').set({'items': newItems});
+      },
     );
-    if (confirm == true) {
-      final newItems = List.from(items)..removeAt(index);
-      await StoreScope.col('settings').doc('events').set(
-        {'items': newItems},
-      );
-    }
   }
 
   @override

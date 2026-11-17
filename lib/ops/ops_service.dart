@@ -163,6 +163,10 @@ class OpsService {
   static Future<Map<String, dynamic>> insights(String storeId, int days) =>
       _call('GET', '/api/ops/insights', query: {'storeId': storeId, 'days': '$days'});
 
+  /// 룰 영상 재생 통계 (112차) — storeId: 매장 아이디 또는 'all', days: 1·7·30·90, 0 = 전체(누적)
+  static Future<Map<String, dynamic>> videoStats(String storeId, int days) =>
+      _call('GET', '/api/ops/video-stats', query: {'storeId': storeId, 'days': '$days'});
+
   static Future<Map<String, dynamic>> projectUsage(int days) =>
       _call('GET', '/api/ops/project-usage', query: {'days': '$days'});
 

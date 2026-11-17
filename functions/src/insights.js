@@ -4,6 +4,8 @@
 //   POST /api/stats/order      (패드) { orderId }  주문 직후 패드가 부름 → 서버가 주문 문서를 읽어 메뉴별로 셈 (한 주문은 한 번만)
 //   POST /api/stats/report     (패드) { gameViews: { 게임 ID: 횟수 } }  손님이 게임 상세를 연 횟수 (패드가 모아서 10분마다)
 //   GET  /api/ops/insights?storeId=<매장 아이디 | all>&days=7|30|90   (운영자) 기간 합계 — 인기 메뉴·인기 게임·시간대별 주문
+//   GET  /api/ops/video-stats?storeId=<매장 아이디 | all>&days=1|7|30|90|0   (운영자, 112차) 룰 영상 재생 통계 — 0 = 전체(누적)
+//        (관리자 웹에서 보던 화면을 112차에 운영자 페이지로 옮김 — videoStats·videoStatsDaily는 보안 규칙상 이제 서버만 읽음)
 //
 // 저장 (전부 서버만 — firestore.rules에 없는 경로라 앱에서는 읽기·쓰기 모두 막힘):
 //   stores/{매장}/statsDaily/{YYYY-MM-DD}  (한국 날짜)
@@ -158,6 +160,105 @@ function gameRows(games, top = TOP) {
 // 이름 비교용 (띄어쓰기·대소문자 무시) — 전체 매장 합칠 때
 const norm = (s) => String(s || '').replace(/\s+/g, '').toLowerCase();
 
+// ── 룰 영상 재생 통계 (112차) ──
+const DAY_MS = 86400 * 1000;
+const VIDEO_TOP = 300;
+
+// 오늘 포함 최근 days일의 한국 날짜 (오래된 날부터)
+function dateKeys(nowMs, days) {
+  const out = [];
+  for (let i = days - 1; i >= 0; i--) out.push(seoulDateKey(new Date(nowMs - i * DAY_MS)));
+  return out;
+}
+
+// 게임 문서의 ruleVideo에 매장 영상(1080·720 중 하나라도)이 있는지 — lib/services/rule_video_service.dart videosOf와 같게
+function hasStoreVideo(rv) {
+  return !!rv && typeof rv === 'object' && ['q1080', 'q720'].some((q) => rv[q] && String(rv[q].key || '') !== '');
+}
+
+// 매장 하나. days = 0이면 전체(누적 videoStats), 아니면 videoStatsDaily의 그 기간
+// dailyRows: videoStatsDaily 문서들, totals: [{ gameId, title, plays, lastPlayedAt }], games: [{ id, title, hasVideo }]
+function videoStatsOf({ days, nowMs, dailyRows = [], totals = [], games = [] }) {
+  const titleOf = new Map(games.map((g) => [g.id, g.title]));
+  const tot = new Map(totals.map((t) => [t.gameId, t]));
+  const name = (id) => {
+    if (titleOf.get(id)) return titleOf.get(id);
+    const t = tot.get(id);
+    return t && t.title ? `${t.title} (지운 게임)` : '(이름 없음)';
+  };
+  const counts = new Map();
+  const daily = [];
+  if (!days) {
+    for (const t of totals) if (num(t.plays) > 0) counts.set(t.gameId, num(t.plays));
+  } else {
+    const byDate = new Map(dailyRows.map((r) => [String(r.date), r]));
+    for (const k of dateKeys(nowMs, days)) {
+      const r = byDate.get(k);
+      let n = 0;
+      if (r && r.games && typeof r.games === 'object') {
+        for (const [id, c] of Object.entries(r.games)) {
+          const v = num(c);
+          if (v > 0) {
+            counts.set(id, (counts.get(id) || 0) + v);
+            n += v;
+          }
+        }
+      }
+      if (!n && r) n = num(r.plays); // games 칸이 없던 예전 기록
+      daily.push({ date: k, plays: n });
+    }
+  }
+  const list = [...counts].map(([id, plays]) => {
+    const t = tot.get(id);
+    return { id, title: name(id), plays, allTime: num(t && t.plays), lastPlayedAt: (t && t.lastPlayedAt) || null };
+  }).sort((a, b) => b.plays - a.plays || a.title.localeCompare(b.title));
+  const total = days ? daily.reduce((s, d) => s + d.plays, 0) : list.reduce((s, g) => s + g.plays, 0);
+  const withVideo = games.filter((g) => g.hasVideo);
+  return {
+    total,
+    gamesPlayed: list.length,
+    daily,
+    games: list,
+    videoGames: withVideo.length,
+    unwatched: withVideo.filter((g) => !counts.has(g.id)).map((g) => g.title || '(이름 없음)').sort((a, b) => a.localeCompare(b)),
+  };
+}
+
+// 전체 매장: 게임은 이름으로 합침(매장마다 ID가 달라서), stores = 그 게임을 본 매장 수, perStore = 매장별 합계
+function mergeVideoStats(results) {
+  const daily = new Map();
+  const games = new Map();
+  let total = 0;
+  let videoGames = 0;
+  for (const r of results) {
+    total += r.total;
+    videoGames += r.videoGames;
+    for (const d of r.daily) daily.set(d.date, (daily.get(d.date) || 0) + d.plays);
+    for (const g of r.games) {
+      const title = g.title.replace(/ \(지운 게임\)$/, '');
+      const k = norm(title);
+      const cur = games.get(k) || { id: k, title, plays: 0, allTime: 0, lastPlayedAt: null, stores: 0 };
+      cur.plays += g.plays;
+      cur.allTime += g.allTime;
+      if (g.lastPlayedAt && (!cur.lastPlayedAt || g.lastPlayedAt > cur.lastPlayedAt)) cur.lastPlayedAt = g.lastPlayedAt;
+      cur.stores++;
+      games.set(k, cur);
+    }
+  }
+  const list = [...games.values()].sort((a, b) => b.plays - a.plays || b.stores - a.stores || a.title.localeCompare(b.title));
+  return {
+    total,
+    gamesPlayed: list.length,
+    daily: [...daily].map(([date, plays]) => ({ date, plays })).sort((a, b) => a.date.localeCompare(b.date)),
+    games: list,
+    videoGames,
+    unwatched: [], // 전체 매장은 안 셈
+    perStore: results
+      .map((r) => ({ storeId: r.storeId, name: r.name, total: r.total, gamesPlayed: r.gamesPlayed, videoGames: r.videoGames }))
+      .sort((a, b) => b.total - a.total || String(a.name).localeCompare(String(b.name))),
+  };
+}
+
 // ── 저장소 ──
 
 function createFirestoreInsights(db) {
@@ -212,6 +313,25 @@ function createFirestoreInsights(db) {
       const snap = await store(storeId).collection('videoStatsDaily').where('date', '>=', from).get();
       return snap.docs.map((d) => d.data());
     },
+    // 112차: 룰 영상 누적 재생 (videoStats — 게임마다 한 문서)
+    async videoTotals(storeId) {
+      const snap = await store(storeId).collection('videoStats').get();
+      return snap.docs.map((d) => {
+        const v = d.data();
+        const t = v.lastPlayedAt;
+        return {
+          gameId: d.id,
+          title: String(v.title || ''),
+          plays: num(v.plays),
+          lastPlayedAt: t && typeof t.toDate === 'function' ? t.toDate().toISOString() : null,
+        };
+      });
+    },
+    // 112차: 게임 이름 + 매장 룰 영상이 있는지 (이름·영상 칸만 읽음)
+    async gamesWithVideo(storeId) {
+      const snap = await store(storeId).collection('games').select('title', 'ruleVideo').get();
+      return snap.docs.map((d) => ({ id: d.id, title: String(d.get('title') || ''), hasVideo: hasStoreVideo(d.get('ruleVideo')) }));
+    },
     // 게임 이름 (상위 몇 개만 읽음). 지운 게임은 룰 영상 통계(videoStats)에 남은 이름으로
     async gameTitles(storeId, ids) {
       if (!ids.length) return {};
@@ -234,7 +354,8 @@ function createFirestoreInsights(db) {
 }
 
 // 테스트용 — orders: { 매장: { 주문 ID: 주문 } }, games: { 매장: { 게임 ID: 이름 } }, video: { 매장: [videoStatsDaily 문서] }
-function createMemoryInsights({ orders = {}, games = {}, video = {} } = {}) {
+// videoTotals: { 매장: [{ gameId, title, plays, lastPlayedAt }] }, videoGames: { 매장: [매장 영상이 있는 게임 ID] } (112차)
+function createMemoryInsights({ orders = {}, games = {}, video = {}, videoTotals = {}, videoGames = {} } = {}) {
   const daily = new Map(); // `${매장}/${날짜}` → 문서
   const doc = (storeId, date) => {
     const k = `${storeId}/${date}`;
@@ -281,6 +402,13 @@ function createMemoryInsights({ orders = {}, games = {}, video = {} } = {}) {
     },
     async videoDaysSince(storeId, from) {
       return (video[storeId] || []).filter((d) => d.date >= from);
+    },
+    async videoTotals(storeId) {
+      return JSON.parse(JSON.stringify(videoTotals[storeId] || []));
+    },
+    async gamesWithVideo(storeId) {
+      const has = new Set(videoGames[storeId] || []);
+      return Object.entries(games[storeId] || {}).map(([id, title]) => ({ id, title, hasVideo: has.has(id) }));
     },
     async gameTitles(storeId, ids) {
       const g = games[storeId] || {};
@@ -410,6 +538,33 @@ function createInsightRoutes({ data, stores, now = () => Date.now(), httpError }
       if (!s) throw httpError(404, 'NO_STORE', '없는 매장이에요.');
       return { storeId: s.id, name: s.name, storeCount: 1, from, days, ...(await storeInsights(s.id, from)) };
     }
+    // 112차: 룰 영상 재생 통계 (예전 관리자 웹 화면을 운영자 페이지로)
+    if (path === '/api/ops/video-stats' && req.method === 'GET') {
+      const q = req.query || {};
+      const raw = Math.trunc(Number(q.days));
+      const days = raw === 0 && String(q.days) === '0' ? 0 : Math.min(90, Math.max(1, raw || 7));
+      const nowMs = now();
+      const from = days ? seoulDateKey(new Date(nowMs - (days - 1) * DAY_MS)) : null;
+      const one = async (id) => {
+        const [dailyRows, totals, games] = await Promise.all([
+          days ? data.videoDaysSince(id, from) : [], data.videoTotals(id), data.gamesWithVideo(id),
+        ]);
+        return videoStatsOf({ days, nowMs, dailyRows, totals, games });
+      };
+      const storeId = String(q.storeId || '');
+      const list = await stores.listStores();
+      if (storeId === 'all') {
+        const active = list.filter((s) => s.status === 'active');
+        const results = [];
+        for (const s of active) results.push({ storeId: s.id, name: s.name, ...(await one(s.id)) });
+        const m = mergeVideoStats(results);
+        return { storeId: 'all', name: '전체 매장', storeCount: active.length, days, from, ...m, games: m.games.slice(0, VIDEO_TOP) };
+      }
+      const s = list.find((x) => x.id === storeId);
+      if (!s) throw httpError(404, 'NO_STORE', '없는 매장이에요.');
+      const r = await one(s.id);
+      return { storeId: s.id, name: s.name, storeCount: 1, days, from, ...r, games: r.games.slice(0, VIDEO_TOP) };
+    }
     throw httpError(404, 'NOT_FOUND', '없는 주소예요.');
   }
 
@@ -418,4 +573,5 @@ function createInsightRoutes({ data, stores, now = () => Date.now(), httpError }
 
 module.exports = {
   createFirestoreInsights, createMemoryInsights, createInsightRoutes, summarizeOrder, aggregate, seoulHour,
+  videoStatsOf, mergeVideoStats, hasStoreVideo,
 };

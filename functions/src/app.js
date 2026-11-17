@@ -584,7 +584,7 @@ function createHandler({
         if (!translate) throw httpError(503, 'NO_TRANSLATE', '자동 번역이 서버에 연결되지 않았어요.');
         return reply(200, await translate.route(req, path, { requireAdmin, rate }));
       }
-      if (path === '/api/ops/insights') {
+      if (path === '/api/ops/insights' || path === '/api/ops/video-stats') { // video-stats = 룰 영상 통계(112차)
         await requireOps(req);
         rate('ops', 120, MIN, '운영자 요청');
         if (!insights) throw httpError(503, 'NO_INSIGHTS', '매장 통계가 서버에 연결되지 않았어요.');
