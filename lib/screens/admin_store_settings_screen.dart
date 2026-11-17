@@ -13,6 +13,7 @@ import 'admin_game_manage_screen.dart';
 import 'admin_home_layout_screen.dart';
 import 'admin_menu_manage_screen.dart';
 import 'admin_notice_manage_screen.dart';
+import 'admin_toss_pos_screen.dart';
 
 /// 관리자 웹: 매장 설정 (방 개수, 음식 수령 방식, 로그인 아이디·비밀번호)
 class AdminStoreSettingsScreen extends StatefulWidget {
@@ -39,6 +40,7 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
   final _scroll = ScrollController();
   late final Stream<OrderFlow> _flowStream = OrderFlowService.watch();
   late final Stream<StoreFeatures> _featureStream = StoreFeaturesService.watch();
+  late final Stream<StoreFeatures> _helpFeatureStream = StoreFeaturesService.watch(); // 도움말 칸용(구독 따로)
   late final List<_Section> _sections = [
     _Section('room', _roomKey, Icons.meeting_room_outlined, '방 개수'),
     _Section('flow', _flowKey, Icons.room_service_outlined, '음식 수령 방식'),
@@ -183,7 +185,7 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
                 : LayoutBuilder(builder: (context, c) {
                     // 110차: 넓은 화면이면 오른쪽에 '지금 설정' 요약 칸(고정), 좁으면 위쪽 칩
                     final wide = c.maxWidth >= 1100;
-                    return Column(
+                    final page = Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Padding(
@@ -201,16 +203,14 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
                               ? Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    SizedBox(width: 776, child: _cardsScroll(wide)),
-                                    Expanded(
-                                      child: Align(
-                                        alignment: Alignment.topLeft,
-                                        child: ConstrainedBox(
-                                          constraints: const BoxConstraints(maxWidth: 380),
-                                          child: SingleChildScrollView(
-                                            padding: const EdgeInsets.fromLTRB(0, 0, 32, 32),
-                                            child: _summaryPanel(),
-                                          ),
+                                    // 110차: 카드 칸은 남는 폭만큼 늘어남(카드 최대 960), 오른쪽 칸은 360 + 여백
+                                    Expanded(child: _cardsScroll(wide)),
+                                    SizedBox(
+                                      width: 392,
+                                      child: SingleChildScrollView(
+                                        padding: const EdgeInsets.fromLTRB(0, 0, 32, 32),
+                                        child: Column(
+                                          children: [_summaryPanel(), const SizedBox(height: 16), _helpPanel()],
                                         ),
                                       ),
                                     ),
@@ -219,6 +219,12 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
                               : _cardsScroll(wide),
                         ),
                       ],
+                    );
+                    if (!wide) return page;
+                    // 아주 넓은 화면은 전체 최대 1440 안에서 가운데로
+                    return Align(
+                      alignment: Alignment.topCenter,
+                      child: SizedBox(width: c.maxWidth < 1440 ? c.maxWidth : 1440, height: c.maxHeight, child: page),
                     );
                   }),
           ),
@@ -251,7 +257,8 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
     final dirty = _saved != null && _count != _saved;
     return Container(
       key: _roomKey,
-      constraints: const BoxConstraints(maxWidth: 720),
+      width: double.infinity, // 110차: 다른 카드와 같은 폭으로
+      constraints: const BoxConstraints(maxWidth: 960),
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
       child: Column(
@@ -372,6 +379,105 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
           ),
           _summaryRow(_sec('login'), '매장 아이디', Text(StoreScope.isSet ? StoreScope.id : '-', style: _valueStyle)),
         ],
+      ),
+    );
+  }
+
+  /// 넓은 화면: 요약 칸 아래 '패드 로그인 방법' + 바로가기 (110차)
+  Widget _helpPanel() {
+    final store = StoreScope.isSet ? StoreScope.id : '-';
+    Widget step(String n, String title, String detail) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 22,
+                height: 22,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: _navy.withValues(alpha: 0.08), shape: BoxShape.circle),
+                child: Text(n, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: _navy)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(detail, style: const TextStyle(fontSize: 13, color: Colors.black54, height: 1.4)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+    Widget link(IconData icon, String label, VoidCallback onTap) => Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+              child: Row(
+                children: [
+                  Icon(icon, size: 18, color: Colors.black45),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(label)),
+                  const Icon(Icons.chevron_right, size: 18, color: Colors.black38),
+                ],
+              ),
+            ),
+          ),
+        );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 20, 14, 10),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      child: StreamBuilder<StoreFeatures>(
+        stream: _helpFeatureStream,
+        builder: (context, snap) {
+          final f = snap.data;
+          final dashboardOn = f?.adminDashboard ?? true;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10),
+                child: Text('패드 로그인 방법', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(height: 14),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Column(
+                  children: [
+                    step('1', '매장 아이디', store),
+                    step('2', '패드 비밀번호', '직원들과 같이 쓰는 비밀번호예요. \'로그인\' 카드에서 바꿀 수 있어요.'),
+                    step(
+                      '3',
+                      '방 번호',
+                      dashboardOn
+                          ? '손님 패드는 1~$_saved번, 매장 관리자 대시보드는 0번 + 관리자 PIN'
+                          : '손님 패드는 1~$_saved번 (관리자 대시보드는 꺼져 있어요)',
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 16),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(10, 6, 10, 4),
+                child: Text('바로가기', style: TextStyle(fontSize: 13, color: Colors.black54)),
+              ),
+              link(Icons.restaurant_menu, '음식 메뉴 관리', () => _navigate('menu')),
+              link(Icons.dashboard_customize_outlined, '홈 화면 꾸미기', () => _navigate('home')),
+              if (f?.tossPos == true)
+                link(
+                  Icons.point_of_sale_outlined,
+                  '토스 POS 연동 설정',
+                  () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminTossPosScreen())),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -507,7 +613,7 @@ class _OrderFlowCardState extends State<_OrderFlowCard> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(maxWidth: 720),
+      constraints: const BoxConstraints(maxWidth: 960),
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
       child: StreamBuilder<OrderFlow>(
@@ -617,7 +723,7 @@ class _LoginCardState extends State<_LoginCard> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(maxWidth: 720),
+      constraints: const BoxConstraints(maxWidth: 960),
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
       child: Column(

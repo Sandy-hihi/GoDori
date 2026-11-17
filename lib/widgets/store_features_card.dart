@@ -101,7 +101,7 @@ class _StoreFeaturesCardState extends State<StoreFeaturesCard> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(maxWidth: 720),
+      constraints: const BoxConstraints(maxWidth: 960),
       padding: const EdgeInsets.all(28),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
       child: StreamBuilder<StoreFeatures>(
