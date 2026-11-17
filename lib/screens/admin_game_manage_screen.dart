@@ -136,7 +136,145 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
     _genreSubscription?.cancel();
     _addForm.dispose();
     _bulkCtrl.dispose();
+    _tick.dispose();
     super.dispose();
+  }
+
+  // 107차: 게임 추가·대용량 추가·소요시간 채우기·매장 추천 순서는 위 버튼을 눌러 여는 창으로.
+  //        창 안 내용이 이 화면의 setState·게임 목록 변화를 따라 다시 그려지게 _tick을 올림
+  final ValueNotifier<int> _tick = ValueNotifier<int>(0);
+  List<GameDoc> _lastAll = const [];
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _tick.value++;
+  }
+
+  Set<String> get _registeredIds =>
+      _lastAll.map((d) => (d.data()['geekId'] ?? '').toString()).where((x) => x.isNotEmpty).toSet();
+
+  Future<void> _openPanel(Widget Function() body) => showDialog<void>(
+        context: context,
+        builder: (ctx) => Dialog(
+          backgroundColor: const Color(0xFFF4F6F8),
+          insetPadding: const EdgeInsets.all(24),
+          child: SizedBox(
+            width: 560,
+            height: MediaQuery.sizeOf(ctx).height * 0.86,
+            child: Column(
+              children: [
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(tooltip: '닫기', onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
+                ),
+                Expanded(
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _tick,
+                    builder: (context, value, child) => ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      children: [body()],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+  // 107차: 장르 = 왼쪽 세로 목록(게임 수) — 장르가 많아도 아래로 스크롤. 좁은 화면은 드롭다운
+  int _genreCount(String g, Map<String, int> counts, int total) => g == '전체' ? total : (counts[g] ?? 0);
+
+  Widget _genreTile(String label, int n, bool on, VoidCallback onTap) {
+    return Material(
+      color: on ? kAdminAccent : Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+          child: Row(children: [
+            Expanded(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: on ? Colors.white : Colors.black87,
+                  fontWeight: on ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text('$n', style: TextStyle(fontSize: 13, color: on ? Colors.white70 : (n == 0 ? Colors.black26 : Colors.black45))),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _genrePanel(List<String> genres, Map<String, int> counts, int total, int pickN) {
+    return Container(
+      width: 210,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          for (final g in genres)
+            _genreTile(g, _genreCount(g, counts, total), _genreFilter == g, () => setState(() {
+                  _genreFilter = g;
+                  _currentPage = 1;
+                })),
+          const Divider(height: 17),
+          _genreTile('★ 매장 추천만', pickN, _pickedOnly, () => setState(() {
+                _pickedOnly = !_pickedOnly;
+                _currentPage = 1;
+              })),
+        ],
+      ),
+    );
+  }
+
+  Widget _genreDropdown(List<String> genres, Map<String, int> counts, int total) {
+    return Row(children: [
+      Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: _genreFilter,
+              items: [
+                for (final g in genres) DropdownMenuItem(value: g, child: Text('$g  ${_genreCount(g, counts, total)}')),
+              ],
+              onChanged: (v) => setState(() {
+                _genreFilter = v ?? '전체';
+                _currentPage = 1;
+              }),
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(width: 8),
+      FilterChip(
+        label: const Text('★ 매장 추천만'),
+        selected: _pickedOnly,
+        onSelected: (v) => setState(() {
+          _pickedOnly = v;
+          _currentPage = 1;
+        }),
+      ),
+    ]);
   }
 
   // 92차: 패드는 게임 목록을 하루 1번만 받음 → 바꾼 뒤엔 '손님 앱 새로고침'을 눌러야 바로 보임
@@ -398,7 +536,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
       if (!mounted) return;
       setState(() {
         _addBusy = false;
-        _addNote = null;
+        _addNote = "✓ '${fields['title']}' 게임을 추가했어요. 이어서 추가하거나 창을 닫아 주세요."; // 107차: 창 안에서도 보이게
       });
       _toast("'${fields['title']}' 게임을 추가했어요.$_refreshHint");
     } catch (e) {
@@ -1101,7 +1239,7 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
     return _card(
       title: '매장 추천 순서',
       subtitle: picks.isEmpty
-          ? '오른쪽 목록에서 ★ 버튼을 누르면 매장 추천에 올라가요. (손님 앱 "추천" 탭)'
+          ? '게임 목록에서 ★ 버튼을 누르면 매장 추천에 올라가요. (손님 앱 "추천" 탭)'
           : '위에 있을수록 먼저 보여요. 화살표로 순서를 바꿔 주세요.',
       children: [
         for (var i = 0; i < picks.length; i++)
@@ -1329,17 +1467,6 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
     );
   }
 
-  Widget _filterChip(String label, bool selected, VoidCallback onTap) => Padding(
-        padding: const EdgeInsets.only(right: 6),
-        child: ChoiceChip(
-          label: Text(label),
-          selected: selected,
-          selectedColor: kAdminAccent,
-          labelStyle: TextStyle(color: selected ? Colors.white : Colors.black87, fontWeight: selected ? FontWeight.bold : FontWeight.normal),
-          onSelected: (_) => onTap(),
-        ),
-      );
-
   Widget _buildListCard(List<GameDoc> all) {
     final q = _searchQuery.trim().toLowerCase();
     final games = all.where((d) {
@@ -1383,38 +1510,13 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _filterChip('전체', _genreFilter == '전체', () => setState(() {
-                            _genreFilter = '전체';
-                            _currentPage = 1;
-                          })),
-                      ..._genreList.map((x) => _filterChip(x, _genreFilter == x, () => setState(() {
-                            _genreFilter = x;
-                            _currentPage = 1;
-                          }))),
-                      const SizedBox(width: 8),
-                      FilterChip(
-                        label: const Text('★ 매장 추천만'),
-                        selected: _pickedOnly,
-                        onSelected: (v) => setState(() {
-                          _pickedOnly = v;
-                          _currentPage = 1;
-                        }),
-                      ),
-                    ],
-                  ),
-                ),
               ],
             ),
           ),
           const Divider(height: 1),
           Expanded(
             child: pageGames.isEmpty
-                ? Center(child: Text(all.isEmpty ? '등록된 보드게임이 없어요. 왼쪽에서 추가해 주세요.' : '해당하는 게임이 없어요.', style: const TextStyle(color: Colors.grey)))
+                ? Center(child: Text(all.isEmpty ? '등록된 보드게임이 없어요. 위 [게임 추가]로 추가해 주세요.' : '해당하는 게임이 없어요.', style: const TextStyle(color: Colors.grey)))
                 : ListView.separated(
                     itemCount: pageGames.length,
                     separatorBuilder: (_, __) => const Divider(height: 1),
@@ -1491,6 +1593,53 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
+                      // 107차: 대용량 추가·추천 순서·소요시간 채우기·게임 추가는 버튼으로 여는 창
+                      OutlinedButton.icon(
+                        onPressed: () => _openPanel(() => _buildBulkCard(_registeredIds)),
+                        icon: const Icon(Icons.playlist_add, size: 18),
+                        label: const Text('대용량 추가'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: kAdminAccent,
+                          side: const BorderSide(color: kAdminAccent),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      PopupMenuButton<String>(
+                        tooltip: '더보기',
+                        onSelected: (v) {
+                          if (v == 'picks') _openPanel(() => _buildPicksCard(_sortedPicks(_lastAll)));
+                          if (v == 'time') _openPanel(() => _buildTimeFillCard(_lastAll));
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'picks', child: Text('매장 추천 순서')),
+                          PopupMenuItem(value: 'time', child: Text('소요시간 BGG로 채우기')),
+                        ],
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: kAdminAccent),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(Icons.more_horiz, size: 18, color: kAdminAccent),
+                            SizedBox(width: 6),
+                            Text('더보기', style: TextStyle(color: kAdminAccent)),
+                          ]),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        onPressed: () => _openPanel(() => _buildAddCard(_registeredIds)),
+                        icon: const Icon(Icons.add),
+                        label: const Text('게임 추가', style: TextStyle(fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kAdminAccent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       // 92차: 패드는 게임 목록을 하루 1번만 받음(game_catalog.dart) — 게임을 추가·수정·삭제·숨김한 뒤 누르면 모든 패드가 다시 받음
                       Tooltip(
                         message: '패드는 게임 목록을 하루 1번만 받아요.\n게임을 추가·수정·삭제·숨김한 뒤 누르면 모든 패드가 바로 다시 받아요.',
@@ -1524,35 +1673,40 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                         }
                         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                         final all = snapshot.data!.docs;
-                        final registeredGeekIds = all.map((d) => (d.data()['geekId'] ?? '').toString()).where((x) => x.isNotEmpty).toSet();
-                        final picks = _sortedPicks(all);
-                        // 좁은 화면(폰·아이패드 세로): 등록 카드들을 위에, 목록을 아래에 세로로 (82차)
+                        // 열려 있는 창(게임 추가·추천 순서 등)도 새 목록으로 (107차)
+                        if (!identical(all, _lastAll)) {
+                          _lastAll = all;
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) _tick.value++;
+                          });
+                        }
+                        // 장르별 게임 수 — 장르 목록에 없는 장르(게임에만 있음)는 뒤에 가나다순
+                        final counts = <String, int>{};
+                        var pickN = 0;
+                        for (final d in all) {
+                          for (final g in gameGenres(d.data())) {
+                            counts[g] = (counts[g] ?? 0) + 1;
+                          }
+                          if (d.data()['isRecommended'] == true) pickN++;
+                        }
+                        final extra = counts.keys.where((g) => g.isNotEmpty && !_genreList.contains(g)).toList()..sort();
+                        final genres = ['전체', ..._genreList, ...extra];
+                        if (!genres.contains(_genreFilter)) _genreFilter = '전체';
+                        // 좁은 화면(폰·아이패드 세로): 장르 드롭다운을 위에 (82·107차)
                         if (MediaQuery.sizeOf(context).width < 900) {
-                          return ListView(
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              _buildAddCard(registeredGeekIds),
-                              _buildBulkCard(registeredGeekIds),
-                              _buildTimeFillCard(all),
-                              _buildPicksCard(picks),
-                              const SizedBox(height: 16),
-                              SizedBox(height: 600, child: _buildListCard(all)),
+                              _genreDropdown(genres, counts, all.length),
+                              const SizedBox(height: 12),
+                              Expanded(child: _buildListCard(all)),
                             ],
                           );
                         }
                         return Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            SizedBox(
-                              width: 460,
-                              child: ListView(
-                                children: [
-                                  _buildAddCard(registeredGeekIds),
-                                  _buildBulkCard(registeredGeekIds),
-                                  _buildTimeFillCard(all),
-                                  _buildPicksCard(picks),
-                                ],
-                              ),
-                            ),
+                            _genrePanel(genres, counts, all.length, pickN),
                             const SizedBox(width: 16),
                             Expanded(child: _buildListCard(all)),
                           ],
