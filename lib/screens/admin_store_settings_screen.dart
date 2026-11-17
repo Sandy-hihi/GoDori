@@ -4,6 +4,7 @@ import 'package:boardpad/models/order_flow.dart';
 import 'package:boardpad/services/admin_session.dart';
 import 'package:boardpad/services/order_flow_service.dart';
 import 'package:boardpad/services/room_settings_service.dart';
+import 'package:boardpad/services/store_features.dart';
 import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
 import 'package:boardpad/widgets/store_features_card.dart';
@@ -28,9 +29,63 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
   int _count = RoomSettingsService.defaultCount;
   bool _saving = false;
 
+  // 섹션 바로가기 (110차): 넓은 화면은 오른쪽 '지금 설정' 요약 칸, 좁은 화면은 위쪽 칩.
+  // 누르면 그 카드로 스크롤, 스크롤하면 지금 보이는 섹션을 강조.
+  final _roomKey = GlobalKey();
+  final _flowKey = GlobalKey();
+  final _featuresKey = GlobalKey();
+  final _loginKey = GlobalKey();
+  final _viewportKey = GlobalKey();
+  final _scroll = ScrollController();
+  late final Stream<OrderFlow> _flowStream = OrderFlowService.watch();
+  late final Stream<StoreFeatures> _featureStream = StoreFeaturesService.watch();
+  late final List<_Section> _sections = [
+    _Section('room', _roomKey, Icons.meeting_room_outlined, '방 개수'),
+    _Section('flow', _flowKey, Icons.room_service_outlined, '음식 수령 방식'),
+    _Section('features', _featuresKey, Icons.tune, '기능 사용'),
+    _Section('login', _loginKey, Icons.lock_outline, '로그인'),
+  ];
+  String _active = 'room';
+  bool _jumping = false;
+
+  Future<void> _jumpTo(_Section s) async {
+    final ctx = s.key.currentContext;
+    if (ctx == null) return;
+    setState(() => _active = s.id);
+    _jumping = true;
+    await Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 350), curve: Curves.easeOutCubic);
+    _jumping = false;
+    if (mounted && _active != s.id) setState(() => _active = s.id);
+  }
+
+  void _onScroll() {
+    if (_jumping || !_scroll.hasClients) return;
+    final viewport = _viewportKey.currentContext?.findRenderObject() as RenderBox?;
+    if (viewport == null) return;
+    var next = _sections.first.id;
+    final pos = _scroll.position;
+    if (pos.pixels >= pos.maxScrollExtent - 4 && pos.maxScrollExtent > 0) {
+      next = _sections.last.id;
+    } else {
+      for (final s in _sections) {
+        final box = s.key.currentContext?.findRenderObject() as RenderBox?;
+        if (box == null || !box.attached) continue;
+        if (box.localToGlobal(Offset.zero, ancestor: viewport).dy <= 120) next = s.id;
+      }
+    }
+    if (next != _active) setState(() => _active = next);
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    _scroll.addListener(_onScroll);
     RoomSettingsService.loadCount().then((n) {
       if (mounted) {
         setState(() {
@@ -106,9 +161,17 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
     );
   }
 
+  static const _flowShort = <OrderFlow, String>{
+    OrderFlow.serve: '방으로 가져다 드림',
+    OrderFlow.pickup: '카운터에서 받아 감',
+    OrderFlow.pickupPay: '카운터에서 결제·수령',
+  };
+  static const _valueStyle = TextStyle(fontWeight: FontWeight.bold, color: _navy);
+
+  _Section _sec(String id) => _sections.firstWhere((s) => s.id == id);
+
   @override
   Widget build(BuildContext context) {
-    final dirty = _saved != null && _count != _saved;
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6F8),
       body: Row(
@@ -117,85 +180,246 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
           Expanded(
             child: _saved == null
                 ? const Center(child: CircularProgressIndicator())
-                : SingleChildScrollView(
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
+                : LayoutBuilder(builder: (context, c) {
+                    // 110차: 넓은 화면이면 오른쪽에 '지금 설정' 요약 칸(고정), 좁으면 위쪽 칩
+                    final wide = c.maxWidth >= 1100;
+                    return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('매장 설정', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 24),
-                        Container(
-                          constraints: const BoxConstraints(maxWidth: 720),
-                          padding: const EdgeInsets.all(28),
-                          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(32, 32, 32, wide ? 20 : 16),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('방 개수', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 6),
-                              const Text(
-                                '패드 로그인 때 입력할 수 있는 방 번호(1번부터, 관리자는 0)예요. '
-                                '주문과 직원 호출도 이 번호까지만 받아요.',
-                                style: TextStyle(color: Colors.black54),
-                              ),
-                              const SizedBox(height: 24),
-                              // 좁은 화면이면 '(최대 30개)'가 다음 줄로 (82차)
-                              Wrap(
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                runSpacing: 8,
-                                children: [
-                                  _stepButton(Icons.remove, '하나 줄이기',
-                                      _count > RoomSettingsService.minCount ? () => setState(() => _count--) : null),
-                                  SizedBox(
-                                    width: MediaQuery.sizeOf(context).width < 700 ? 88 : 120,
-                                    child: Text('$_count개',
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold)),
-                                  ),
-                                  _stepButton(Icons.add, '하나 늘리기',
-                                      _count < RoomSettingsService.maxCount ? () => setState(() => _count++) : null),
-                                  const SizedBox(width: 16),
-                                  Text('(최대 ${RoomSettingsService.maxCount}개)',
-                                      style: const TextStyle(color: Colors.black45)),
-                                ],
-                              ),
-                              const SizedBox(height: 24),
-                              const SizedBox(height: 24),
-                              Row(
-                                children: [
-                                  FilledButton.icon(
-                                    onPressed: (!dirty || _saving) ? null : _save,
-                                    icon: _saving
-                                        ? const SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                        : const Icon(Icons.save_outlined),
-                                    label: const Text('저장', style: TextStyle(fontWeight: FontWeight.bold)),
-                                    style: FilledButton.styleFrom(backgroundColor: _navy, minimumSize: const Size(120, 48)),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  if (dirty)
-                                    TextButton(
-                                      onPressed: () => setState(() => _count = _saved!),
-                                      child: Text('원래대로 ($_saved개)'),
-                                    ),
-                                ],
-                              ),
+                              const Text('매장 설정', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                              if (!wide) ...[const SizedBox(height: 16), _chipRow()],
                             ],
                           ),
                         ),
-                        const SizedBox(height: 24),
-                        const _OrderFlowCard(),
-                        const SizedBox(height: 24),
-                        const StoreFeaturesCard(), // 59차: 패드 관리자 대시보드 켜기·끄기, 토스 POS 연동 상태
-                        const SizedBox(height: 24),
-                        const _LoginCard(),
+                        Expanded(
+                          child: wide
+                              ? Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SizedBox(width: 776, child: _cardsScroll(wide)),
+                                    Expanded(
+                                      child: Align(
+                                        alignment: Alignment.topLeft,
+                                        child: ConstrainedBox(
+                                          constraints: const BoxConstraints(maxWidth: 380),
+                                          child: SingleChildScrollView(
+                                            padding: const EdgeInsets.fromLTRB(0, 0, 32, 32),
+                                            child: _summaryPanel(),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : _cardsScroll(wide),
+                        ),
                       ],
-                    ),
-                  ),
+                    );
+                  }),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _cardsScroll(bool wide) {
+    return SingleChildScrollView(
+      key: _viewportKey,
+      controller: _scroll,
+      padding: EdgeInsets.fromLTRB(32, 0, wide ? 24 : 32, 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _roomCard(),
+          const SizedBox(height: 24),
+          _OrderFlowCard(key: _flowKey),
+          const SizedBox(height: 24),
+          StoreFeaturesCard(key: _featuresKey), // 59차: 패드 관리자 대시보드 켜기·끄기, 토스 POS 연동 상태
+          const SizedBox(height: 24),
+          _LoginCard(key: _loginKey),
+        ],
+      ),
+    );
+  }
+
+  Widget _roomCard() {
+    final dirty = _saved != null && _count != _saved;
+    return Container(
+      key: _roomKey,
+      constraints: const BoxConstraints(maxWidth: 720),
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('방 개수', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          const Text(
+            '패드 로그인 때 입력할 수 있는 방 번호(1번부터, 관리자는 0)예요. '
+            '주문과 직원 호출도 이 번호까지만 받아요.',
+            style: TextStyle(color: Colors.black54),
+          ),
+          const SizedBox(height: 20),
+          // 110차: 숫자 조절과 저장 버튼을 한 줄에 (좁은 화면이면 다음 줄로)
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            runSpacing: 12,
+            children: [
+              _stepButton(Icons.remove, '하나 줄이기',
+                  _count > RoomSettingsService.minCount ? () => setState(() => _count--) : null),
+              SizedBox(
+                width: MediaQuery.sizeOf(context).width < 700 ? 88 : 120,
+                child: Text('$_count개',
+                    textAlign: TextAlign.center, style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold)),
+              ),
+              _stepButton(Icons.add, '하나 늘리기',
+                  _count < RoomSettingsService.maxCount ? () => setState(() => _count++) : null),
+              const SizedBox(width: 16),
+              Text('(최대 ${RoomSettingsService.maxCount}개)', style: const TextStyle(color: Colors.black45)),
+              const SizedBox(width: 28),
+              FilledButton.icon(
+                onPressed: (!dirty || _saving) ? null : _save,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.save_outlined),
+                label: const Text('저장', style: TextStyle(fontWeight: FontWeight.bold)),
+                style: FilledButton.styleFrom(backgroundColor: _navy, minimumSize: const Size(110, 48)),
+              ),
+              if (dirty)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: TextButton(
+                    onPressed: () => setState(() => _count = _saved!),
+                    child: Text('원래대로 ($_saved개)'),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 좁은 화면: 제목 아래 섹션 칩 (지금 보이는 섹션은 남색으로 채움)
+  Widget _chipRow() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final s in _sections)
+          ActionChip(
+            avatar: Icon(s.icon, size: 18, color: s.id == _active ? Colors.white : _navy),
+            label: Text(s.label,
+                style: TextStyle(fontWeight: FontWeight.w600, color: s.id == _active ? Colors.white : Colors.black87)),
+            backgroundColor: s.id == _active ? _navy : Colors.white,
+            side: BorderSide(color: s.id == _active ? _navy : Colors.black12),
+            shape: const StadiumBorder(),
+            onPressed: () => _jumpTo(s),
+          ),
+      ],
+    );
+  }
+
+  /// 넓은 화면: 오른쪽 '지금 설정' 요약 — 줄을 누르면 그 카드로 이동, 지금 보이는 섹션은 강조
+  Widget _summaryPanel() {
+    final dirty = _saved != null && _count != _saved;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 20, 14, 14),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                Text('지금 설정', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                SizedBox(width: 8),
+                Text('누르면 이동', style: TextStyle(fontSize: 12, color: Colors.black45)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _summaryRow(_sec('room'), '방 개수', Text('$_saved개', style: _valueStyle),
+              note: dirty ? '$_count개로 바꾸는 중 · 아직 저장 안 됨' : null),
+          StreamBuilder<OrderFlow>(
+            stream: _flowStream,
+            builder: (context, snap) => _summaryRow(
+              _sec('flow'),
+              '음식 수령',
+              Text(snap.hasData ? (_flowShort[snap.data!] ?? snap.data!.title) : '…', style: _valueStyle),
+            ),
+          ),
+          StreamBuilder<StoreFeatures>(
+            stream: _featureStream,
+            builder: (context, snap) {
+              final f = snap.data;
+              return Column(
+                children: [
+                  _summaryRow(_sec('features'), '관리자 대시보드', _onOff(f?.adminDashboard, '켜짐', '꺼짐'),
+                      icon: Icons.dashboard_outlined),
+                  _summaryRow(_sec('features'), '토스 POS', _onOff(f?.tossPos, '연동 중', '사용 안 함'),
+                      icon: Icons.point_of_sale_outlined),
+                ],
+              );
+            },
+          ),
+          _summaryRow(_sec('login'), '매장 아이디', Text(StoreScope.isSet ? StoreScope.id : '-', style: _valueStyle)),
+        ],
+      ),
+    );
+  }
+
+  Widget _onOff(bool? on, String yes, String no) {
+    if (on == null) return const Text('…', style: TextStyle(color: Colors.black45));
+    return Text(on ? yes : no,
+        style: TextStyle(fontWeight: FontWeight.bold, color: on ? _navy : Colors.black45));
+  }
+
+  Widget _summaryRow(_Section s, String label, Widget value, {IconData? icon, String? note}) {
+    final active = s.id == _active;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Material(
+        color: active ? _navy.withValues(alpha: 0.07) : Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => _jumpTo(s),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon ?? s.icon, size: 18, color: active ? _navy : Colors.black45),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(label,
+                          style: TextStyle(
+                              color: active ? _navy : Colors.black87,
+                              fontWeight: active ? FontWeight.w600 : FontWeight.normal)),
+                    ),
+                    const SizedBox(width: 8),
+                    value,
+                  ],
+                ),
+                if (note != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 28, top: 4),
+                    child: Text(note, style: const TextStyle(fontSize: 12, color: Colors.deepOrange)),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -204,7 +428,7 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
 /// 음식 수령 방식 카드 (58차) — 누르면 바로 저장. settings/orderFlow
 /// 이미 들어온 주문은 주문할 때의 방식대로 처리되고, 바꾼 뒤 새로 들어오는 주문부터 새 방식.
 class _OrderFlowCard extends StatefulWidget {
-  const _OrderFlowCard();
+  const _OrderFlowCard({super.key});
 
   @override
   State<_OrderFlowCard> createState() => _OrderFlowCardState();
@@ -318,7 +542,7 @@ class _OrderFlowCardState extends State<_OrderFlowCard> {
 
 /// 로그인 아이디·비밀번호 카드 (비밀번호 확인·저장은 서버 /api/store/passwords — 앱은 지금 값을 읽을 수 없음)
 class _LoginCard extends StatefulWidget {
-  const _LoginCard();
+  const _LoginCard({super.key});
 
   @override
   State<_LoginCard> createState() => _LoginCardState();
@@ -439,4 +663,13 @@ class _LoginCardState extends State<_LoginCard> {
       ),
     );
   }
+}
+
+/// 매장 설정 섹션 (110차 — 칩·요약 칸에서 이동할 곳)
+class _Section {
+  const _Section(this.id, this.key, this.icon, this.label);
+  final String id;
+  final GlobalKey key;
+  final IconData icon;
+  final String label;
 }
