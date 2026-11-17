@@ -1605,27 +1605,33 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      PopupMenuButton<String>(
-                        tooltip: '더보기',
-                        onSelected: (v) {
-                          if (v == 'picks') _openPanel(() => _buildPicksCard(_sortedPicks(_lastAll)));
-                          if (v == 'time') _openPanel(() => _buildTimeFillCard(_lastAll));
-                        },
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(value: 'picks', child: Text('매장 추천 순서')),
-                          PopupMenuItem(value: 'time', child: Text('소요시간 BGG로 채우기')),
-                        ],
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: kAdminAccent),
-                            borderRadius: BorderRadius.circular(20),
+                      // 109차: 다른 버튼과 크기·모양이 같게 — 같은 OutlinedButton 모양에 메뉴만 붙임
+                      MenuAnchor(
+                        menuChildren: [
+                          MenuItemButton(
+                            onPressed: () => _openPanel(() => _buildPicksCard(_sortedPicks(_lastAll))),
+                            child: const Text('매장 추천 순서'),
                           ),
-                          child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                            Icon(Icons.more_horiz, size: 18, color: kAdminAccent),
-                            SizedBox(width: 6),
-                            Text('더보기', style: TextStyle(color: kAdminAccent)),
-                          ]),
+                          MenuItemButton(
+                            onPressed: () => _openPanel(() => _buildTimeFillCard(_lastAll)),
+                            child: const Text('소요시간 BGG로 채우기'),
+                          ),
+                        ],
+                        builder: (context, controller, child) => OutlinedButton.icon(
+                          onPressed: () {
+                            if (controller.isOpen) {
+                              controller.close();
+                            } else {
+                              controller.open();
+                            }
+                          },
+                          icon: const Icon(Icons.more_horiz, size: 18),
+                          label: const Text('더보기'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: kAdminAccent,
+                            side: const BorderSide(color: kAdminAccent),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
