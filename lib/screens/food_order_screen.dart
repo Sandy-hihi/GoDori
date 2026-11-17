@@ -284,11 +284,15 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
       return;
     }
 
-    // 그룹별 선택된 옵션 (필수는 첫 번째 항목 자동 선택)
+    // 그룹별 선택된 옵션 (필수는 품절 아닌 첫 번째 항목 자동 선택)
+    // 106차: 선택지 품절(soldOut — 흐리게, 못 고름), 그룹마다 최대 고르기 개수(maxSelect, 기본 1 = 하나만)
+    bool optSoldOut(dynamic o) => o is Map && o['soldOut'] == true;
+    int maxOf(dynamic g) => (int.tryParse('${(g as Map)['maxSelect'] ?? 1}') ?? 1).clamp(1, 99).toInt();
     Map<int, List<Map<String, dynamic>>> selectedOptionsMap = {};
     for (int i = 0; i < optionGroups.length; i++) {
-      if (optionGroups[i]['isRequired'] == true && (optionGroups[i]['options'] as List).isNotEmpty) {
-        selectedOptionsMap[i] = [optionGroups[i]['options'][0]];
+      final open = [for (final o in (optionGroups[i]['options'] as List? ?? const [])) if (o is Map && !optSoldOut(o)) o];
+      if (optionGroups[i]['isRequired'] == true && open.isNotEmpty) {
+        selectedOptionsMap[i] = [Map<String, dynamic>.from(open.first)];
       } else {
         selectedOptionsMap[i] = [];
       }
@@ -309,6 +313,9 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
               }
             }
             int totalPrice = basePrice + additionalPrice;
+            // 필수 그룹의 선택지가 모두 품절이면 담을 수 없음 (106차)
+            final blocked = optionGroups.asMap().entries.any(
+                (e) => e.value['isRequired'] == true && (selectedOptionsMap[e.key] ?? const []).isEmpty);
 
             return Dialog(
               backgroundColor: kBg,
@@ -358,9 +365,10 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                             var group = entry.value;
                             bool isRequired = group['isRequired'] ?? false;
                             List<dynamic> opts = group['options'] ?? [];
-                            final selectedName = selectedOptionsMap[gIndex]?.isNotEmpty == true
-                                ? selectedOptionsMap[gIndex]!.first['name']
-                                : null;
+                            final maxN = maxOf(group);
+                            final picked = selectedOptionsMap[gIndex] ?? const <Map<String, dynamic>>[];
+                            bool isPicked(dynamic opt) => picked.any((p) => p['name'] == opt['name']);
+                            int orderOf(Map p) => opts.indexWhere((o) => o is Map && o['name'] == p['name']);
 
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 16),
@@ -387,6 +395,11 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                                               color: isRequired ? Colors.white : kMuted,
                                             )),
                                       ),
+                                      if (maxN > 1) ...[
+                                        const SizedBox(width: 8),
+                                        GuestText('최대 $maxN개',
+                                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kMuted)),
+                                      ],
                                     ],
                                   ),
                                   const SizedBox(height: 10),
@@ -398,16 +411,27 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                                         _optionChip(
                                           name: guestField(context, opt, 'name'),
                                           price: (opt['price'] as int? ?? 0),
-                                          selected: selectedName == opt['name'],
+                                          selected: isPicked(opt),
+                                          soldOut: optSoldOut(opt),
                                           onTap: () => setDialogState(() {
-                                            if (selectedName == opt['name']) {
-                                              // 선택 옵션은 다시 누르면 취소 (필수는 그대로)
-                                              if (!isRequired) selectedOptionsMap[gIndex] = [];
+                                            final list = [...picked];
+                                            if (isPicked(opt)) {
+                                              // 다시 누르면 취소 (필수는 하나는 남김)
+                                              if (isRequired && list.length <= 1) return;
+                                              list.removeWhere((p) => p['name'] == opt['name']);
+                                            } else if (maxN == 1) {
+                                              list
+                                                ..clear()
+                                                ..add(Map<String, dynamic>.from(opt as Map));
+                                            } else if (list.length >= maxN) {
+                                              padSnack(context, '최대 $maxN개까지 고를 수 있어요');
+                                              return;
                                             } else {
-                                              selectedOptionsMap[gIndex] = [
-                                                Map<String, dynamic>.from(opt as Map),
-                                              ];
+                                              list.add(Map<String, dynamic>.from(opt as Map));
                                             }
+                                            // 메뉴판 순서대로 (고른 순서가 달라도 장바구니에서 같은 줄로)
+                                            list.sort((a, b) => orderOf(a).compareTo(orderOf(b)));
+                                            selectedOptionsMap[gIndex] = list;
                                           }),
                                         ),
                                     ],
@@ -424,7 +448,7 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                       child: SizedBox(
                         height: 58,
                         child: FilledButton(
-                          onPressed: () {
+                          onPressed: blocked ? null : () {
                             List<String> finalOptions = [];
                             final details = <Map<String, dynamic>>[];
                             for (final e in selectedOptionsMap.entries) {
@@ -445,9 +469,11 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                           style: FilledButton.styleFrom(
                             backgroundColor: kOrange,
                             foregroundColor: Colors.white,
+                            disabledBackgroundColor: kOrange.withValues(alpha: 0.35),
+                            disabledForegroundColor: Colors.white,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                           ),
-                          child: GuestText('${_won(totalPrice)} 담기',
+                          child: GuestText(blocked ? '고를 수 있는 옵션이 없어요' : '${_won(totalPrice)} 담기',
                               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                         ),
                       ),
@@ -462,13 +488,16 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
     );
   }
 
-  Widget _optionChip({required String name, required int price, required bool selected, required VoidCallback onTap}) {
-    return Material(
+  Widget _optionChip(
+      {required String name, required int price, required bool selected, bool soldOut = false, required VoidCallback onTap}) {
+    return Opacity(
+      opacity: soldOut ? 0.45 : 1, // 106차: 품절 선택지는 흐리게, 못 누름
+      child: Material(
       color: selected ? kInk : Colors.white,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
+        onTap: soldOut ? null : onTap,
         child: Container(
           constraints: const BoxConstraints(minWidth: 110),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -485,11 +514,12 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
                     fontWeight: FontWeight.w700,
                     color: selected ? Colors.white : kInk,
                   )),
-              GuestText(price > 0 ? '+${_won(price)}' : '추가 금액 없음',
+              GuestText(soldOut ? '품절' : (price > 0 ? '+${_won(price)}' : '추가 금액 없음'),
                   style: TextStyle(fontSize: 12, color: selected ? Colors.white70 : kMuted)),
             ],
           ),
         ),
+      ),
       ),
     );
   }

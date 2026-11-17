@@ -122,8 +122,12 @@ service cloud.firestore {
         allow read: if isAdmin();
 
         // 손님 패드의 호출 생성 (staff_call_service.dart) — 자기 방 번호로만
+        // reason(호출 사유)은 있어도 되고 없어도 됨(예전 패드 앱과 호환). 있으면 정해진 값만 —
+        // 목록은 lib/models/staff_call_reason.dart 와 같아야 함 (팀원 staff-call-reason 브랜치, 98차에 이 부분만 먼저 배포됨 → 106차에 main에도 같게)
         allow create: if isPad()
-                      && request.resource.data.keys().hasOnly(['roomNumber', 'timestamp', 'isAcknowledged'])
+                      && request.resource.data.keys().hasOnly(['roomNumber', 'timestamp', 'isAcknowledged', 'reason'])
+                      && (!('reason' in request.resource.data)
+                          || request.resource.data.reason in ['rule', 'swap', 'water', 'clean', 'pay', 'staff'])
                       && request.resource.data.roomNumber == padRoom()
                       && roomOk(padRoom())
                       && request.resource.data.isAcknowledged == false
@@ -160,7 +164,7 @@ service cloud.firestore {
         allow read: if true;
         // 관리자 페이지가 수정하는 문서만, 그 매장 관리자만 쓰기 허용. storeInfo는 콘솔 전용.
         allow write: if isAdmin()
-                     && docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout'];
+                     && docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout', 'optionLibrary']; // optionLibrary = 옵션 목록(106차)
         // 방 개수 (관리자 웹 '매장 설정'): 1 ~ 30 사이 숫자만
         allow write: if isAdmin()
                      && docId == 'rooms'

@@ -1514,5 +1514,10 @@ const guestMessages = <String, List<String>> {
     "No admin PIN is set for this store.",
     "本店尚未设置管理员PIN码。",
     "この店舗には管理者PINが設定されていません。"
+  ],
+  "고를 수 있는 옵션이 없어요": [
+    "No options available",
+    "暂无可选项",
+    "選べるオプションがありません"
   ]
 };

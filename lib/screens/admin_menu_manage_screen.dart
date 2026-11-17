@@ -20,6 +20,8 @@ import 'package:boardpad/widgets/admin_colors.dart';
 import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/services/usage_meter.dart';
 import 'package:boardpad/utils/menu_bulk_text.dart';
+import 'package:boardpad/services/option_library.dart';
+import 'admin_option_library_dialog.dart';
 
 class AdminMenuManageScreen extends StatefulWidget {
   const AdminMenuManageScreen({super.key});
@@ -86,6 +88,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                   batch.update(doc.reference, {'category': newName});
                 }
                 await batch.commit();
+                await OptionLibrary.renameCategory(oldName, newName); // 106차: 옵션 목록의 붙는 카테고리도
               }
               if (context.mounted) Navigator.pop(context);
             },
@@ -290,6 +293,9 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
       await batch.commit();
     }
     if (newCats.isNotEmpty) await catRef.set({'list': [...cats, ...newCats]}, SetOptions(merge: true)); // 번역(translations)은 남김 (104차)
+    try {
+      await OptionLibrary.syncMenus(); // 106차: 카테고리에 붙은 목록 옵션을 새 메뉴에도
+    } catch (_) {}
     TranslateSync.kick(); // 손님 패드 자동 번역
     return '${toAdd.length}개 추가했어요.${skipped > 0 ? ' (이미 있는 $skipped개는 건너뜀)' : ''}'
         '${newCats.isEmpty ? '' : ' 새 카테고리: ${newCats.join(', ')}'}';
@@ -304,6 +310,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
     final TextEditingController optPriceController = TextEditingController();
 
     bool isRequired = false;
+    int maxSelect = 1; // 106차: 한 번에 고를 수 있는 개수
     List<Map<String, dynamic>> tempOptions = [];
 
     showDialog(
@@ -342,6 +349,20 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                         const Text(
                           '손님이 반드시 선택해야 하는 필수 옵션입니다.',
                           style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        const SizedBox(width: 12),
+                        const Text('한 번에 고를 수 있는 개수  '),
+                        DropdownButton<int>(
+                          value: maxSelect,
+                          items: [
+                            for (var n = 1; n <= 10; n++)
+                              DropdownMenuItem(value: n, child: Text(n == 1 ? '1개 (하나만)' : '최대 $n개')),
+                          ],
+                          onChanged: (v) => setGroupState(() => maxSelect = v ?? 1),
                         ),
                       ],
                     ),
@@ -448,9 +469,11 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                     if (groupNameController.text.isEmpty || tempOptions.isEmpty) {
                       return;
                     }
+                    final maxN = maxSelect.clamp(1, tempOptions.length).toInt();
                     onGroupAdded({
                       'groupName': groupNameController.text.trim(),
                       'isRequired': isRequired,
+                      if (maxN > 1) 'maxSelect': maxN,
                       'options': tempOptions,
                     });
                     Navigator.pop(context);
@@ -492,9 +515,18 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
     bool isUploading = false;
 
     // 💡 단순 options 대신 optionGroups 배열을 사용하도록 변경!
-    List<Map<String, dynamic>> optionGroups = isEditMode
-        ? List<Map<String, dynamic>>.from(existingMenu['optionGroups'] ?? [])
-        : [];
+    // 106차: 여기서 고치는 건 메뉴 전용 옵션만. 옵션 목록에서 온 복사본(libraryId)은 [옵션 관리]에서 고치고,
+    //        이 창에서는 '이 메뉴에서 빼기'·'목록에서 붙이기'만 → 저장할 때 옵션 목록의 붙는 곳을 고치고 복사본을 다시 채움
+    final List<dynamic> savedGroups = isEditMode ? (existingMenu['optionGroups'] as List? ?? const []) : const [];
+    List<Map<String, dynamic>> optionGroups = [
+      for (final g in savedGroups)
+        if (g is Map && !isLibraryGroup(g)) Map<String, dynamic>.from(g),
+    ];
+    final libCopies = [for (final g in savedGroups) if (isLibraryGroup(g)) g];
+    List<OptionLibGroup> optLib = [];
+    final Set<String> libAdd = {};
+    final Set<String> libRemove = {};
+    final libFuture = OptionLibrary.load().catchError((_) => <OptionLibGroup>[]);
 
     showDialog(
       context: context,
@@ -502,9 +534,13 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
       builder: (BuildContext context) {
         String? dialogSelectedCategory;
         return FutureBuilder<DocumentSnapshot>(
-          future: StoreScope.col('settings')
-              .doc('categories')
-              .get(),
+          future: Future.wait<Object>([
+            StoreScope.col('settings').doc('categories').get(),
+            libFuture,
+          ]).then((r) {
+            optLib = r[1] as List<OptionLibGroup>;
+            return r[0] as DocumentSnapshot;
+          }),
           builder: (context, snapshot) {
             if (!snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
@@ -522,6 +558,13 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
 
             return StatefulBuilder(
               builder: (context, setState) {
+                // 106차: 이 메뉴에 들어가는 목록 옵션 (카테고리를 바꾸면 바로 바뀜)
+                final menuKey = docId ?? '__new__';
+                final cat = dialogSelectedCategory ?? '';
+                bool libOnFor(OptionLibGroup g) =>
+                    !libRemove.contains(g.id) && (libAdd.contains(g.id) || g.attachedTo(menuKey, cat));
+                final libOn = [for (final g in optLib) if (libOnFor(g)) g];
+                final libOff = [for (final g in optLib) if (!libOnFor(g)) g];
                 Future<void> pickImage() async {
                   final ImagePicker picker = ImagePicker();
                   final XFile? image = await picker.pickImage(
@@ -680,7 +723,8 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                               MainAxisAlignment.spaceBetween,
                                           children: [
                                             Text(
-                                              '${group['groupName']} ${group['isRequired'] ? "(필수)" : "(선택)"}',
+                                              '${group['groupName']} ${group['isRequired'] ? "(필수)" : "(선택)"}'
+                                              '${(int.tryParse('${group['maxSelect'] ?? 1}') ?? 1) > 1 ? ' · 최대 ${group['maxSelect']}개' : ''}',
                                               style: const TextStyle(
                                                 fontWeight: FontWeight.bold,
                                                 color: Colors.blueAccent,
@@ -728,6 +772,95 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                 );
                               }).toList(),
                             ),
+
+                          // 106차: 옵션 목록에서 오는 옵션 (잠금 — [옵션 관리]에서 고침)
+                          const SizedBox(height: 16),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                '옵션 목록에서 오는 옵션',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                              PopupMenuButton<String>(
+                                enabled: libOff.isNotEmpty,
+                                tooltip: '옵션 목록에서 붙이기',
+                                itemBuilder: (_) => [
+                                  for (final g in libOff)
+                                    PopupMenuItem(value: g.id, child: Text('${g.name}${g.isRequired ? ' (필수)' : ''}')),
+                                ],
+                                onSelected: (id) => setState(() {
+                                  libRemove.remove(id);
+                                  for (final g in optLib) {
+                                    if (g.id == id && !g.attachedTo(menuKey, cat)) libAdd.add(id);
+                                  }
+                                }),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                    Icon(Icons.playlist_add, size: 18, color: libOff.isEmpty ? Colors.black26 : kAdminAccent),
+                                    const SizedBox(width: 4),
+                                    Text('목록에서 붙이기',
+                                        style: TextStyle(color: libOff.isEmpty ? Colors.black26 : kAdminAccent, fontWeight: FontWeight.bold)),
+                                  ]),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              optLib.isEmpty
+                                  ? '옵션 목록이 비어 있어요. 메뉴 관리 위 [옵션 관리]에서 만들 수 있어요.'
+                                  : '내용은 [옵션 관리]에서 고쳐요. 여기서는 이 메뉴에서 빼거나 붙이기만 해요.',
+                              style: const TextStyle(color: Colors.black45, fontSize: 12),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          for (final g in libOn)
+                            Card(
+                              color: Colors.grey.shade50,
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(children: [
+                                      const Icon(Icons.lock_outline, size: 16, color: Colors.black38),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: Text(
+                                          '${g.name} ${g.isRequired ? "(필수)" : "(선택)"}${g.maxSelect > 1 ? ' · 최대 ${g.maxSelect}개' : ''}',
+                                          style: const TextStyle(fontWeight: FontWeight.bold, color: kAdminAccent),
+                                        ),
+                                      ),
+                                      TextButton(
+                                        onPressed: () => setState(() {
+                                          libAdd.remove(g.id);
+                                          if (g.attachedTo(menuKey, cat)) libRemove.add(g.id);
+                                        }),
+                                        child: const Text('이 메뉴에서 빼기', style: TextStyle(color: Colors.redAccent)),
+                                      ),
+                                    ]),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      children: [
+                                        for (final o in g.options)
+                                          Chip(
+                                            label: Text(
+                                              '${o.name} (+${o.price}원)${o.soldOut ? ' · 품절' : ''}',
+                                              style: TextStyle(fontSize: 12, color: o.soldOut ? Colors.red : null),
+                                            ),
+                                            backgroundColor: Colors.white,
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -764,25 +897,35 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                   finalImageUrl = await uploadTask.ref
                                       .getDownloadURL();
                                 }
+                                // 106차: 새 메뉴도 ID를 먼저 정해 옵션 목록의 붙는 곳(menuIds·excludeMenuIds)에 씀
+                                final menuRef = isEditMode
+                                    ? StoreScope.col('menus').doc(docId)
+                                    : StoreScope.col('menus').doc();
+                                final category = dialogSelectedCategory!;
+                                final lib = libAdd.isEmpty && libRemove.isEmpty
+                                    ? await OptionLibrary.load()
+                                    : await OptionLibrary.updateMembership(menuRef.id, category, add: libAdd, remove: libRemove);
                                 final menuData = {
-                                  'category': dialogSelectedCategory!,
+                                  'category': category,
                                   'name': name,
                                   'price': int.tryParse(priceText) ?? 0,
                                   'imageUrl': finalImageUrl,
-                                  'optionGroups':
-                                      optionGroups, // 💡 새로 업그레이드된 그룹 구조로 저장!
+                                  // 메뉴 전용 옵션(앞) + 옵션 목록 복사본(뒤)
+                                  'optionGroups': menuGroupsWithLibrary(
+                                    menuId: menuRef.id,
+                                    category: category,
+                                    current: [...optionGroups, ...libCopies],
+                                    groups: lib,
+                                  ),
                                 };
 
                                 if (isEditMode) {
-                                  await StoreScope.col('menus')
-                                      .doc(docId)
-                                      .update(menuData);
+                                  await menuRef.update(menuData);
                                 } else {
                                   menuData['isSoldOut'] = false;
                                   menuData['timestamp'] =
                                       FieldValue.serverTimestamp();
-                                  await StoreScope.col('menus')
-                                      .add(menuData);
+                                  await menuRef.set(menuData);
                                 }
                                 TranslateSync.kick(); // 83차: 손님 패드 자동 번역 (메뉴 이름·옵션)
                                 if (context.mounted) {
@@ -966,6 +1109,20 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                 horizontal: 20,
                                 vertical: 16,
                               ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          // 106차: 옵션 목록 (토스 포스처럼 옵션을 따로 만들어 카테고리·메뉴에 붙임)
+                          OutlinedButton.icon(
+                            onPressed: () => OptionLibraryDialog.open(context),
+                            icon: const Icon(Icons.tune, color: kAdminAccent),
+                            label: const Text(
+                              '옵션 관리',
+                              style: TextStyle(color: kAdminAccent, fontWeight: FontWeight.bold),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: kAdminAccent, width: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                             ),
                           ),
                           const SizedBox(width: 16),
