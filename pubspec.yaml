@@ -83,6 +83,10 @@ flutter:
     - assets/images/
     - assets/sounds/
 
+  # 130차: 게임도구 주사위 셰이더 (lib/widgets/tools/dice_roller.dart — 못 불러오면 삼각형 망으로 그림)
+  shaders:
+    - shaders/dice.frag
+
   # 한글 글꼴 — 앱에 넣어 두어야 웹에서 처음 그릴 때 글자가 □로 깨졌다가 바뀌지 않음
   # (Pretendard 1.3.9, SIL OFL, 한글·영문·숫자·기호만 남긴 부분 글꼴. assets/fonts/Pretendard-LICENSE.txt)
   fonts:
