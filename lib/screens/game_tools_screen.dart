@@ -4,6 +4,7 @@ import 'package:boardpad/widgets/home/home_theme.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
 import 'package:boardpad/widgets/tools/dice_roller.dart';
 import 'package:boardpad/widgets/tools/finger_team_picker.dart';
+import 'package:boardpad/widgets/tools/timer_widgets.dart';
 import 'dart:async';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
@@ -156,12 +157,6 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
     );
   }
 
-  String _formatCd(int seconds) {
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
-    return '${m.toString().padLeft(2, '0')} : ${s.toString().padLeft(2, '0')}';
-  }
-
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -247,130 +242,87 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
     );
   }
 
-  // ── 카운트다운 화면 ───────────────────────────────────
+  // ── 카운트다운 화면 (131차: 원형 띠·둥근 칩·글자 붙은 버튼 — lib/widgets/tools/timer_widgets.dart) ──
   Widget _buildCountdown() {
-    final Color timeColor = _cdFinished
-        ? Colors.redAccent
-        : (_flashRed ? Colors.redAccent : kInk);
-
-    return SingleChildScrollView(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // 시간 표시
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
-              decoration: BoxDecoration(
-                color: _flashRed ? Colors.red.shade50 : Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 16, offset: const Offset(0, 4))],
-              ),
-              child: GuestText(
-                _formatCd(_remainingSeconds),
-                style: TextStyle(fontSize: 100, fontWeight: FontWeight.bold, color: timeColor, fontFeatures: const []),
-              ),
-            ),
-            if (_cdFinished)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Column(
-                  children: [
-                    const GuestText('⏰ 시간 종료!', style: TextStyle(fontSize: 24, color: Colors.redAccent, fontWeight: FontWeight.bold)),
-                    if (_alarmPlaying)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: ElevatedButton.icon(
-                          onPressed: _stopAlarm,
-                          icon: const Icon(Icons.volume_off),
-                          label: const GuestText('알림 끄기', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.redAccent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                          ),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      // 시간이 끝나면 화면 전체가 옅은 빨강으로 깜빡임
+      color: _flashRed ? const Color(0xFFFCEBEB) : Colors.white,
+      child: LayoutBuilder(builder: (context, box) {
+        final ring = (box.maxHeight - 260).clamp(180.0, 340.0).toDouble();
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: box.maxHeight),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CountdownRing(
+                    remaining: _remainingSeconds,
+                    total: _totalSeconds,
+                    running: _cdRunning,
+                    finished: _cdFinished,
+                    size: ring,
+                  ),
+                  if (_cdFinished && _alarmPlaying)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: ElevatedButton.icon(
+                        onPressed: _stopAlarm,
+                        icon: const Icon(Icons.volume_off),
+                        label: const GuestText('알림 끄기', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFE24B4A),
+                          foregroundColor: Colors.white,
+                          shape: const StadiumBorder(),
+                          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
                         ),
                       ),
-                  ],
-                ),
-              ),
-            const SizedBox(height: 32),
-            // 프리셋 버튼
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              alignment: WrapAlignment.center,
-              children: [
-                _presetBtn('+30초', 30),
-                _presetBtn('+1분', 60),
-                _presetBtn('+3분', 180),
-                _presetBtn('+5분', 300),
-                _presetBtn('+10분', 600),
-                OutlinedButton.icon(
-                  onPressed: _cdRunning ? null : _showTimeInputDialog,
-                  icon: const Icon(Icons.edit),
-                  label: const GuestText('직접 입력'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                    side: const BorderSide(color: kInk),
-                    foregroundColor: kInk,
+                    ),
+                  const SizedBox(height: 24),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      for (final (label, sec) in const [('+30초', 30), ('+1분', 60), ('+3분', 180), ('+5분', 300), ('+10분', 600)])
+                        TimeChip(label: label, onTap: _cdRunning ? null : () => _addTime(sec)),
+                      TimeChip(label: '직접 입력', icon: Icons.edit, outlined: true, onTap: _cdRunning ? null : _showTimeInputDialog),
+                    ],
                   ),
-                ),
-              ],
+                  const SizedBox(height: 28),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      ToolRoundButton(icon: Icons.delete_outline, label: '지우기', onTap: _totalSeconds > 0 ? _cdClear : null),
+                      const SizedBox(width: 28),
+                      ToolRoundButton(
+                        icon: Icons.replay,
+                        label: '처음부터',
+                        onTap: _totalSeconds > 0 && (_remainingSeconds != _totalSeconds || _cdFinished) ? _cdReset : null,
+                      ),
+                      const SizedBox(width: 28),
+                      ToolRoundButton(
+                        icon: _cdRunning ? Icons.pause : Icons.play_arrow,
+                        label: _cdRunning ? '일시정지' : '시작',
+                        primary: true,
+                        onTap: _cdRunning ? _cdPause : (_remainingSeconds > 0 ? _cdStart : null),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 40),
-            // 제어 버튼
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // 초기화
-                FloatingActionButton.large(
-                  heroTag: 'cd_clear',
-                  onPressed: _cdClear,
-                  backgroundColor: Colors.grey.shade400,
-                  child: const Icon(Icons.delete_outline, size: 32),
-                ),
-                const SizedBox(width: 24),
-                // 리셋 (설정 시간으로)
-                FloatingActionButton.large(
-                  heroTag: 'cd_reset',
-                  onPressed: _cdReset,
-                  backgroundColor: Colors.grey.shade600,
-                  child: const Icon(Icons.replay, size: 32),
-                ),
-                const SizedBox(width: 24),
-                // 시작 / 일시정지
-                FloatingActionButton.large(
-                  heroTag: 'cd_play',
-                  onPressed: _cdRunning ? _cdPause : _cdStart,
-                  backgroundColor: _cdRunning ? Colors.orange : kOrange,
-                  child: Icon(_cdRunning ? Icons.pause : Icons.play_arrow, size: 40),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      }),
     );
   }
 
-  Widget _presetBtn(String label, int seconds) {
-    return ElevatedButton(
-      onPressed: _cdRunning ? null : () => _addTime(seconds),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: kInk,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      child: GuestText(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-    );
-  }
-
-  // ── 스탑워치 화면 ─────────────────────────────────────
-  Widget _buildStopwatch() => const _StopwatchTab();
+  // ── 스탑워치 화면 (131차: 초침 다이얼·랩 카드 — timer_widgets.dart StopwatchView) ──
+  Widget _buildStopwatch() => const StopwatchView();
 
   // ── 주사위 탭 ────────────────────────────────────────
   // 126차: 굴러가는 주사위(1~3개) — lib/widgets/tools/dice_roller.dart
@@ -435,156 +387,6 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
     _flashTimer?.cancel();
     FlutterRingtonePlayer().stop();
     super.dispose();
-  }
-}
-
-// ── 스탑워치 전용 위젯 (30ms 타이머를 이 위젯 안에서만 관리) ───────────────
-class _StopwatchTab extends StatefulWidget {
-  const _StopwatchTab();
-
-  @override
-  State<_StopwatchTab> createState() => _StopwatchTabState();
-}
-
-class _StopwatchTabState extends State<_StopwatchTab> {
-  final Stopwatch _stopwatch = Stopwatch();
-  Timer? _swTimer;
-  bool _swRunning = false;
-  final List<String> _laps = [];
-
-  void _swStart() {
-    _stopwatch.start();
-    _swTimer = Timer.periodic(const Duration(milliseconds: 30), (_) => setState(() {}));
-    setState(() => _swRunning = true);
-  }
-
-  void _swPause() {
-    _stopwatch.stop();
-    _swTimer?.cancel();
-    setState(() => _swRunning = false);
-  }
-
-  void _swReset() {
-    _stopwatch.reset();
-    _swTimer?.cancel();
-    setState(() {
-      _swRunning = false;
-      _laps.clear();
-    });
-  }
-
-  void _recordLap() {
-    setState(() => _laps.insert(0, _formatSw(_stopwatch.elapsed)));
-  }
-
-  String _formatSw(Duration d) {
-    final m = d.inMinutes.toString().padLeft(2, '0');
-    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
-    final ms = ((d.inMilliseconds % 1000) ~/ 10).toString().padLeft(2, '0');
-    return '$m : $s . $ms';
-  }
-
-  @override
-  void dispose() {
-    _swTimer?.cancel();
-    _stopwatch.stop();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        // 왼쪽: 메인 스탑워치
-        Expanded(
-          flex: 3,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 16, offset: const Offset(0, 4))],
-                ),
-                child: GuestText(
-                  _formatSw(_stopwatch.elapsed),
-                  style: const TextStyle(fontSize: 72, fontWeight: FontWeight.bold, color: kInk),
-                ),
-              ),
-              const SizedBox(height: 40),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  FloatingActionButton.large(
-                    heroTag: 'sw_reset',
-                    onPressed: _swReset,
-                    backgroundColor: Colors.grey.shade500,
-                    child: const Icon(Icons.replay, size: 32),
-                  ),
-                  const SizedBox(width: 24),
-                  FloatingActionButton.large(
-                    heroTag: 'sw_play',
-                    onPressed: _swRunning ? _swPause : _swStart,
-                    backgroundColor: _swRunning ? Colors.orange : kOrange,
-                    child: Icon(_swRunning ? Icons.pause : Icons.play_arrow, size: 40),
-                  ),
-                  const SizedBox(width: 24),
-                  FloatingActionButton.large(
-                    heroTag: 'sw_lap',
-                    onPressed: _swRunning ? _recordLap : null,
-                    backgroundColor: _swRunning ? kInk : Colors.grey.shade300,
-                    child: const Icon(Icons.flag, size: 32),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        // 오른쪽: 랩 기록
-        if (_laps.isNotEmpty)
-          Container(
-            width: 240,
-            margin: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 8)],
-            ),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  decoration: const BoxDecoration(
-                    color: kInk,
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                  ),
-                  child: Center(
-                    child: GuestText('랩 기록 (${_laps.length})', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                  ),
-                ),
-                Expanded(
-                  child: ListView.separated(
-                    padding: const EdgeInsets.all(8),
-                    itemCount: _laps.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, index) => ListTile(
-                      dense: true,
-                      leading: CircleAvatar(
-                        radius: 14,
-                        backgroundColor: kOrange,
-                        child: GuestText('${_laps.length - index}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                      ),
-                      title: GuestText(_laps[index], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
   }
 }
 
