@@ -145,6 +145,32 @@ function getHandle() {
       if (only.pads) for (let i = 1; i <= 30; i++) uids.push(`pad.${storeId}.${i}`);
       await Promise.all(uids.map((uid) => auth.revokeRefreshTokens(uid).catch(() => {})));
     },
+    // 132차: 매장을 통째로 지울 때 파일도 — Firebase Storage stores/{매장}/ 아래 사진 전부 + 그 매장 룰 영상(R2)
+    //   R2는 목록 기능이 없어서 게임 문서에 적혀 있던 키만 지움. 공용 보관함(_shared) 영상은 건드리지 않음
+    deleteStoreFiles: async (storeId, r2Keys = []) => {
+      getDb();
+      const { getStorage } = require('firebase-admin/storage');
+      const bucket = getStorage().bucket();
+      const [files] = await bucket.getFiles({ prefix: `stores/${storeId}/` });
+      let storage = 0;
+      for (const f of files) {
+        await f.delete().then(() => { storage++; }, (e) => console.warn('[운영] 사진 지우기 실패', f.name, e && e.message));
+      }
+      let r2 = 0;
+      const mine = r2Keys.filter((k) => typeof k === 'string' && k.startsWith(`rule-videos/${storeId}/`));
+      if (R2_ENABLED && mine.length) {
+        const r2s = createR2Storage({
+          accountId: R2_ACCOUNT_ID,
+          bucket: R2_BUCKET,
+          accessKeyId: R2_ACCESS_KEY_ID.value(),
+          secretAccessKey: R2_SECRET_ACCESS_KEY.value(),
+        });
+        for (const k of mine) {
+          await r2s.remove(k).then(() => { r2++; }, (e) => console.warn('[운영] 영상 지우기 실패', k, e && e.message));
+        }
+      }
+      return { storage, r2 };
+    },
     // 예전(매장 1곳) 관리자 비밀번호 — '매장 데이터 옮기기'를 할 때만 확인용으로 읽음
     getLegacySecrets: async () => {
       const doc = await db.collection('settings').doc('adminPin').get();

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -15,6 +17,11 @@ class AdminLoginException implements Exception {
   AdminLoginException(this.message);
   @override
   String toString() => message;
+}
+
+/// 132차: 서버에 닿지 못함(인터넷 끊김·응답 없음) — 패드 로그아웃은 이때 패드에 저장된 확인값으로 확인
+class AdminNetworkException extends AdminLoginException {
+  AdminNetworkException(super.message);
 }
 
 /// 일시적인 토큰 조회 실패. 저장된 로그인은 지우지 않고 재시도합니다.
@@ -195,9 +202,9 @@ class AdminSession {
           )
           .timeout(const Duration(seconds: 20));
     } on TimeoutException {
-      throw AdminLoginException('서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.');
+      throw AdminNetworkException('서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.');
     } catch (_) {
-      throw AdminLoginException('로그인 서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.');
+      throw AdminNetworkException('로그인 서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.');
     }
     return decodeApiResponse(res);
   }
@@ -265,7 +272,9 @@ class AdminSession {
       'pin': ?pin,
     });
     if (body['needPin'] == true) return const StoreLoginResult._(true, null);
-    return StoreLoginResult._(false, await _signIn(body));
+    final session = await _signIn(body);
+    await _saveExitCheck(session.store, password); // 132차: 인터넷이 끊겨도 로그아웃할 수 있게
+    return StoreLoginResult._(false, session);
   }
 
   /// 관리자 웹 로그인
@@ -355,12 +364,86 @@ class AdminSession {
   }
 
   /// 패드 로그아웃 전 확인 (55차) — 패드 비밀번호 또는 관리자 PIN. 틀리면 [AdminLoginException]
+  /// 132차: 인터넷이 끊겼으면(서버에 닿지 못하면) 패드에 저장해 둔 패드 비밀번호 확인값으로 확인.
+  ///   확인값은 패드 로그인할 때·온라인에서 패드 비밀번호로 확인했을 때 저장 (관리자 PIN은 패드에 안 남김)
   static Future<void> verifyExit(String password) async {
+    final store = StoreScope.isSet ? StoreScope.id : (await loadPrefs()).storeId;
     final token = await idToken();
-    if (token == null) return; // 이미 로그인이 풀린 상태면 그냥 로그아웃해도 됨
-    await _post('/api/auth/verify-exit', {
-      'password': password,
-    }, idToken: token);
+    if (token == null) {
+      // 이미 로그인이 풀린 상태면 그냥 로그아웃해도 됨. 다만 인터넷이 끊겨 토큰을 못 받은 거면 저장된 값으로 확인
+      if (_auth.currentUser != null && await _hasExitCheck(store)) await _verifyExitOffline(store, password);
+      return;
+    }
+    final Map<String, dynamic> body;
+    try {
+      body = await _post('/api/auth/verify-exit', {
+        'password': password,
+      }, idToken: token);
+    } on AdminNetworkException {
+      await _verifyExitOffline(store, password);
+      return;
+    }
+    if (body['kind'] == 'pad') await _saveExitCheck(store, password);
+  }
+
+  // ── 132차: 오프라인 로그아웃 확인값 (패드 비밀번호의 소금 친 해시, 매장별) ──
+  static const _kExitCheck = 'padExitCheck.';
+  static const _exitRounds = 20000;
+  static int _offlineFails = 0;
+  static DateTime? _offlineLockUntil;
+
+  static String _exitHash(String salt, String password) {
+    var d = sha256.convert(utf8.encode('$salt:$password')).bytes;
+    for (var i = 1; i < _exitRounds; i++) {
+      d = sha256.convert(d).bytes;
+    }
+    return base64Url.encode(d);
+  }
+
+  static Future<void> _saveExitCheck(String store, String password) async {
+    if (store.isEmpty || password.isEmpty) return;
+    try {
+      final rnd = Random.secure();
+      final salt = base64Url.encode(List<int>.generate(16, (_) => rnd.nextInt(256)));
+      final p = await SharedPreferences.getInstance();
+      await p.setString('$_kExitCheck$store', '$salt|${_exitHash(salt, password)}');
+    } catch (_) {}
+  }
+
+  static Future<String?> _loadExitCheck(String store) async {
+    if (store.isEmpty) return null;
+    try {
+      final p = await SharedPreferences.getInstance();
+      return p.getString('$_kExitCheck$store');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<bool> _hasExitCheck(String store) async => (await _loadExitCheck(store)) != null;
+
+  static Future<void> _verifyExitOffline(String store, String password) async {
+    final lock = _offlineLockUntil;
+    if (lock != null && DateTime.now().isBefore(lock)) {
+      throw AdminLoginException('여러 번 틀렸어요. 1분 뒤에 다시 시도해 주세요.');
+    }
+    final saved = await _loadExitCheck(store);
+    final parts = saved?.split('|');
+    if (parts == null || parts.length != 2) {
+      throw AdminLoginException(
+        '인터넷이 끊겨 비밀번호를 확인하지 못했어요. 인터넷이 연결되면 다시 시도해 주세요.\n'
+        '(이 패드에서 패드 비밀번호로 한 번 로그인하거나 로그아웃 확인을 하면, 그다음부터는 인터넷이 끊겨도 로그아웃할 수 있어요)',
+      );
+    }
+    if (_exitHash(parts[0], password) != parts[1]) {
+      _offlineFails++;
+      if (_offlineFails >= 5) {
+        _offlineFails = 0;
+        _offlineLockUntil = DateTime.now().add(const Duration(minutes: 1));
+      }
+      throw AdminLoginException('비밀번호가 올바르지 않습니다.\n(인터넷이 끊겨 있어 패드 비밀번호로만 확인할 수 있어요. 관리자 PIN은 안 돼요)');
+    }
+    _offlineFails = 0;
   }
 
   /// 손님 기능(주문·호출·영상) 전에 로그인돼 있는지 확인

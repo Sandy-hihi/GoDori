@@ -259,7 +259,7 @@ class _ExitDialogState extends State<_ExitDialog> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 errorText: _error,
-                errorMaxLines: 2,
+                errorMaxLines: 4,
               ),
             ),
           ],

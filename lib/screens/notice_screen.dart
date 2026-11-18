@@ -30,7 +30,9 @@ class NoticeScreen extends StatelessWidget {
 
 /// 글/이미지 카드 목록 — 이용안내(settings/notices)·이벤트(settings/events)가 같이 씀
 /// items: [{type: 'text'|'image', title, content}] (image면 content가 사진 주소)
-class PadPostList extends StatelessWidget {
+/// 132차: 넓은 화면(폭 1000 이상)에 글이 2개 이상이면 왼쪽 제목 목록 + 오른쪽 크게 보기(오른쪽 빈 공간 없앰),
+///   글이 하나면 화면 폭에 맞춰 크게, 좁은 화면은 예전처럼 카드 목록
+class PadPostList extends StatefulWidget {
   final String docId;
   final IconData icon;
   final Color accent;
@@ -45,11 +47,19 @@ class PadPostList extends StatelessWidget {
   });
 
   @override
+  State<PadPostList> createState() => _PadPostListState();
+}
+
+class _PadPostListState extends State<PadPostList> {
+  late final Stream<DocumentSnapshot> _stream = StoreScope.col('settings').doc(widget.docId).snapshots();
+  int _selected = 0;
+
+  @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot>(
-      stream: StoreScope.col('settings').doc(docId).snapshots(),
+      stream: _stream,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator(color: kOrange));
         }
 
@@ -57,26 +67,130 @@ class PadPostList extends StatelessWidget {
         if (snapshot.hasData && snapshot.data!.exists) {
           items = (snapshot.data!.data() as Map? ?? {})['items'] as List<dynamic>? ?? [];
         }
-        if (items.isEmpty) return PadEmpty(icon: icon, text: emptyText);
+        if (items.isEmpty) return PadEmpty(icon: widget.icon, text: widget.emptyText);
+        if (_selected >= items.length) _selected = 0;
+        final posts = [for (final it in items) Map<String, dynamic>.from(it as Map)];
 
-        return Align(
-          alignment: Alignment.topLeft,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900),
-            child: ListView.builder(
+        return LayoutBuilder(builder: (context, box) {
+          // 좁은 화면: 카드 목록
+          if (box.maxWidth < 1000) {
+            return ListView.builder(
               padding: const EdgeInsets.fromLTRB(32, 0, 32, 32),
-              itemCount: items.length,
-              itemBuilder: (context, index) {
-                final item = Map<String, dynamic>.from(items[index] as Map);
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 18),
-                  child: _PostCard(item: item, icon: icon, accent: accent),
-                );
-              },
+              itemCount: posts.length,
+              itemBuilder: (context, index) => Padding(
+                padding: const EdgeInsets.only(bottom: 18),
+                child: _PostCard(item: posts[index], icon: widget.icon, accent: widget.accent),
+              ),
+            );
+          }
+          // 글이 하나: 화면 폭에 맞춰 크게
+          if (posts.length == 1) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(32, 0, 32, 32),
+              child: _PostCard(item: posts.first, icon: widget.icon, accent: widget.accent, large: true),
+            );
+          }
+          // 넓은 화면 + 여러 개: 왼쪽 제목 목록 + 오른쪽 크게 보기
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(32, 0, 32, 32),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 340,
+                  child: ListView.builder(
+                    itemCount: posts.length,
+                    itemBuilder: (context, i) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _PostTile(
+                        item: posts[i],
+                        icon: widget.icon,
+                        accent: widget.accent,
+                        selected: i == _selected,
+                        onTap: () => setState(() => _selected = i),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 24),
+                Expanded(
+                  child: SingleChildScrollView(
+                    key: ValueKey(_selected), // 고르면 맨 위부터
+                    child: _PostCard(item: posts[_selected], icon: widget.icon, accent: widget.accent, large: true),
+                  ),
+                ),
+              ],
             ),
-          ),
-        );
+          );
+        });
       },
+    );
+  }
+}
+
+/// 왼쪽 목록 한 줄 (132차) — 사진 글은 작은 사진, 글은 아이콘 + 첫 줄
+class _PostTile extends StatelessWidget {
+  final Map<String, dynamic> item;
+  final IconData icon;
+  final Color accent;
+  final bool selected;
+  final VoidCallback onTap;
+  const _PostTile({required this.item, required this.icon, required this.accent, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isImage = item['type'] == 'image';
+    final title = GuestLanguage.instance.translateExact(guestField(context, item, 'title').toString());
+    final content = guestField(context, item, 'content').toString();
+    return Material(
+      color: selected ? Colors.white : Colors.white.withValues(alpha: 0.55),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: selected ? accent : Colors.transparent, width: 2),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: isImage && content.isNotEmpty
+                      ? AppNetworkImage(
+                          imageUrl: content,
+                          fit: BoxFit.cover,
+                          errorWidget: (c, u, e) => ColoredBox(color: accent.withValues(alpha: 0.12), child: Icon(icon, color: accent)),
+                        )
+                      : ColoredBox(color: accent.withValues(alpha: 0.12), child: Icon(icon, color: accent)),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    GuestText(title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: selected ? kInk : kBody)),
+                    if (!isImage && content.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      GuestText(content.split('\n').first,
+                          maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, color: kMuted)),
+                    ],
+                  ],
+                ),
+              ),
+              if (selected) Icon(Icons.chevron_right, color: accent),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -85,7 +199,8 @@ class _PostCard extends StatelessWidget {
   final Map<String, dynamic> item;
   final IconData icon;
   final Color accent;
-  const _PostCard({required this.item, required this.icon, required this.accent});
+  final bool large; // 132차: 오른쪽 크게 보기 — 글자 조금 크게
+  const _PostCard({required this.item, required this.icon, required this.accent, this.large = false});
 
   @override
   Widget build(BuildContext context) {
@@ -110,7 +225,7 @@ class _PostCard extends StatelessWidget {
               const SizedBox(width: 14),
               Expanded(
                 child: GuestText(title,
-                    style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: kInk)),
+                    style: TextStyle(fontSize: large ? 25 : 21, fontWeight: FontWeight.w800, color: kInk)),
               ),
             ],
           ),
@@ -133,7 +248,7 @@ class _PostCard extends StatelessWidget {
               ),
             )
           else
-            GuestText(content, style: const TextStyle(fontSize: 17, height: 1.75, color: kBody)),
+            GuestText(content, style: TextStyle(fontSize: large ? 19 : 17, height: 1.75, color: kBody)),
         ],
       ),
     );

@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:boardpad/widgets/admin_dialog_width.dart';
 import 'admin_store_settings_screen.dart';
 import 'admin_home_layout_screen.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
@@ -15,6 +14,9 @@ import 'admin_event_manage_screen.dart';
 
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
+import 'package:boardpad/widgets/admin_post_board.dart';
+import 'package:boardpad/widgets/admin_colors.dart';
+import 'package:boardpad/widgets/home/home_theme.dart' show kBlue;
 import 'package:boardpad/widgets/admin_busy_dialog.dart';
 import 'package:boardpad/services/store_scope.dart';
 
@@ -79,13 +81,13 @@ class _AdminNoticeManageScreenState extends State<AdminNoticeManageScreen> {
                       children: [
                         Radio<String>(
                           value: 'text',
-                          activeColor: const Color(0xFF2C3E50),
+                          activeColor: kAdminAccent,
                         ),
                         const Text('텍스트'),
                         const SizedBox(width: 24),
                         Radio<String>(
                           value: 'image',
-                          activeColor: const Color(0xFF2C3E50),
+                          activeColor: kAdminAccent,
                         ),
                         const Text('이미지'),
                       ],
@@ -268,7 +270,7 @@ class _AdminNoticeManageScreenState extends State<AdminNoticeManageScreen> {
                                 content: Text(
                                   existing != null ? '수정되었습니다.' : '등록되었습니다.',
                                 ),
-                                backgroundColor: const Color(0xFF2C3E50),
+                                backgroundColor: kAdminAccent,
                               ),
                             );
                           }
@@ -285,7 +287,7 @@ class _AdminNoticeManageScreenState extends State<AdminNoticeManageScreen> {
                         }
                       },
                 // 처리 중엔 글자는 그대로, 버튼만 흐리게 (100차)
-                style: busyButtonStyle(const Color(0xFF2C3E50)),
+                style: busyButtonStyle(kAdminAccent),
                 child: Text(
                   existing != null ? '수정하기' : '추가하기',
                   style: const TextStyle(fontWeight: FontWeight.bold),
@@ -373,7 +375,7 @@ class _AdminNoticeManageScreenState extends State<AdminNoticeManageScreen> {
                           style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2C3E50),
+                          backgroundColor: kAdminAccent,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 24,
@@ -385,124 +387,20 @@ class _AdminNoticeManageScreenState extends State<AdminNoticeManageScreen> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    '앱의 이용안내 화면에 표시될 공지를 관리합니다.',
+                    '손님 패드 이용안내 화면에 이 순서대로 보여요. 카드를 누르면 오른쪽에서 패드 모양으로 미리 볼 수 있어요.',
                     style: TextStyle(color: Colors.grey, fontSize: 14),
                   ),
                   const SizedBox(height: 24),
+                  // 132차: 카드 목록 + 순서 ↑↓ + 손님 패드 미리보기 (lib/widgets/admin_post_board.dart)
                   Expanded(
-                    child: Material(
-                      // 91차: 흰 Container → Material — 안의 ListTile 눌림 효과가 보이게 (콘솔 'ListTile background color or ink splashes may be invisible')
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      clipBehavior: Clip.antiAlias,
-                      child: StreamBuilder<DocumentSnapshot>(
-                        stream: StoreScope.col('settings')
-                            .doc('notices')
-                            .snapshots(),
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState ==
-                              ConnectionState.waiting) {
-                            return const Center(
-                              child: CircularProgressIndicator(),
-                            );
-                          }
-                          List<dynamic> items = [];
-                          if (snapshot.hasData && snapshot.data!.exists) {
-                            items =
-                                snapshot.data!.get('items') as List<dynamic>? ??
-                                [];
-                          }
-                          if (items.isEmpty) {
-                            return const Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.info_outline,
-                                    size: 60,
-                                    color: Colors.grey,
-                                  ),
-                                  SizedBox(height: 16),
-                                  Text(
-                                    '등록된 공지가 없습니다.',
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 18,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }
-
-                          return ListView.separated(
-                            padding: const EdgeInsets.all(16),
-                            itemCount: items.length,
-                            separatorBuilder: (_, _) =>
-                                const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final item = items[index] as Map<String, dynamic>;
-                              final isImage = item['type'] == 'image';
-                              return ListTile(
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: MediaQuery.sizeOf(context).width < 700 ? 8 : 24,
-                                  vertical: 12,
-                                ),
-                                leading: CircleAvatar(
-                                  backgroundColor: isImage
-                                      ? Colors.blue.shade50
-                                      : Colors.blueGrey.shade50,
-                                  child: Icon(
-                                    isImage ? Icons.image : Icons.text_fields,
-                                    color: isImage
-                                        ? Colors.blue
-                                        : Colors.blueGrey,
-                                  ),
-                                ),
-                                title: Text(
-                                  item['title'] ?? '',
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  isImage
-                                      ? '[이미지 공지]'
-                                      : (item['content'] ?? ''),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(color: Colors.grey),
-                                ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.edit,
-                                        color: Colors.blue,
-                                      ),
-                                      onPressed: () => _showNoticeDialog(
-                                        context,
-                                        existing: item,
-                                        index: index,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.delete,
-                                        color: Colors.redAccent,
-                                      ),
-                                      onPressed: () =>
-                                          _deleteNotice(context, index, items),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
+                    child: AdminPostBoard(
+                      docId: 'notices',
+                      kind: '공지',
+                      icon: Icons.article_outlined,
+                      accent: kBlue,
+                      onAdd: () => _showNoticeDialog(context),
+                      onEdit: (item, index) => _showNoticeDialog(context, existing: item, index: index),
+                      onDelete: (index, items) => _deleteNotice(context, index, items),
                     ),
                   ),
                 ],

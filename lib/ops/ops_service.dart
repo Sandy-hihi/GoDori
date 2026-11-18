@@ -157,6 +157,14 @@ class OpsService {
 
   static Future<void> deleteSignup(String storeId) => _call('POST', '/api/ops/store-delete', body: {'storeId': storeId});
 
+  /// 132차: 정지한 매장을 통째로 지움 (확인으로 아이디를 한 번 더 보냄) → { games, files: { storage, r2 } }
+  static Future<Map<String, dynamic>> deleteStoreAll(String storeId) =>
+      _call('POST', '/api/ops/store-delete', body: {'storeId': storeId, 'confirm': storeId});
+
+  /// 132차: 매장 이름 바꾸기
+  static Future<void> renameStore(String storeId, String name) =>
+      _call('POST', '/api/ops/store-rename', body: {'storeId': storeId, 'name': name});
+
   static Future<Map<String, dynamic>> usage(int days) => _call('GET', '/api/ops/usage', query: {'days': '$days'});
 
   /// 매장 통계 (65차) — storeId: 매장 아이디 또는 'all'(운영 중인 매장 전체). 인기 메뉴·게임·시간대별 주문

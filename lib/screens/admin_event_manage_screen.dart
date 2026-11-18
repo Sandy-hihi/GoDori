@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:boardpad/widgets/admin_dialog_width.dart';
 import 'admin_store_settings_screen.dart';
 import 'admin_home_layout_screen.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
@@ -15,6 +14,8 @@ import 'admin_notice_manage_screen.dart';
 
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
+import 'package:boardpad/widgets/admin_post_board.dart';
+import 'package:boardpad/widgets/home/home_theme.dart' show kOrange;
 import 'package:boardpad/widgets/admin_busy_dialog.dart';
 import 'package:boardpad/widgets/admin_colors.dart';
 import 'package:boardpad/services/store_scope.dart';
@@ -388,122 +389,20 @@ class _AdminEventManageScreenState extends State<AdminEventManageScreen> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    '앱의 이벤트 화면에 표시될 이벤트를 관리합니다.',
+                    '손님 패드 이벤트 화면에 이 순서대로 보여요. 카드를 누르면 오른쪽에서 패드 모양으로 미리 볼 수 있어요.',
                     style: TextStyle(color: Colors.grey, fontSize: 14),
                   ),
                   const SizedBox(height: 24),
+                  // 132차: 카드 목록 + 순서 ↑↓ + 손님 패드 미리보기 (lib/widgets/admin_post_board.dart)
                   Expanded(
-                    child: Material(
-                      // 91차: 흰 Container → Material — 안의 ListTile 눌림 효과가 보이게 (콘솔 'ListTile background color or ink splashes may be invisible')
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      clipBehavior: Clip.antiAlias,
-                      child: StreamBuilder<DocumentSnapshot>(
-                        stream: StoreScope.col('settings')
-                            .doc('events')
-                            .snapshots(),
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState ==
-                              ConnectionState.waiting) {
-                            return const Center(
-                              child: CircularProgressIndicator(),
-                            );
-                          }
-                          List<dynamic> items = [];
-                          if (snapshot.hasData && snapshot.data!.exists) {
-                            items =
-                                snapshot.data!.get('items') as List<dynamic>? ??
-                                [];
-                          }
-                          if (items.isEmpty) {
-                            return const Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.campaign,
-                                    size: 60,
-                                    color: Colors.grey,
-                                  ),
-                                  SizedBox(height: 16),
-                                  Text(
-                                    '등록된 이벤트가 없습니다.',
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 18,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }
-
-                          return ListView.separated(
-                            padding: const EdgeInsets.all(16),
-                            itemCount: items.length,
-                            separatorBuilder: (_, _) =>
-                                const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final item = items[index] as Map<String, dynamic>;
-                              final isImage = item['type'] == 'image';
-                              return ListTile(
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: MediaQuery.sizeOf(context).width < 700 ? 8 : 24,
-                                  vertical: 12,
-                                ),
-                                leading: CircleAvatar(
-                                  backgroundColor: isImage
-                                      ? Colors.blue.shade50
-                                      : kAdminAccentSoft,
-                                  child: Icon(
-                                    isImage ? Icons.image : Icons.text_fields,
-                                    color: isImage ? Colors.blue : kAdminAccent,
-                                  ),
-                                ),
-                                title: Text(
-                                  item['title'] ?? '',
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  isImage
-                                      ? '[이미지 이벤트]'
-                                      : (item['content'] ?? ''),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(color: Colors.grey),
-                                ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.edit,
-                                        color: Colors.blue,
-                                      ),
-                                      onPressed: () => _showEventDialog(
-                                        context,
-                                        existing: item,
-                                        index: index,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.delete,
-                                        color: Colors.redAccent,
-                                      ),
-                                      onPressed: () =>
-                                          _deleteEvent(context, index, items),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          );
-                        },
-                      ),
+                    child: AdminPostBoard(
+                      docId: 'events',
+                      kind: '이벤트',
+                      icon: Icons.card_giftcard_outlined,
+                      accent: kOrange,
+                      onAdd: () => _showEventDialog(context),
+                      onEdit: (item, index) => _showEventDialog(context, existing: item, index: index),
+                      onDelete: (index, items) => _deleteEvent(context, index, items),
                     ),
                   ),
                 ],

@@ -36,7 +36,9 @@ function make({ account = ACCOUNT, rooms = 11, legacy = { pin: '111111', webPass
   const stores = createMemoryStores({ platform6: { name: '플랫폼6', account: { ...account }, rooms } });
   const tokens = [];
   const revoked = [];
+  const deletedFiles = [];
   const h = createHandler({
+    deleteStoreFiles: async (id, keys) => { deletedFiles.push([id, keys]); return { storage: 2, r2: keys.length }; },
     ops: createMemoryOps(opsAccount),
     monitoring,
     revokeStoreTokens: async (id, only) => { revoked.push(id); if (only) revoked.only = only; },
@@ -50,6 +52,7 @@ function make({ account = ACCOUNT, rooms = 11, legacy = { pin: '111111', webPass
   h.stores = stores;
   h.tokens = tokens;
   h.revoked = revoked;
+  h.deletedFiles = deletedFiles;
   return h;
 }
 const req = (method, path, { query = {}, body, token = 'admin-token', origin, ip } = {}) => ({
@@ -284,6 +287,32 @@ test('운영자: 로그인, 매장 목록(승인 대기가 위), 정지하면 �
   assert.equal((await ops(h, 'POST', '/api/ops/store-delete', { body: { storeId: 'new-cafe' } })).status, 200);
   assert.equal(h.stores.stores.has('new-cafe'), false);
 });
+test('132차 운영자: 매장 이름 바꾸기, 승인하면 기본 데이터 한 번만, 정지한 매장은 아이디 확인 후 통째로 삭제', async () => {
+  const h = make();
+  assert.equal((await ops(h, 'POST', '/api/ops/store-rename', { body: { storeId: 'platform6', name: '  ' } })).status, 400);
+  assert.equal((await ops(h, 'POST', '/api/ops/store-rename', { body: { storeId: 'nope-cafe', name: '없음' } })).status, 404);
+  assert.equal((await ops(h, 'POST', '/api/ops/store-rename', { body: { storeId: 'platform6', name: ' 플랫폼6 안암점 ' } })).status, 200);
+  assert.equal(h.stores.stores.get('platform6').name, '플랫폼6 안암점');
+  // 승인 → 기본 데이터
+  await signup(h);
+  const a = await ops(h, 'POST', '/api/ops/store-status', { body: { storeId: 'new-cafe', status: 'active' } });
+  assert.deepEqual(a.body.seeded, ['genres', 'categories', 'notices', 'events']);
+  assert.equal(h.stores.stores.get('new-cafe').settings.notices.items[0].title, '이용 안내');
+  await ops(h, 'POST', '/api/ops/store-status', { body: { storeId: 'new-cafe', status: 'suspended' } });
+  const again = await ops(h, 'POST', '/api/ops/store-status', { body: { storeId: 'new-cafe', status: 'active' } });
+  assert.deepEqual(again.body.seeded, []);
+  // 운영 중이면 409, 정지 후 아이디 확인 없으면 400, 맞으면 통째로
+  assert.equal((await ops(h, 'POST', '/api/ops/store-delete', { body: { storeId: 'new-cafe', confirm: 'new-cafe' } })).status, 409);
+  await ops(h, 'POST', '/api/ops/store-status', { body: { storeId: 'new-cafe', status: 'suspended' } });
+  h.stores.stores.get('new-cafe').r2Keys = ['videos/new-cafe/a.mp4'];
+  assert.equal((await ops(h, 'POST', '/api/ops/store-delete', { body: { storeId: 'new-cafe', confirm: 'new' } })).status, 400);
+  const del = await ops(h, 'POST', '/api/ops/store-delete', { body: { storeId: 'new-cafe', confirm: 'new-cafe' } });
+  assert.equal(del.status, 200);
+  assert.deepEqual(del.body.files, { storage: 2, r2: 1 });
+  assert.deepEqual(h.deletedFiles, [['new-cafe', ['videos/new-cafe/a.mp4']]]);
+  assert.equal(h.stores.stores.has('new-cafe'), false);
+  assert.equal((await ops(h, 'POST', '/api/ops/store-delete', { body: { storeId: 'new-cafe' } })).status, 404);
+});
 test('운영자 비밀번호가 없으면 503, 바꾸면 해시로', async () => {
   assert.equal((await make({ opsAccount: null })(req('POST', '/api/ops/login', { token: null, body: { password: 'x' } }))).status, 503);
   const h = make();
@@ -323,8 +352,8 @@ test('프로젝트 사용량: Cloud Monitoring 응답 합치기, 실패한 항�
 test('패드 로그아웃 확인: 패드 비밀번호나 PIN이면 OK, 틀리면 401·실패 횟수, 로그인 없으면 401', async () => {
   const h = make();
   const exit = (password, token = 'pad-token', ip = '6.6.6.6') => h(req('POST', '/api/auth/verify-exit', { token, ip, body: { password } }));
-  assert.equal((await exit('pad-pass')).status, 200);
-  assert.equal((await exit('123456')).status, 200);
+  assert.equal((await exit('pad-pass')).body.kind, 'pad');
+  assert.equal((await exit('123456')).body.kind, 'pin');
   assert.equal((await exit('web-pass')).status, 401); // 관리자 웹 비밀번호는 안 받음
   assert.equal((await exit('')).status, 400);
   assert.equal((await exit('pad-pass', null)).status, 401);

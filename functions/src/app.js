@@ -132,10 +132,11 @@ function clientIp(headers) {
 // toss:             토스 POS 연동 API (src/toss-routes.js createTossRoutes). 없으면 /api/toss/* 는 503
 // insights:         매장 통계 API (src/insights.js createInsightRoutes, 65차). 없으면 /api/stats/* 는 503
 // translate:        자동 번역 API (src/translate.js createTranslateRoutes, 83차). 없으면 /api/translate/* 는 503
+// deleteStoreFiles: async (storeId, r2Keys) => 매장 통째로 지울 때 사진(Storage)·룰 영상(R2) 파일 지우기 (132차)
 function createHandler({
   bgg, stores, getLegacySecrets = async () => ({}), verifyIdToken, createToken, attempts, video = null,
   ops = null, monitoring = null, revokeStoreTokens = async () => {}, now = () => Date.now(), toss = null, insights = null,
-  translate = null,
+  translate = null, deleteStoreFiles = async () => ({}),
 }) {
   const limit = createLimiter(now);
 
@@ -350,10 +351,12 @@ function createHandler({
     const ip = clientIp(req.headers);
     await checkLock(ip);
     const account = (await stores.getAccount(user.store)) || {};
-    const ok = checkSecret(given, secretOf(account, 'pad')) === true || checkSecret(given, secretOf(account, 'pin')) === true;
+    const pad = checkSecret(given, secretOf(account, 'pad')) === true;
+    const ok = pad || checkSecret(given, secretOf(account, 'pin')) === true;
     if (!ok) throw await fail(ip, 'WRONG_PASSWORD', '비밀번호가 올바르지 않습니다.');
     await attempts.reset(LOGIN_LIMITS[0].key(ip));
-    return { ok: true };
+    // 132차: kind — 패드 비밀번호였으면 앱이 인터넷 끊길 때 쓸 확인값(해시)을 패드에 저장
+    return { ok: true, kind: pad ? 'pad' : 'pin' };
   }
 
   // ── 매장 기능 켜기·끄기 (59차) — 사장님은 adminDashboard만, tossPos는 운영자 페이지에서 ──
@@ -406,11 +409,25 @@ function createHandler({
       if (!STATUSES.includes(status) || status === 'pending') throw httpError(400, 'INVALID_STATUS', '상태는 active·suspended·rejected 중 하나예요.');
       await stores.setStatus(storeId, status);
       statusCache.delete(storeId);
+      let seeded = [];
+      if (status === 'active' && stores.seedDefaults) {
+        // 132차: 처음 승인할 때 기본 데이터(장르·메뉴 카테고리·이용 안내 공지) 넣기 — 실패해도 승인은 그대로
+        seeded = await Promise.resolve(stores.seedDefaults(storeId)).catch((e) => { console.warn('[운영] 기본 데이터 실패', storeId, e && e.message); return []; });
+      }
       if (status !== 'active') {
         // 이미 로그인한 패드·관리자도 끊기 (토큰 갱신이 막혀 1시간 안에 로그아웃, 규칙은 바로 막음)
         await Promise.resolve(revokeStoreTokens(storeId)).catch((e) => console.warn('[운영] 로그인 끊기 실패', storeId, e && e.message));
       }
-      return { ok: true, store: storeId, status };
+      return { ok: true, store: storeId, status, seeded };
+    }
+    // 132차: 매장 이름 바꾸기 — 운영자 페이지에서만 { storeId, name }
+    if (path === '/api/ops/store-rename' && req.method === 'POST') {
+      const storeId = cleanStoreId(body.storeId);
+      const name = String(body.name || '').trim();
+      if (!name || name.length > 40) throw httpError(400, 'INVALID_NAME', '매장 이름은 1~40자로 써 주세요.');
+      await stores.rename(storeId, name);
+      statusCache.delete(storeId);
+      return { ok: true, store: storeId, name };
     }
     // 59차: 매장 기능 켜기·끄기 { storeId, adminDashboard?, tossPos? }
     if (path === '/api/ops/store-features' && req.method === 'POST') {
@@ -420,9 +437,27 @@ function createHandler({
     }
     if (path === '/api/ops/store-delete' && req.method === 'POST') {
       const storeId = cleanStoreId(body.storeId);
-      await stores.deleteSignup(storeId);
+      const status = await stores.getStatus(storeId);
+      if (status == null) throw httpError(404, 'NO_STORE', '없는 매장이에요.');
+      if (status === 'pending' || status === 'rejected') {
+        await stores.deleteSignup(storeId);
+        statusCache.delete(storeId);
+        return { ok: true };
+      }
+      // 132차: 운영하던 매장 탈퇴 — 정지한 매장만, 매장 아이디를 한 번 더 써야 지움 (게임·메뉴·주문·사진·영상 전부)
+      if (status !== 'suspended') throw httpError(409, 'NOT_DELETABLE', '운영 중인 매장은 먼저 정지하세요.');
+      if (String(body.confirm || '') !== storeId) throw httpError(400, 'CONFIRM', '지우려면 매장 아이디를 정확히 써 주세요.');
+      await Promise.resolve(revokeStoreTokens(storeId)).catch((e) => console.warn('[운영] 로그인 끊기 실패', storeId, e && e.message));
+      const { r2Keys = [], games = 0 } = (await stores.deleteStoreAll(storeId)) || {};
       statusCache.delete(storeId);
-      return { ok: true };
+      let files = {};
+      try {
+        files = (await deleteStoreFiles(storeId, r2Keys)) || {};
+      } catch (e) {
+        console.warn('[운영] 파일 지우기 실패', storeId, e && e.message);
+        files = { error: String((e && e.message) || e) };
+      }
+      return { ok: true, store: storeId, games, files };
     }
     if (path === '/api/ops/usage' && req.method === 'GET') {
       const days = Math.min(90, Math.max(1, Math.trunc(Number((req.query || {}).days)) || 30));

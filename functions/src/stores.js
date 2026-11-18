@@ -23,6 +23,25 @@
 
 const crypto = require('crypto');
 
+// 132차: 새 매장 기본 데이터 (운영자가 승인할 때 — 없는 문서만 만듦). 사장님이 관리자 웹에서 바로 고쳐 쓰면 됨
+const DEFAULT_SETTINGS = {
+  genres: { items: ['파티', '가족', '전략', '추상전략', '추리', '머메', '2인', '협력'] },
+  categories: { list: ['커피', '음료', '음식', '디저트', '추가메뉴'] },
+  notices: {
+    items: [
+      {
+        type: 'text',
+        title: '이용 안내',
+        content: '· 이용 요금과 시간은 카운터에 물어봐 주세요.\n'
+          + '· 게임을 다 하면 구성품을 모두 상자에 넣어 주세요.\n'
+          + '· 음식·음료는 왼쪽 메뉴의 \'음식 주문\'에서 주문할 수 있어요.\n'
+          + '· 도움이 필요하면 왼쪽 아래 \'직원 호출\'을 눌러 주세요.',
+      },
+    ],
+  },
+  events: { items: [] },
+};
+
 const STORE_ID_RE = /^[a-z0-9][a-z0-9-]{2,29}$/;
 const STATUSES = ['pending', 'active', 'suspended', 'rejected'];
 // 가입할 때 못 쓰는 아이디
@@ -219,6 +238,42 @@ function createFirestoreStores(db) {
       batch.set(priv(storeId, 'profile'), { statusChangedAt: FieldValue.serverTimestamp(), ...(status === 'active' ? { approvedAt: FieldValue.serverTimestamp() } : {}) }, { merge: true });
       await batch.commit();
     },
+    // 132차: 매장 이름 바꾸기 (운영자 페이지에서만)
+    async rename(storeId, name) {
+      const ref = storeRef(storeId);
+      if (!(await ref.get()).exists) throw httpError(404, 'NO_STORE', '없는 매장이에요.');
+      await ref.update({ name, renamedAt: FieldValue.serverTimestamp() });
+    },
+    // 132차: 새 매장 기본 데이터 — 없는 문서만 만듦(이미 있으면 그대로), 처음 한 번 seededAt 표시
+    async seedDefaults(storeId) {
+      const ref = storeRef(storeId);
+      if ((await ref.get()).get('seededAt')) return []; // 한 번 넣었으면(사장님이 지웠어도) 다시 안 넣음
+      const made = [];
+      for (const [docId, data] of Object.entries(DEFAULT_SETTINGS)) {
+        try {
+          await ref.collection('settings').doc(docId).create({ ...data, seededAt: FieldValue.serverTimestamp() });
+          made.push(docId);
+        } catch (e) {
+          if (!(e && (e.code === 6 || /already exists/i.test(String(e.message))))) throw e;
+        }
+      }
+      await ref.set({ seededAt: FieldValue.serverTimestamp() }, { merge: true });
+      return made;
+    },
+    // 132차: 매장 통째로 지우기 — 룰 영상 파일 키(R2)를 먼저 모아 돌려주고, stores/{매장} 아래 문서를 모두 지움
+    //   (사진 등 Firebase Storage stores/{매장}/ 과 R2 파일은 index.js deleteStoreFiles가 지움)
+    async deleteStoreAll(storeId) {
+      const ref = storeRef(storeId);
+      if (!(await ref.get()).exists) throw httpError(404, 'NO_STORE', '없는 매장이에요.');
+      const games = await ref.collection('games').get();
+      const r2Keys = [];
+      for (const d of games.docs) {
+        const rv = d.get('ruleVideo') || {};
+        for (const q of ['q1080', 'q720']) if (rv[q] && rv[q].key) r2Keys.push(String(rv[q].key));
+      }
+      await db.recursiveDelete(ref);
+      return { r2Keys, games: games.size };
+    },
     // 승인 대기·거절된 매장만 지움 (운영한 적 있는 매장의 데이터는 지우지 않음)
     async deleteSignup(storeId) {
       const ref = storeRef(storeId);
@@ -353,6 +408,29 @@ function createMemoryStores(initial = {}) {
     async setStatus(id, status) {
       if (!stores.has(id)) throw httpError(404, 'NO_STORE', '없는 매장이에요.');
       stores.get(id).status = status;
+    },
+    async rename(id, name) {
+      if (!stores.has(id)) throw httpError(404, 'NO_STORE', '없는 매장이에요.');
+      stores.get(id).name = name;
+    },
+    async seedDefaults(id) {
+      const s = stores.get(id);
+      if (s.seededAt) return [];
+      s.seededAt = true;
+      s.settings = s.settings || {};
+      const made = [];
+      for (const [docId, data] of Object.entries(DEFAULT_SETTINGS)) {
+        if (s.settings[docId]) continue;
+        s.settings[docId] = JSON.parse(JSON.stringify(data));
+        made.push(docId);
+      }
+      return made;
+    },
+    async deleteStoreAll(id) {
+      const s = stores.get(id);
+      if (!s) throw httpError(404, 'NO_STORE', '없는 매장이에요.');
+      stores.delete(id);
+      return { r2Keys: [...(s.r2Keys || [])], games: (s.games || []).length };
     },
     async deleteSignup(id) {
       const s = stores.get(id);

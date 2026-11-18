@@ -262,7 +262,8 @@ class _StoresTabState extends State<_StoresTab> {
       'delete': '가입 신청을 지울까요?',
     };
     const bodies = {
-      'active': '사장님이 관리자 웹에 로그인할 수 있게 돼요. 승인했다고 연락해 주세요.',
+      'active': '사장님이 관리자 웹에 로그인할 수 있게 돼요. 승인했다고 연락해 주세요.\n'
+          '(처음 승인하면 기본 게임 장르·메뉴 카테고리·이용 안내 공지가 들어가요. 사장님이 바로 고쳐 쓰면 돼요)',
       'suspended': '그 매장의 패드·관리자 웹이 바로 막히고, 로그인한 기기도 1시간 안에 로그아웃돼요. 데이터는 그대로 남아요.',
       'rejected': '사장님이 로그인하면 "승인되지 않았어요"가 나와요. 아이디는 계속 차지해요(지우면 다시 쓸 수 있음).',
       'delete': '매장 정보와 가입 정보가 지워지고 아이디를 다시 쓸 수 있게 돼요.',
@@ -291,6 +292,55 @@ class _StoresTabState extends State<_StoresTab> {
         await OpsService.setStatus(id, action);
       }
       if (mounted) _toast(context, '$id: 처리했어요.');
+      _reload();
+    } on OpsException catch (e) {
+      if (mounted) _toast(context, e.message);
+    } finally {
+      if (mounted) setState(() => _busy.remove(id));
+    }
+  }
+
+  // 132차: 매장 이름 바꾸기 (운영자 페이지에서만)
+  Future<void> _rename(Map<String, dynamic> s) async {
+    final id = s['id'] as String;
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _RenameDialog(id: id, current: (s['name'] ?? '').toString()),
+    );
+    if (name == null || !mounted) return;
+    setState(() => _busy.add(id));
+    try {
+      await OpsService.renameStore(id, name);
+      if (mounted) _toast(context, '$id: 이름을 "$name"(으)로 바꿨어요.');
+      _reload();
+    } on OpsException catch (e) {
+      if (mounted) _toast(context, e.message);
+    } finally {
+      if (mounted) setState(() => _busy.remove(id));
+    }
+  }
+
+  // 132차: 매장 탈퇴 — 정지한 매장만, 아이디를 한 번 더 써야 지움 (게임·메뉴·주문·사진·룰 영상 전부)
+  Future<void> _deleteAll(Map<String, dynamic> s) async {
+    final id = s['id'] as String;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => _DeleteStoreDialog(id: id, name: (s['name'] ?? '').toString()),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _busy.add(id));
+    try {
+      final r = await OpsService.deleteStoreAll(id);
+      final files = r['files'] is Map ? r['files'] as Map : const {};
+      final err = files['error'];
+      if (mounted) {
+        _toast(
+          context,
+          err != null
+              ? '$id: 데이터는 지웠는데 파일 일부를 못 지웠어요 ($err)'
+              : '$id: 매장을 지웠어요. (게임 ${r['games'] ?? 0}개 · 사진 ${files['storage'] ?? 0}개 · 영상 ${files['r2'] ?? 0}개)',
+        );
+      }
       _reload();
     } on OpsException catch (e) {
       if (mounted) _toast(context, e.message);
@@ -380,6 +430,14 @@ class _StoresTabState extends State<_StoresTab> {
           onPressed: busy ? null : () => _act(s, 'delete'),
           style: TextButton.styleFrom(foregroundColor: _red),
           child: const Text('삭제'),
+        ),
+      if (status == 'active' || status == 'suspended')
+        TextButton(onPressed: busy ? null : () => _rename(s), child: const Text('이름 바꾸기')),
+      if (status == 'suspended')
+        TextButton(
+          onPressed: busy ? null : () => _deleteAll(s),
+          style: TextButton.styleFrom(foregroundColor: _red),
+          child: const Text('매장 삭제'),
         ),
     ];
     final owner = [s['ownerName'], s['phone']].where((v) => (v ?? '').toString().isNotEmpty).join(' · ');
@@ -779,6 +837,117 @@ class _SettingsTabState extends State<_SettingsTab> {
             const SizedBox(height: 16),
             FilledButton(onPressed: _busy ? null : _save, style: FilledButton.styleFrom(backgroundColor: _ink), child: const Text('바꾸기')),
           ]),
+        ),
+      ],
+    );
+  }
+}
+
+// 132차: 매장 이름 바꾸기 창
+class _RenameDialog extends StatefulWidget {
+  const _RenameDialog({required this.id, required this.current});
+  final String id;
+  final String current;
+
+  @override
+  State<_RenameDialog> createState() => _RenameDialogState();
+}
+
+class _RenameDialogState extends State<_RenameDialog> {
+  late final TextEditingController _c = TextEditingController(text: widget.current);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  String get _name => _c.text.trim();
+  bool get _ok => _name.isNotEmpty && _name.length <= 40 && _name != widget.current;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('${widget.id} — 매장 이름 바꾸기'),
+      content: SizedBox(
+        width: 380,
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          TextField(
+            controller: _c,
+            autofocus: true,
+            maxLength: 40,
+            decoration: const InputDecoration(labelText: '새 매장 이름', border: OutlineInputBorder()),
+            onChanged: (_) => setState(() {}),
+            onSubmitted: (_) {
+              if (_ok) Navigator.pop(context, _name);
+            },
+          ),
+          const Text('손님 패드·관리자 웹에 보이는 이름이 바뀌어요. 매장 아이디(로그인)는 그대로예요.',
+              style: TextStyle(color: Colors.black54, fontSize: 13)),
+        ]),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
+        FilledButton(onPressed: _ok ? () => Navigator.pop(context, _name) : null, child: const Text('바꾸기')),
+      ],
+    );
+  }
+}
+
+// 132차: 매장 통째로 지우기 창 — 아이디를 똑같이 써야 버튼이 켜짐
+class _DeleteStoreDialog extends StatefulWidget {
+  const _DeleteStoreDialog({required this.id, required this.name});
+  final String id;
+  final String name;
+
+  @override
+  State<_DeleteStoreDialog> createState() => _DeleteStoreDialogState();
+}
+
+class _DeleteStoreDialogState extends State<_DeleteStoreDialog> {
+  final TextEditingController _c = TextEditingController();
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final match = _c.text.trim() == widget.id;
+    return AlertDialog(
+      title: Text('${widget.name.isEmpty ? widget.id : widget.name} — 매장을 완전히 지울까요?'),
+      content: SizedBox(
+        width: 440,
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: _red.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
+            child: const Text(
+              '게임·메뉴·주문 기록·공지·이벤트·설정·통계, 올린 사진과 룰 영상이 모두 지워져요.\n'
+              '되돌릴 수 없어요. 지운 뒤에는 같은 아이디로 다시 가입할 수 있어요.\n'
+              '(공용 보관함으로 옮긴 영상은 남아요)',
+              style: TextStyle(color: _red, fontSize: 13, height: 1.5),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text('확인을 위해 매장 아이디 "${widget.id}"를 똑같이 써 주세요.', style: const TextStyle(fontSize: 13)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _c,
+            autofocus: true,
+            decoration: InputDecoration(hintText: widget.id, border: const OutlineInputBorder()),
+            onChanged: (_) => setState(() {}),
+          ),
+        ]),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('취소')),
+        FilledButton(
+          onPressed: match ? () => Navigator.pop(context, true) : null,
+          style: FilledButton.styleFrom(backgroundColor: _red),
+          child: const Text('완전히 지우기'),
         ),
       ],
     );
