@@ -172,3 +172,42 @@ test('고정 번역표에 있는 말은 구글에 안 보내고, 이미 틀리�
   assert.deepEqual(tr.calls.slice(3).map((c) => c.texts), [['디저트'], ['디저트'], ['디저트']]);
   assert.deepEqual(Object.keys(cat.translations.en).sort(), ['디저트', '커피'].sort());
 });
+
+test('120차: 매장 번역 고침표 — 같은 원문이 쓰인 곳 모두, 비운 언어는 구글, 지우면 구글 번역으로 되돌림', async () => {
+  const settings = JSON.parse(JSON.stringify(SETTINGS));
+  settings.platform6.categories = { list: ['커피', '에이드'] };
+  settings.platform6.translationOverrides = [{ src: '아메리카노', ja: 'アメリカン', en: '' }, { src: '커피', en: 'Coffee & Espresso' }];
+  const menus = JSON.parse(JSON.stringify(MENUS));
+  menus.platform6.m3 = { name: '아메리카노', price: 4000, optionGroups: [] }; // 같은 이름이 두 곳
+  const data = createMemoryTranslateData({ menus, settings });
+  const tr = fakeTranslator();
+  const t = createTranslateRoutes({ data, translator: tr, httpError });
+  await t.syncStore('platform6');
+  for (const id of ['m1', 'm3']) {
+    const m = data.menus.platform6[id];
+    assert.equal(m.translations.ja.name, 'アメリカン'); // 고침표
+    assert.equal(m.translations.en.name, '[en]아메리카노'); // 비운 언어는 구글
+    assert.deepEqual(m.translations._fixed, ['name']);
+  }
+  // 고친 언어는 구글에 안 보냄
+  assert.ok(!tr.calls.find((c) => c.target === 'ja').texts.includes('아메리카노'));
+  const cat = data.settings.platform6.categories.translations;
+  assert.equal(cat.en['커피'], 'Coffee & Espresso');
+  assert.deepEqual(cat._fixed, ['커피', '에이드']); // 에이드는 GLOSSARY
+  // 이미 번역된 뒤에 고침표를 바꾸면 다시 씀
+  data.settings.platform6.translationOverrides = [{ src: '아메리카노', ja: 'アメリカーノ（ホット・アイス）' }];
+  await t.syncStore('platform6');
+  assert.equal(data.menus.platform6.m1.translations.ja.name, 'アメリカーノ（ホット・アイス）');
+  assert.equal(data.settings.platform6.categories.translations.en['커피'], '[en]커피'); // 커피 고침을 지움 → 구글로
+  assert.deepEqual(data.settings.platform6.categories.translations._fixed, ['에이드']);
+  // 모두 지우면 구글 번역으로 되돌림
+  data.settings.platform6.translationOverrides = [];
+  await t.syncStore('platform6');
+  assert.equal(data.menus.platform6.m1.translations.ja.name, '[ja]아메리카노');
+  assert.equal(data.menus.platform6.m1.translations._fixed, undefined);
+  // 더 바뀐 게 없으면 아무것도 안 함
+  const before = tr.calls.length;
+  const r = await t.syncStore('platform6');
+  assert.equal(r.menus, 0);
+  assert.equal(tr.calls.length, before);
+});

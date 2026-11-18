@@ -256,6 +256,22 @@ function createFirestoreTossData(db) {
       if (n) await batch.commit();
       return n;
     },
+    // 120차: 포스 옵션 선택지 품절 — menus/{id}.posSoldOutOptions = ['그룹 이름|선택지 이름'] (손님 패드가 그 선택지를 못 고름). 지운 메뉴는 건너뜀
+    async setMenusPosSoldOutOptions(storeId, changes) {
+      const ids = Object.keys(changes);
+      if (!ids.length) return 0;
+      const refs = ids.map((id) => store(storeId).collection('menus').doc(id));
+      const docs = await db.getAll(...refs);
+      const batch = db.batch();
+      let n = 0;
+      docs.forEach((d, i) => {
+        if (!d.exists) return;
+        batch.update(refs[i], { posSoldOutOptions: changes[ids[i]] || [] });
+        n++;
+      });
+      if (n) await batch.commit();
+      return n;
+    },
     // 113차: 포스 플러그인이 보낸 알림(세트 구성품 줄이 남음 등) — _tossPlugin/{가맹점}.notes 최근 20개
     async addPluginNotes(merchantId, notes) {
       const ref = db.collection('_tossPlugin').doc(String(merchantId));
@@ -316,7 +332,7 @@ function createFirestoreTossData(db) {
       await db.collection('_tossSandbox').doc(String(merchantId)).collection('orders').doc(String(id)).set(patch, { merge: true });
     },
     // 81차: 방 결제 대기 목록 (84차: entry가 있으면 '주문 내역' cycle에도)
-    async openRoomOrder(storeId, room, orderId, entry = null) {
+    async openRoomOrder(storeId, room, orderId, entry = null, { revive = false } = {}) {
       if (!entry) {
         await roomRef(storeId, room).set(
           { open: FieldValue.arrayUnion(String(orderId)), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
@@ -325,7 +341,7 @@ function createFirestoreTossData(db) {
       await db.runTransaction(async (tx) => {
         const ref = roomRef(storeId, room);
         const d = await tx.get(ref);
-        const update = openRoom(d.exists ? d.data() : {}, orderId, entry);
+        const update = openRoom(d.exists ? d.data() : {}, orderId, entry, { revive });
         tx.set(ref, { ...update, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       });
     },
@@ -370,12 +386,14 @@ function cycleEntry(orderId, order, atIso) {
 }
 
 // 방 결제 대기 목록에 주문 하나를 넣음 (+ cycle에 요약, 같은 주문은 한 번만)
-function openRoom(cur, orderId, entry) {
+// 118차 revive: 취소로 잘못 처리된 주문을 되살림 — 주문 내역의 그 줄을 다시 '결제 전'(open)으로
+function openRoom(cur, orderId, entry, { revive = false } = {}) {
   const open = Array.isArray(cur.open) ? cur.open.map(String) : [];
   const update = { open: open.includes(String(orderId)) ? open : [...open, String(orderId)] };
   if (entry) {
     const cycle = Array.isArray(cur.cycle) ? cur.cycle : [];
     if (!cycle.some((e) => e && String(e.id) === String(orderId))) update.cycle = [...cycle, entry].slice(-CYCLE_MAX);
+    else if (revive) update.cycle = cycle.map((e) => (e && String(e.id) === String(orderId) ? { ...e, state: 'open' } : e));
   }
   return update;
 }
@@ -644,6 +662,16 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
       }
       return n;
     },
+    async setMenusPosSoldOutOptions(s, changes) {
+      let n = 0;
+      for (const m of menus[s] || []) {
+        if (Object.prototype.hasOwnProperty.call(changes, m.id)) {
+          m.posSoldOutOptions = [...(changes[m.id] || [])];
+          n++;
+        }
+      }
+      return n;
+    },
     async addPluginNotes(mid, notes) {
       const cur = plugins.get(String(mid)) || {};
       plugins.set(String(mid), { ...cur, notes: [...(cur.notes || []), ...JSON.parse(JSON.stringify(notes))].slice(-20) });
@@ -661,10 +689,10 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
       const f = (sandbox.get(String(mid)) || []).find((o) => String(o.id) === String(id));
       if (f) Object.assign(f, patch);
     },
-    async openRoomOrder(s, r, o, entry = null) {
+    async openRoomOrder(s, r, o, entry = null, { revive = false } = {}) {
       const k = `${s}/${r}`;
       const cur = rooms.get(k) || { open: [] };
-      rooms.set(k, { ...cur, ...openRoom(cur, o, entry) });
+      rooms.set(k, { ...cur, ...openRoom(cur, o, entry, { revive }) });
     },
     async closeRoomOrder(s, r, o, { paid = false, atIso } = {}) {
       const k = `${s}/${r}`;

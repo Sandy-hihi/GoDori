@@ -208,6 +208,16 @@ class SoldOutSchedule {
     return activeFor(rules, menuId, (menu['category'] ?? '').toString(), now ?? DateTime.now()) != null;
   }
 
+  /// 옵션 선택지가 지금 품절인지 — 손으로 켠 선택지 품절(soldOut — 106차) 또는
+  /// 포스 선택지 품절(120차 — 서버가 토스 포스 옵션 선택지 품절을 menus/{id}.posSoldOutOptions = ['그룹 이름|선택지 이름']로 따라 씀)
+  static bool optionSoldOut(Map<String, dynamic> menu, dynamic group, dynamic option) {
+    if (option is! Map) return false;
+    if (option['soldOut'] == true) return true;
+    final pos = menu['posSoldOutOptions'];
+    if (pos is! List || pos.isEmpty || group is! Map) return false;
+    return pos.contains('${group['groupName'] ?? ''}|${option['name'] ?? ''}');
+  }
+
   /// 카테고리 이름을 바꾸면 규칙의 붙는 카테고리도 (메뉴 관리 카테고리 수정)
   static Future<void> renameCategory(String oldName, String newName) async {
     await FirebaseFirestore.instance.runTransaction((tx) async {

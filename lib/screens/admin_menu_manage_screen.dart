@@ -1518,6 +1518,12 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                           fontSize: 12,
                                         ),
                                       ),
+                                    // 120차: 포스에서 품절인 옵션 선택지 (서버가 1분마다 따라 씀)
+                                    if (menu['posSoldOutOptions'] is List && (menu['posSoldOutOptions'] as List).isNotEmpty)
+                                      TextSpan(
+                                        text: '  포스 품절: ${(menu['posSoldOutOptions'] as List).map((k) => k.toString().replaceFirst('|', ' ')).join(', ')}',
+                                        style: const TextStyle(color: Colors.red, fontSize: 12),
+                                      ),
                                   ]),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,

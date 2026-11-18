@@ -1529,5 +1529,10 @@ const guestMessages = <String, List<String>> {
     "Your cart has a sold-out item. Please remove it and order again.",
     "购物车中有已售罄的菜品，请删除后重新下单。",
     "カートに品切れのメニューがあります。削除してからもう一度注文してください。"
+  ],
+  "매장 비밀번호가 바뀌어 로그아웃됐어요. 다시 로그인해 주세요.": [
+    "The store password was changed, so this pad was signed out. Please sign in again.",
+    "门店密码已更改，平板已退出登录。请重新登录。",
+    "店舗のパスワードが変更されたためログアウトしました。もう一度ログインしてください。"
   ]
 };

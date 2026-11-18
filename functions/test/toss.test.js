@@ -763,6 +763,52 @@ test('113차: 포스 품절 → 고도리 메뉴 posSoldOut (1분마다, 바뀐 
   assert.equal((await data.listMenus('platform6')).find((m) => m.id === 'm3').posSoldOut, false);
 });
 
+test('120차: hello 횟수 제한 — 승인 전 기기는 가맹점당 5대까지, 연결 안 된 가맹점 신호는 10분 60번', async () => {
+  const { call } = await pluginSetup(); // 738910에 승인된 기기 P 1대
+  const hello = (merchantId, serial) => call('POST', '/api/toss/plugin/hello', { body: { merchantId, serial, version: '0.4.0' } });
+  for (let i = 1; i <= 5; i++) assert.ok((await hello('738910', `S${i}`)).body.deviceToken);
+  const sixth = (await hello('738910', 'S6')).body;
+  assert.equal(sixth.deviceToken, undefined);
+  assert.match(sixth.deviceProblem, /너무 많아요/);
+  // 이미 있는 승인 전 기기는 열쇠를 다시 받을 수 있음 (열쇠를 잃은 경우)
+  assert.ok((await hello('738910', 'S1')).body.deviceToken);
+  // 연결 안 된 가맹점: 전체 10분 60번
+  let last;
+  for (let i = 0; i < 61; i++) last = await hello(String(100000 + i), 'X');
+  assert.equal(last.status, 429);
+});
+
+test('120차: 포스 옵션 선택지 품절 → 고도리 posSoldOutOptions, 골라 둔 필수 선택이 품절이면 메뉴 품절', async () => {
+  const menus = MENUS.map((m) => ({ ...m, optionGroups: [...m.optionGroups] }));
+  const { call, data, poll, tick, catalog } = await pluginSetup({ menus });
+  const ame = catalog[0];
+  const temp = ame.options[0];
+  // m2를 '아메리카노 + 온도 HOT 골라 둠'으로 연결 (에이드 › 자몽에이드 같은 경우)
+  await call('POST', '/api/toss/menu-map', { token: 'admin', body: { map: { m1: ame.id, m2: `${ame.id}:${temp.id}=${temp.choices[0].id}` } } });
+  temp.choices[1].state = 'SOLD_OUT'; // ICE 품절
+  tick(61 * 1000);
+  await poll();
+  let m = await data.listMenus('platform6');
+  assert.deepEqual(m.find((x) => x.id === 'm1').posSoldOutOptions, ['온도|ICE']);
+  assert.notEqual(m.find((x) => x.id === 'm1').posSoldOut, true);
+  assert.equal(m.find((x) => x.id === 'm2').posSoldOutOptions, undefined); // m2는 온도를 골라 둬서 해당 없음
+  // HOT 품절 → 골라 둔 m2는 메뉴 품절, m1은 두 선택지 모두 품절
+  temp.choices[0].state = 'SOLD_OUT';
+  tick(61 * 1000);
+  await poll();
+  m = await data.listMenus('platform6');
+  assert.equal(m.find((x) => x.id === 'm2').posSoldOut, true);
+  assert.deepEqual(m.find((x) => x.id === 'm1').posSoldOutOptions, ['온도|HOT', '온도|ICE']);
+  // 다시 판매 → 풀림
+  temp.choices[0].state = 'ON_SALE';
+  temp.choices[1].state = 'ON_SALE';
+  tick(61 * 1000);
+  await poll();
+  m = await data.listMenus('platform6');
+  assert.equal(m.find((x) => x.id === 'm2').posSoldOut, false);
+  assert.deepEqual(m.find((x) => x.id === 'm1').posSoldOutOptions, []);
+});
+
 test('방 결제 대기 비우기 (102차): 운영자만, 남은 방 목록 → 비우면 open·cycle 비고 정산 표시는 없음', async () => {
   const { call, data } = make({ orders: { a: ORDER, b: { ...ORDER, room: '#4' } } });
   await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'fake' } });
@@ -875,4 +921,25 @@ test('117차: 포스 계산서 — 테이블별 합계를 방 번호로 (포스�
   // 1번 결제 끝(테이블 비움) → 지움
   await ev({ kind: 'bills', bills: [{ tableId: 2, tableTitle: '기본홀02', posOrderId: '20', total: 7500, paid: 4000, unpaid: 3500 }] });
   assert.equal(data.rooms.get('platform6/1').posBill, null);
+});
+
+test('118차: 합석 때 포스가 원래 주문 취소를 먼저 보내도 — 합치기 신호가 오면 되살려 합친 방 금액이 맞음', async () => {
+  const PO = { ...ORDER, lines: ORDER.lines.slice(0, 1), price: '3500' };
+  const { call, data, poll, ack, ev } = await pluginSetup({ orders: { a: { ...PO, room: '#1' }, b: { ...PO, room: '#2' } } });
+  for (const id of ['a', 'b']) await call('POST', '/api/toss/send-order', { token: 'admin', body: { orderId: id } });
+  await poll();
+  await ack({ orderId: 'a', ok: true, posOrderId: '10', tableTitle: '기본홀01' });
+  await ack({ orderId: 'b', ok: true, posOrderId: '20', tableTitle: '기본홀02' });
+  // 취소가 먼저 옴 → 1번 주문 취소 처리
+  await ev({ posOrderId: '10', orderState: 'CANCELLED', unpaid: 3500 });
+  assert.equal(data.rooms.get('platform6/1').cycle[0].state, 'cancelled');
+  // 그다음 합치기 신호 → 되살려서 2번 방으로
+  const mg = (await ev({ kind: 'merge', fromPosOrderId: '10', toPosOrderId: '20', toTableId: 2, toTableTitle: '기본홀02' })).body;
+  assert.equal(mg.revived, 1);
+  const r2 = data.rooms.get('platform6/2');
+  assert.deepEqual(r2.open.sort(), ['a', 'b']);
+  assert.ok(r2.cycle.every((e) => e.state === 'open'));
+  const done = (await ev({ posOrderId: '20', orderState: 'COMPLETED', unpaid: 0 })).body;
+  assert.equal(done.matched, 2);
+  assert.equal(done.settled, true);
 });

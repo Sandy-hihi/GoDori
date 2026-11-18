@@ -39,7 +39,7 @@ function make({ account = ACCOUNT, rooms = 11, legacy = { pin: '111111', webPass
   const h = createHandler({
     ops: createMemoryOps(opsAccount),
     monitoring,
-    revokeStoreTokens: async (id) => revoked.push(id),
+    revokeStoreTokens: async (id, only) => { revoked.push(id); if (only) revoked.only = only; },
     bgg: fakeBgg(),
     stores,
     getLegacySecrets: async () => legacy,
@@ -181,6 +181,25 @@ test('비밀번호 바꾸기: 관리자만, 해시로 저장, 바뀐 값으로 �
   assert.equal((await padLogin(h, { password: 'new-pad', room: 1 })).status, 200);
   assert.equal((await padLogin(h, { password: 'new-pad', room: 0, pin: '987654' })).status, 200);
   assert.equal((await webLogin(h, 'new-web-pass')).status, 200);
+  // 120차: 패드 비밀번호를 바꾸면 손님 패드·관리자 패드 강제 로그아웃 시각을 씀
+  const ep = h.stores.stores.get('platform6').authEpoch;
+  assert.ok(ep.pad > 0 && ep.admin > 0);
+  assert.deepEqual(r.body.loggedOut, { pads: true, adminPad: true });
+  assert.deepEqual(h.revoked.only, { pads: true, adminPad: true, adminWeb: false });
+});
+test('120차: PIN만 바꾸면 관리자 패드만, 관리자 웹 비밀번호만 바꾸면 패드는 그대로', async () => {
+  const h = make();
+  const call = (body) => h(req('POST', '/api/store/passwords', { body, token: 'admin-token' }));
+  const w = await call({ webPassword: 'new-web-pass' });
+  assert.deepEqual(w.body.loggedOut, { pads: false, adminPad: false });
+  assert.equal(h.stores.stores.get('platform6').authEpoch, undefined);
+  assert.equal(h.revoked.length, 0);
+  const p = await call({ pin: '987654' });
+  assert.deepEqual(p.body.loggedOut, { pads: false, adminPad: true });
+  const ep = h.stores.stores.get('platform6').authEpoch;
+  assert.ok(ep.admin > 0);
+  assert.equal(ep.pad, undefined);
+  assert.deepEqual(h.revoked.only, { pads: false, adminPad: true, adminWeb: false });
 });
 test('예전 데이터 옮기기: 예전 비밀번호 확인 후 한 번만', async () => {
   const h = make();

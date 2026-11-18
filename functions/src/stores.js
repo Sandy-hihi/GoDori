@@ -2,7 +2,8 @@
 // 매장 계정 (47차) — 여러 매장이 각자 데이터·설정을 갖는 구조
 //
 // Firestore
-//   stores/{storeId}                    { name, status, createdAt, features }    매장 기본 정보 (누구나 읽기, 쓰기는 서버만)
+//   stores/{storeId}                    { name, status, createdAt, features, authEpoch }    매장 기본 정보 (누구나 읽기, 쓰기는 서버만)
+//        authEpoch: { pad, admin }  120차 — 비밀번호를 바꾼 시각(ms). 그보다 먼저 로그인한 패드는 스스로 로그아웃
 //        status: 'pending'(가입 승인 대기) | 'active'(운영 중, 없으면 이걸로 봄) | 'suspended'(정지) | 'rejected'(거절)
 //        features: { adminDashboard, tossPos }  매장별 기능 켜기·끄기 (59차, 아래 FEATURE_DEFAULTS)
 //   stores/{storeId}/private/account    { padPassword(Hash), pin(Hash), webPassword(Hash) }  서버만 읽음
@@ -268,6 +269,10 @@ function createFirestoreStores(db) {
       const doc = await storeRef(storeId).collection('settings').doc('rooms').get();
       return parseRoomCount(doc.exists ? doc.data() : null);
     },
+    // 120차: 비밀번호를 바꾼 시각 — stores/{매장}.authEpoch { pad?, admin? } (ms). 패드가 보고 강제 로그아웃(누구나 읽기, 쓰기는 서버만)
+    async setAuthEpoch(storeId, epoch) {
+      await storeRef(storeId).set({ authEpoch: epoch }, { merge: true });
+    },
     // fields: { padPasswordHash?, pinHash?, webPasswordHash? } — 같은 종류의 글자 필드는 지움
     async setSecrets(storeId, fields) {
       const update = { updatedAt: FieldValue.serverTimestamp() };
@@ -379,6 +384,10 @@ function createMemoryStores(initial = {}) {
     },
     async getRoomCount(id) {
       return (stores.get(id) || {}).rooms || DEFAULT_ROOMS;
+    },
+    async setAuthEpoch(id, epoch) {
+      const s = stores.get(id);
+      s.authEpoch = { ...(s.authEpoch || {}), ...epoch };
     },
     async setSecrets(id, fields) {
       const s = stores.get(id);

@@ -163,9 +163,9 @@ service cloud.firestore {
       // ── 설정 문서 ──
       match /settings/{docId} {
         allow read: if true;
-        // 관리자 페이지가 수정하는 문서만, 그 매장 관리자만 쓰기 허용. storeInfo는 콘솔 전용.
+        // 관리자 페이지가 수정하는 문서만, 그 매장 관리자만 쓰기 허용.
         allow write: if isAdmin()
-                     && docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout', 'optionLibrary', 'soldOutSchedule']; // optionLibrary = 옵션 목록(106차), soldOutSchedule = 자동 품절 시간(112차)
+                     && docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout', 'optionLibrary', 'soldOutSchedule', 'translationOverrides']; // optionLibrary = 옵션 목록(106차), soldOutSchedule = 자동 품절 시간(112차), translationOverrides = 번역 고침표(120차)
         // 방 개수 (관리자 웹 '매장 설정'): 1 ~ 30 사이 숫자만
         allow write: if isAdmin()
                      && docId == 'rooms'
@@ -178,6 +178,12 @@ service cloud.firestore {
                      && docId == 'orderFlow'
                      && request.resource.data.keys().hasOnly(['mode', 'updatedAt'])
                      && request.resource.data.mode in ['serve', 'pickup', 'pickupPay'];
+        // 매장 전화번호 (관리자 웹 '매장 설정', 120차 — 예전엔 콘솔 전용): phoneNumber·updatedAt만 바꿈, 숫자·+·괄호·-·띄어쓰기 20자까지
+        allow write: if isAdmin()
+                     && docId == 'storeInfo'
+                     && request.resource.data.diff(resource == null ? {} : resource.data).affectedKeys().hasOnly(['phoneNumber', 'updatedAt'])
+                     && request.resource.data.phoneNumber is string
+                     && request.resource.data.phoneNumber.matches('^[0-9+() -]{0,20}$');
       }
     }
 

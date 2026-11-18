@@ -14,7 +14,11 @@
 //   settings/notices·events.items[]  translations: { en: { title, content }, … }  (사진 글(type image)은 title만)
 //   _src = 번역할 때의 원문(JSON). 원문이 같으면 다시 번역하지 않음 — 관리자가 글을 고치면 _src가 달라져 다시 번역됨.
 //   settings/categories        translations: { en: { 카테고리: 번역 }, zh, ja }  (104차 — 순서만 바뀌면 다시 번역 안 함)
-//   사장님이 번역을 직접 고치는 화면은 아직 없음(남은 일). 그 전까지 틀리는 말은 아래 GLOSSARY(고정 번역표)에 추가.
+//   120차: 사장님이 번역을 직접 고치는 화면(관리자 웹 '번역 관리') — 매장마다 고침표 settings/translationOverrides
+//     { items: [{ src: 원문, en?, zh?, ja? }] } (최대 1000개). 고정 번역표(GLOSSARY)처럼 쓰임: 같은 원문이 쓰인 모든 곳(메뉴·옵션·
+//     카테고리·공지·이벤트)에 들어가고, 구글보다·GLOSSARY보다 먼저. 비운 언어는 GLOSSARY·구글 번역.
+//     고침표·GLOSSARY로 넣은 칸은 translations._fixed: ['name' …](카테고리는 이름 목록)로 표시 → 고침을 지우면 다음 번역 때 구글 번역으로 되돌림.
+//   그 밖에 모든 매장에서 틀리는 말은 아래 GLOSSARY(고정 번역표)에 추가.
 
 const LANGS = [['en', 'en'], ['zh', 'zh-CN'], ['ja', 'ja']];
 const clean = (s) => (typeof s === 'string' ? s.trim() : '');
@@ -64,18 +68,41 @@ const GLOSSARY = {
 };
 const glossKey = (s) => clean(s).replace(/\s+/g, '').replace(/뗴/g, '떼');
 const glossaryOf = (s) => GLOSSARY[glossKey(s)] || null;
-// 이미 번역된 칸 중 고정 번역표와 다른 게 있으면 true (표에 새로 넣은 말을 기존 메뉴에도 반영)
-function glossaryStale(t, fields) {
+// 120차: 매장 고침표 + GLOSSARY → fx(원문) = { en?, zh?, ja? } | null (언어마다 고침표가 먼저, 빈 언어는 GLOSSARY)
+const MAX_OVERRIDES = 1000;
+function makeFixed(overrides) {
+  const ovr = new Map();
+  for (const it of (Array.isArray(overrides) ? overrides : []).slice(0, MAX_OVERRIDES)) {
+    if (!it || typeof it !== 'object') continue;
+    const k = glossKey(it.src);
+    if (!k) continue;
+    const v = {};
+    for (const [code] of LANGS) if (clean(it[code])) v[code] = clean(it[code]);
+    if (Object.keys(v).length) ovr.set(k, v);
+  }
+  return (s) => {
+    const g = glossaryOf(s);
+    const o = ovr.get(glossKey(s));
+    if (!g && !o) return null;
+    return { ...(g || {}), ...(o || {}) };
+  };
+}
+// 이미 번역된 칸 중 고정 번역(고침표·GLOSSARY)과 다른 게 있으면 true (표에 새로 넣은 말을 기존 메뉴에도 반영)
+// 120차: 고정 번역으로 넣었던 칸(_fixed)인데 이제 고정 번역이 없으면(고침을 지움) true → 구글 번역으로 되돌림
+function glossaryStale(t, fields, fx = glossaryOf) {
   for (const [k, v] of Object.entries(fields)) {
-    const g = glossaryOf(v);
-    if (!g) continue;
-    for (const [code] of LANGS) if (!t[code] || t[code][k] !== g[code]) return true;
+    const g = fx(v);
+    if (!g) {
+      if (Array.isArray(t._fixed) && t._fixed.includes(k)) return true;
+      continue;
+    }
+    for (const [code] of LANGS) if (g[code] && (!t[code] || t[code][k] !== g[code])) return true;
   }
   return false;
 }
 
 // 번역할 칸 하나 묶음(unit): { obj(새로 만든 사본 — 여기에 translations를 씀), fields: { 칸: 원문 } }
-function addUnit(units, obj, raw) {
+function addUnit(units, obj, raw, fx = glossaryOf) {
   const fields = {};
   for (const [k, v] of Object.entries(raw)) {
     const s = clean(v);
@@ -89,24 +116,24 @@ function addUnit(units, obj, raw) {
     }
     return;
   }
-  if (!(t && typeof t === 'object' && t._src === srcOf(fields)) || glossaryStale(t, fields)) units.push({ obj, fields });
+  if (!(t && typeof t === 'object' && t._src === srcOf(fields)) || glossaryStale(t, fields, fx)) units.push({ obj, fields });
 }
 
 // 메뉴 문서 → { patch 재료(사본), units }
-function planMenu(menu) {
+function planMenu(menu, fx = glossaryOf) {
   const doc = { translations: menu.translations };
   const units = [];
-  addUnit(units, doc, { name: menu.name });
+  addUnit(units, doc, { name: menu.name }, fx);
   if (Array.isArray(menu.optionGroups)) {
     doc.optionGroups = menu.optionGroups.map((g) => {
       if (!g || typeof g !== 'object') return g;
       const ng = { ...g };
-      addUnit(units, ng, { groupName: g.groupName });
+      addUnit(units, ng, { groupName: g.groupName }, fx);
       if (Array.isArray(g.options)) {
         ng.options = g.options.map((o) => {
           if (!o || typeof o !== 'object') return o;
           const no = { ...o };
-          addUnit(units, no, { name: o.name });
+          addUnit(units, no, { name: o.name }, fx);
           return no;
         });
       }
@@ -117,12 +144,12 @@ function planMenu(menu) {
 }
 
 // 공지·이벤트 items → { items(사본), units }
-function planItems(items) {
+function planItems(items, fx = glossaryOf) {
   const units = [];
   const list = (Array.isArray(items) ? items : []).map((it) => {
     if (!it || typeof it !== 'object') return it;
     const ni = { ...it };
-    addUnit(units, ni, it.type === 'image' ? { title: it.title } : { title: it.title, content: it.content });
+    addUnit(units, ni, it.type === 'image' ? { title: it.title } : { title: it.title, content: it.content }, fx);
     return ni;
   });
   return { items: list, units };
@@ -130,20 +157,22 @@ function planItems(items) {
 
 // 카테고리 (104차) — settings/categories { list, translations: { en: { 원문: 번역 }, zh, ja } }
 // 순서만 바꾸면 다시 번역하지 않음. 없는 이름의 번역은 지움.
-function planCategories(doc) {
+function planCategories(doc, fx = glossaryOf) {
   const list = [...new Set((Array.isArray(doc && doc.list) ? doc.list : []).map(clean).filter(Boolean))];
   const old = (doc && typeof doc.translations === 'object' && doc.translations) || {};
+  const oldFixed = Array.isArray(old._fixed) ? old._fixed : [];
   const need = list.filter((c) => {
-    const g = glossaryOf(c);
+    const g = fx(c);
+    if (!g && oldFixed.includes(c)) return true; // 120차: 고침을 지움 → 구글 번역으로
     return LANGS.some(([code]) => {
       const v = old[code] && old[code][c];
-      return !(typeof v === 'string' && v.trim()) || (g && v !== g[code]);
+      return !(typeof v === 'string' && v.trim()) || (g && g[code] && v !== g[code]);
     });
   });
   const extra = LANGS.some(([code]) => Object.keys(old[code] || {}).some((k) => !list.includes(k)));
   return { list, old, need, changed: need.length > 0 || extra };
 }
-function applyCategories(p, cache) {
+function applyCategories(p, cache, fx = glossaryOf) {
   if (!p.need.every((c) => cache.has(c))) return null;
   const tr = {};
   for (const [code] of LANGS) {
@@ -152,13 +181,15 @@ function applyCategories(p, cache) {
       tr[code][c] = p.need.includes(c) ? (cache.get(c)[code] || c) : p.old[code][c];
     }
   }
+  const fixed = p.list.filter((c) => fx(c)); // 120차: 고정 번역으로 넣은 카테고리
+  if (fixed.length) tr._fixed = fixed;
   return tr;
 }
 
 const textsOf = (units) => units.filter((u) => !u.removeOnly).flatMap((u) => Object.values(u.fields));
 
 // cache: Map 원문 → { en, zh, ja }. 하나라도 없으면 false(쓰지 않음)
-function applyUnits(units, cache) {
+function applyUnits(units, cache, fx = glossaryOf) {
   for (const u of units) {
     if (u.removeOnly) continue;
     if (!Object.values(u.fields).every((t) => cache.has(t))) return false;
@@ -170,6 +201,8 @@ function applyUnits(units, cache) {
       tr[code] = {};
       for (const [k, v] of Object.entries(u.fields)) tr[code][k] = cache.get(v)[code] || v;
     }
+    const fixed = Object.entries(u.fields).filter(([, v]) => fx(v)).map(([k]) => k); // 120차
+    if (fixed.length) tr._fixed = fixed;
     u.obj.translations = tr;
   }
   return true;
@@ -206,49 +239,52 @@ function createGoogleTranslator({ getAccessToken, fetchImpl = globalThis.fetch }
 
 // translator: async (texts[], target) => texts[] (없으면 503)
 function createTranslateRoutes({ data, translator = null, httpError }) {
-  async function translateAll(texts) {
+  // 120차: 고정 번역(고침표·GLOSSARY)이 있는 언어는 구글에 안 보냄 → { cache, chars }
+  async function translateAll(texts, fx = glossaryOf) {
     const all = [...new Set(texts)];
-    const cache = new Map(all.map((t) => [t, glossaryOf(t) ? { ...glossaryOf(t) } : {}]));
-    const uniq = all.filter((t) => !glossaryOf(t)); // 고정 번역표에 있는 말은 구글에 안 보냄
-    if (!uniq.length) return cache;
+    const cache = new Map(all.map((t) => [t, { ...(fx(t) || {}) }]));
+    let chars = 0;
     for (const [code, target] of LANGS) {
-      const out = await translator(uniq, target);
-      uniq.forEach((t, i) => { cache.get(t)[code] = out[i]; });
+      const need = all.filter((t) => !cache.get(t)[code]);
+      if (!need.length) continue;
+      const out = await translator(need, target);
+      need.forEach((t, i) => { cache.get(t)[code] = out[i]; });
+      chars += need.reduce((n, t) => n + t.length, 0);
     }
-    return cache;
+    return { cache, chars };
   }
 
   async function syncStore(storeId) {
+    const fx = makeFixed(data.getOverrides ? await data.getOverrides(storeId) : []); // 120차: 매장 고침표
     const menus = await data.listMenus(storeId);
     const docs = {};
     for (const id of ['notices', 'events']) docs[id] = await data.getItems(storeId, id);
 
     const catDoc = data.getCategories ? await data.getCategories(storeId) : null;
-    const catPlan = catDoc ? planCategories(catDoc) : null;
+    const catPlan = catDoc ? planCategories(catDoc, fx) : null;
 
     const texts = [];
     if (catPlan) texts.push(...catPlan.need);
-    for (const m of menus) texts.push(...textsOf(planMenu(m).units));
-    for (const id of Object.keys(docs)) if (docs[id]) texts.push(...textsOf(planItems(docs[id]).units));
-    const cache = await translateAll(texts);
-    const chars = [...cache.keys()].filter((t) => !glossaryOf(t)).reduce((n, t) => n + t.length, 0) * LANGS.length;
+    for (const m of menus) texts.push(...textsOf(planMenu(m, fx).units));
+    for (const id of Object.keys(docs)) if (docs[id]) texts.push(...textsOf(planItems(docs[id], fx).units));
+    const { cache, chars } = await translateAll(texts, fx);
 
     let categories = 0;
     if (catPlan && catPlan.changed) {
       const wrote = await data.updateCategories(storeId, (fresh) => {
-        const p = planCategories(fresh);
-        return p.changed ? applyCategories(p, cache) : null;
+        const p = planCategories(fresh, fx);
+        return p.changed ? applyCategories(p, cache, fx) : null;
       });
       if (wrote) categories = 1;
     }
 
     let menuCount = 0;
     for (const m of menus) {
-      if (!planMenu(m).units.length) continue;
+      if (!planMenu(m, fx).units.length) continue;
       // 저장 직전에 다시 읽어서(트랜잭션) 그사이 관리자가 고친 내용을 덮지 않음 — 원문이 바뀌었으면 다음 번에
       const wrote = await data.updateMenu(storeId, m.id, (fresh) => {
-        const p = planMenu(fresh);
-        if (!p.units.length || !applyUnits(p.units, cache)) return null;
+        const p = planMenu(fresh, fx);
+        if (!p.units.length || !applyUnits(p.units, cache, fx)) return null;
         const patch = { translations: p.doc.translations === undefined ? null : p.doc.translations };
         if (p.doc.optionGroups !== undefined) patch.optionGroups = p.doc.optionGroups;
         return patch;
@@ -258,10 +294,10 @@ function createTranslateRoutes({ data, translator = null, httpError }) {
     const counts = {};
     for (const id of Object.keys(docs)) {
       counts[id] = 0;
-      if (!docs[id] || !planItems(docs[id]).units.length) continue;
+      if (!docs[id] || !planItems(docs[id], fx).units.length) continue;
       const wrote = await data.updateItems(storeId, id, (fresh) => {
-        const p = planItems(fresh);
-        if (!p.units.length || !applyUnits(p.units, cache)) return null;
+        const p = planItems(fresh, fx);
+        if (!p.units.length || !applyUnits(p.units, cache, fx)) return null;
         return p.items;
       });
       if (wrote) counts[id] = 1;
@@ -304,6 +340,11 @@ function createFirestoreTranslateData(db) {
     async getCategories(s) {
       const d = await store(s).collection('settings').doc('categories').get();
       return d.exists ? d.data() : null;
+    },
+    // 120차: 매장 번역 고침표 (관리자 웹 '번역 관리')
+    async getOverrides(s) {
+      const d = await store(s).collection('settings').doc('translationOverrides').get();
+      return d.exists && Array.isArray(d.data().items) ? d.data().items : [];
     },
     // mutator(fresh) → translations 또는 null. list는 건드리지 않음(관리자가 그사이 바꾼 순서 유지)
     async updateCategories(s, mutator) {
@@ -368,6 +409,10 @@ function createMemoryTranslateData({ menus = {}, settings = {} } = {}) {
       }
       return true;
     },
+    async getOverrides(s) {
+      const v = (st[s] || {}).translationOverrides;
+      return Array.isArray(v) ? JSON.parse(JSON.stringify(v)) : [];
+    },
     async getCategories(s) {
       const v = (st[s] || {}).categories;
       return v === undefined ? null : JSON.parse(JSON.stringify(v));
@@ -393,5 +438,5 @@ function createMemoryTranslateData({ menus = {}, settings = {} } = {}) {
 
 module.exports = {
   createTranslateRoutes, createGoogleTranslator, createFirestoreTranslateData, createMemoryTranslateData,
-  planMenu, planItems, planCategories, LANGS, GLOSSARY,
+  planMenu, planItems, planCategories, LANGS, GLOSSARY, makeFixed, MAX_OVERRIDES,
 };

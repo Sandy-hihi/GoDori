@@ -7,9 +7,10 @@ import 'package:boardpad/screens/admin_notice_manage_screen.dart';
 import 'package:boardpad/screens/admin_home_layout_screen.dart';
 import 'package:boardpad/screens/admin_store_settings_screen.dart';
 import 'package:boardpad/screens/admin_room_board_screen.dart';
+import 'package:boardpad/screens/admin_translation_screen.dart';
 import 'package:boardpad/services/admin_session.dart';
 
-/// currentScreen: 'menu' | 'game' | 'event' | 'notice' | 'home' | 'store' | 'rooms'
+/// currentScreen: 'menu' | 'game' | 'event' | 'notice' | 'home' | 'store' | 'rooms' | 'translate'(120차 번역 관리)
 /// 112차: 'rooms'(방 현황판)는 사이드바가 직접 엶(AdminSidebar.go) — (룰 영상 통계는 운영자 페이지로 옮김)
 /// 예전 화면들의 onNavigate 목록을 고치지 않아도 되게. 새 화면은 onNavigate에 AdminSidebar.go를 넘김
 class AdminSidebar extends StatelessWidget {
@@ -18,7 +19,7 @@ class AdminSidebar extends StatelessWidget {
 
   const AdminSidebar({super.key, required this.currentScreen, required this.onNavigate});
 
-  static const _selfOpened = {'rooms'};
+  static const _selfOpened = {'rooms', 'translate'};
 
   /// 관리자 웹 화면 바꾸기 (애니메이션 없이 바꿔 끼움)
   static void go(BuildContext context, String screen) {
@@ -30,6 +31,7 @@ class AdminSidebar extends StatelessWidget {
       'home' => const AdminHomeLayoutScreen(),
       'store' => const AdminStoreSettingsScreen(),
       'rooms' => const AdminRoomBoardScreen(),
+      'translate' => const AdminTranslationScreen(),
       _ => null,
     };
     if (target == null) return;
@@ -76,6 +78,7 @@ class AdminSidebar extends StatelessWidget {
               _buildItem(Icons.info_outline, '공지 관리', 'notice'),
               _buildItem(Icons.dashboard_customize_outlined, '홈 화면 꾸미기', 'home'),
               _buildItem(Icons.storefront_outlined, '매장 설정', 'store'),
+              _buildItem(Icons.translate_rounded, '번역 관리', 'translate'),
               const Divider(color: Colors.white24),
               _buildItem(Icons.meeting_room_outlined, '방 현황판', 'rooms'),
               ],
@@ -148,6 +151,7 @@ class AdminSidebar extends StatelessWidget {
                   item(Icons.info_outline, '공지 관리', 'notice'),
                   item(Icons.dashboard_customize_outlined, '홈 화면 꾸미기', 'home'),
                   item(Icons.storefront_outlined, '매장 설정', 'store'),
+                  item(Icons.translate_rounded, '번역 관리', 'translate'),
                   const Divider(color: Colors.white24, height: 1),
                   item(Icons.meeting_room_outlined, '방 현황판', 'rooms'),
                       ],

@@ -136,10 +136,13 @@ function getHandle() {
       },
     }),
     // 정지·거절한 매장: 패드(pad.<매장>.1~30)·관리자 로그인의 갱신 토큰 취소 (없는 사용자는 건너뜀)
-    revokeStoreTokens: async (storeId) => {
+    //   120차: 비밀번호를 바꿀 때는 only = { pads, adminPad, adminWeb } 로 고른 것만
+    revokeStoreTokens: async (storeId, only = { pads: true, adminPad: true, adminWeb: true }) => {
       const auth = getAdminAuth();
-      const uids = [`admin-web.${storeId}`, `admin-pad.${storeId}`];
-      for (let i = 1; i <= 30; i++) uids.push(`pad.${storeId}.${i}`);
+      const uids = [];
+      if (only.adminWeb) uids.push(`admin-web.${storeId}`);
+      if (only.adminPad) uids.push(`admin-pad.${storeId}`);
+      if (only.pads) for (let i = 1; i <= 30; i++) uids.push(`pad.${storeId}.${i}`);
       await Promise.all(uids.map((uid) => auth.revokeRefreshTokens(uid).catch(() => {})));
     },
     // 예전(매장 1곳) 관리자 비밀번호 — '매장 데이터 옮기기'를 할 때만 확인용으로 읽음

@@ -19,7 +19,10 @@ const _navy = Color(0xFF1E2B3C);
 class LoginScreen extends StatefulWidget {
   /// 관리자 자동 로그인으로 켜졌을 때: 바로 관리자 대시보드를 엶
   final bool openAdmin;
-  const LoginScreen({super.key, this.openAdmin = false});
+
+  /// 처음부터 보여 줄 안내 (120차 — 비밀번호가 바뀌어 강제 로그아웃됐을 때, pad_session_guard.dart)
+  final String? notice;
+  const LoginScreen({super.key, this.openAdmin = false, this.notice});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -42,6 +45,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    _error = widget.notice;
     _roomController.addListener(_onRoomChanged);
     _loadPrefs();
     if (widget.openAdmin) {

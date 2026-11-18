@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:boardpad/models/order_flow.dart';
@@ -5,7 +7,9 @@ import 'package:boardpad/services/admin_session.dart';
 import 'package:boardpad/services/order_flow_service.dart';
 import 'package:boardpad/services/room_settings_service.dart';
 import 'package:boardpad/services/store_features.dart';
+import 'package:boardpad/services/store_info_service.dart';
 import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/widgets/admin_busy_dialog.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
 import 'package:boardpad/widgets/store_features_card.dart';
 import 'admin_event_manage_screen.dart';
@@ -35,16 +39,19 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
   final _roomKey = GlobalKey();
   final _flowKey = GlobalKey();
   final _featuresKey = GlobalKey();
+  final _phoneKey = GlobalKey();
   final _loginKey = GlobalKey();
   final _viewportKey = GlobalKey();
   final _scroll = ScrollController();
   late final Stream<OrderFlow> _flowStream = OrderFlowService.watch();
   late final Stream<StoreFeatures> _featureStream = StoreFeaturesService.watch();
   late final Stream<StoreFeatures> _helpFeatureStream = StoreFeaturesService.watch(); // 도움말 칸용(구독 따로)
+  late final Stream<String> _phoneStream = StoreInfoService.watchPhone(); // 120차: 요약 칸용
   late final List<_Section> _sections = [
     _Section('room', _roomKey, Icons.meeting_room_outlined, '방 개수'),
     _Section('flow', _flowKey, Icons.room_service_outlined, '음식 수령 방식'),
     _Section('features', _featuresKey, Icons.tune, '기능 사용'),
+    _Section('phone', _phoneKey, Icons.call_outlined, '매장 전화번호'),
     _Section('login', _loginKey, Icons.lock_outline, '로그인'),
   ];
   String _active = 'room';
@@ -247,6 +254,8 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
           const SizedBox(height: 24),
           StoreFeaturesCard(key: _featuresKey), // 59차: 패드 관리자 대시보드 켜기·끄기, 토스 POS 연동 상태
           const SizedBox(height: 24),
+          _PhoneCard(key: _phoneKey), // 120차: 손님 패드에 보이는 매장 전화번호
+          const SizedBox(height: 24),
           _LoginCard(key: _loginKey),
         ],
       ),
@@ -376,6 +385,15 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
                 ],
               );
             },
+          ),
+          StreamBuilder<String>(
+            stream: _phoneStream,
+            builder: (context, snap) => _summaryRow(
+              _sec('phone'),
+              '매장 전화번호',
+              Text(!snap.hasData ? '…' : (snap.data!.isEmpty ? '없음' : snap.data!),
+                  style: snap.hasData && snap.data!.isEmpty ? const TextStyle(color: Colors.black45) : _valueStyle),
+            ),
           ),
           _summaryRow(_sec('login'), '매장 아이디', Text(StoreScope.isSet ? StoreScope.id : '-', style: _valueStyle)),
         ],
@@ -677,6 +695,34 @@ class _LoginCardState extends State<_LoginCard> {
       setState(() => _error = '바꿀 비밀번호를 하나 이상 입력해 주세요.');
       return;
     }
+    // 120차: 패드 비밀번호·PIN을 바꾸면 로그인해 둔 패드가 로그아웃됨 → 먼저 확인 (일은 창 안에서 — showBusyConfirm)
+    if (pad.isNotEmpty || pin.isNotEmpty) {
+      setState(() => _error = null);
+      final who = pad.isNotEmpty ? '로그인해 둔 손님 패드와 관리자 패드(방 0)가 모두' : '로그인해 둔 관리자 패드(방 0)가';
+      List<String> changed = const [];
+      final ok = await showBusyConfirm(
+        context,
+        title: '비밀번호를 바꿀까요?',
+        message: '$who 바로 로그아웃돼요.\n패드마다 새 비밀번호로 다시 로그인해 주세요. (꺼져 있던 패드는 다음에 켤 때)',
+        confirmLabel: '바꾸고 로그아웃',
+        danger: true,
+        errorText: '바꾸지 못했어요',
+        action: () async {
+          try {
+            changed = await AdminSession.changePasswords(
+              padPassword: pad.isEmpty ? null : pad,
+              pin: pin.isEmpty ? null : pin,
+              webPassword: web.isEmpty ? null : web,
+            );
+          } on AdminLoginException catch (e) {
+            throw Exception(e.message);
+          }
+        },
+      );
+      if (!ok || !mounted) return;
+      _done(changed);
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -688,18 +734,27 @@ class _LoginCardState extends State<_LoginCard> {
         webPassword: web.isEmpty ? null : web,
       );
       if (!mounted) return;
-      _pad.clear();
-      _pin.clear();
-      _web.clear();
-      const names = {'padPassword': '패드 비밀번호', 'pin': '관리자 PIN', 'webPassword': '관리자 웹 비밀번호'};
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${changed.map((c) => names[c] ?? c).join(', ')}을(를) 바꿨어요.')),
-      );
+      _done(changed);
     } on AdminLoginException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  void _done(List<String> changed) {
+    _pad.clear();
+    _pin.clear();
+    _web.clear();
+    const names = {'padPassword': '패드 비밀번호', 'pin': '관리자 PIN', 'webPassword': '관리자 웹 비밀번호'};
+    final kicked = changed.contains('padPassword')
+        ? ' 로그인해 둔 패드는 로그아웃돼요.'
+        : changed.contains('pin')
+            ? ' 관리자 패드(방 0)는 로그아웃돼요.'
+            : '';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${changed.map((c) => names[c] ?? c).join(', ')}을(를) 바꿨어요.$kicked')),
+    );
   }
 
   Widget _field(TextEditingController c, String label, String help, {bool digits = false}) {
@@ -733,7 +788,8 @@ class _LoginCardState extends State<_LoginCard> {
           const SizedBox(height: 6),
           const Text(
             '패드는 매장 아이디 + 패드 비밀번호 + 방 번호로 로그인해요. 방 번호 0은 관리자 대시보드(PIN을 한 번 더 물음).\n'
-            '비밀번호를 바꿔도 이미 로그인해 둔 패드는 그대로 써요. 새로 로그인할 때부터 새 비밀번호가 필요해요.',
+            '패드 비밀번호를 바꾸면 로그인해 둔 손님 패드·관리자 패드가 모두 로그아웃돼요(새 비밀번호로 다시 로그인). '
+            '관리자 PIN을 바꾸면 관리자 패드(방 0)만, 관리자 웹 비밀번호는 패드와 상관없어요.',
             style: TextStyle(color: Colors.black54, height: 1.5),
           ),
           const SizedBox(height: 20),
@@ -765,6 +821,137 @@ class _LoginCardState extends State<_LoginCard> {
             label: const Text('비밀번호 바꾸기', style: TextStyle(fontWeight: FontWeight.bold)),
             style: FilledButton.styleFrom(backgroundColor: _navy, minimumSize: const Size(160, 48)),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 매장 전화번호 카드 (120차) — settings/storeInfo.phoneNumber. 손님 패드 위쪽 바·사이드바 '매장 전화번호'에 보임
+/// (패드는 10분마다 다시 읽음 — store_info_service.dart)
+class _PhoneCard extends StatefulWidget {
+  const _PhoneCard({super.key});
+
+  @override
+  State<_PhoneCard> createState() => _PhoneCardState();
+}
+
+class _PhoneCardState extends State<_PhoneCard> {
+  final _c = TextEditingController();
+  late final Stream<String> _stream = StoreInfoService.watchPhone();
+  StreamSubscription<String>? _sub;
+  String? _saved; // 저장된 값 (처음 읽기 전엔 null)
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _sub = _stream.listen((v) {
+      if (!mounted) return;
+      final first = _saved == null;
+      final untouched = _saved != null && _c.text.trim() == _saved;
+      setState(() => _saved = v);
+      if (first || untouched) _c.text = v;
+    }, onError: (_) {
+      if (mounted) setState(() => _saved ??= '');
+    });
+    _c.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    _c.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final v = _c.text.trim();
+    if (!StoreInfoService.phonePattern.hasMatch(v)) {
+      setState(() => _error = '숫자·-·+·괄호로 20자까지 입력해 주세요. (예: 02-123-4567)');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await StoreInfoService.savePhone(v);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(v.isEmpty ? '전화번호를 지웠어요. 손님 패드에 안 보여요.' : '저장했어요. 손님 패드에는 10분 안에 바뀌어요.')),
+      );
+    } catch (e) {
+      if (mounted) setState(() => _error = '저장하지 못했어요. Firestore 규칙(배포.bat 5번)을 확인해 주세요. ($e)');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dirty = _saved != null && _c.text.trim() != _saved;
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(maxWidth: 960),
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('매장 전화번호', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 6),
+          const Text(
+            '손님 패드 위쪽 바와 사이드바(\'매장 전화번호\' 칸)에 보여요. 비워 두면 안 보여요.',
+            style: TextStyle(color: Colors.black54),
+          ),
+          const SizedBox(height: 20),
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              SizedBox(
+                width: 260,
+                child: TextField(
+                  controller: _c,
+                  readOnly: _saving || _saved == null,
+                  keyboardType: TextInputType.phone,
+                  maxLength: 20,
+                  decoration: InputDecoration(
+                    labelText: '전화번호',
+                    hintText: '예: 02-123-4567',
+                    counterText: '',
+                    prefixIcon: const Icon(Icons.call_outlined),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onSubmitted: (_) => (dirty && !_saving) ? _save() : null,
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: (!dirty || _saving) ? null : _save,
+                icon: const Icon(Icons.save_outlined),
+                label: const Text('저장', style: TextStyle(fontWeight: FontWeight.bold)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _navy,
+                  disabledBackgroundColor: _saving ? _navy.withValues(alpha: 0.45) : null,
+                  disabledForegroundColor: _saving ? Colors.white : null,
+                  minimumSize: const Size(110, 48),
+                ),
+              ),
+              if (dirty && !_saving)
+                TextButton(
+                  onPressed: () => _c.text = _saved!,
+                  child: Text(_saved!.isEmpty ? '원래대로 (없음)' : '원래대로 ($_saved)'),
+                ),
+            ],
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(_error!, style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600)),
+            ),
         ],
       ),
     );

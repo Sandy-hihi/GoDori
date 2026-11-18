@@ -444,6 +444,54 @@ function cleanSetMap(raw) {
   }
   return out;
 }
+// 120차: 포스 품절 → 고도리 (상품 + 옵션 선택지)
+//   menuMap·포스 상품 목록 → { menus: 품절인 고도리 메뉴 ID(상품 품절 또는 골라 둔 필수 선택이 품절),
+//                              choiceSig: ['메뉴ID:옵션ID=선택ID,…'] (골라 두지 않은 옵션에서 품절인 선택지 — 바뀌었는지 볼 때만 씀) }
+function posSoldOutScan(menuMap, catalog) {
+  const byId = new Map((catalog || []).map((i) => [String(i.id), i]));
+  const menus = [];
+  const choiceSig = [];
+  for (const [menuId, v] of Object.entries(menuMap || {})) {
+    const e = parseMapEntry(v);
+    const item = e && byId.get(e.itemId);
+    if (!item) continue;
+    const opts = item.options || [];
+    let sold = item.state === 'SOLD_OUT';
+    for (const f of e.fixed) {
+      const opt = opts.find((x) => String(x.id) === f.optionId);
+      const c = opt && (opt.choices || []).find((x) => String(x.id) === f.choiceId);
+      if (c && c.state === 'SOLD_OUT') sold = true;
+    }
+    if (sold) menus.push(menuId);
+    const fixedOpts = new Set(e.fixed.map((f) => f.optionId));
+    const sc = [];
+    for (const o of opts) {
+      if (fixedOpts.has(String(o.id))) continue;
+      for (const c of o.choices || []) if (c.state === 'SOLD_OUT') sc.push(`${o.id}=${c.id}`);
+    }
+    if (sc.length) choiceSig.push(`${menuId}:${sc.sort().join(',')}`);
+  }
+  return { menus: menus.sort(), choiceSig: choiceSig.sort() };
+}
+// 고도리 메뉴 옵션 중 포스에서 품절인 선택지 → ['그룹 이름|선택지 이름'] (주문 보낼 때와 같은 이름 맞추기 — buildTossOrder)
+function posSoldOutOptionKeys(menu, mapValue, item) {
+  const e = parseMapEntry(mapValue);
+  if (!e || !item) return [];
+  const fixedOpts = new Set(e.fixed.map((f) => f.optionId));
+  const free = (item.options || []).filter((x) => !fixedOpts.has(String(x.id)));
+  const keys = [];
+  for (const g of Array.isArray(menu && menu.optionGroups) ? menu.optionGroups : []) {
+    const group = String((g && g.groupName) || '');
+    for (const o of Array.isArray(g && g.options) ? g.options : []) {
+      const name = String((o && o.name) || '');
+      const hit = (x) => (x.choices || []).find((c) => sameName(c.title, name));
+      const opt = free.find((x) => sameName(x.title, group) && hit(x)) || free.find(hit);
+      if (opt && hit(opt).state === 'SOLD_OUT') keys.push(`${group}|${name}`);
+    }
+  }
+  return keys;
+}
+
 // 플러그인에 보낼 모양: [{ setId, parts: [{ itemId(숫자), qty, choices: [{ id(숫자), quantity: 1 }], whenChoice?(숫자 — 세트 줄의 옵션 선택 ID) }] }]
 function setMapForPlugin(setMap) {
   return Object.entries(setMap || {}).map(([setId, parts]) => ({
@@ -495,6 +543,8 @@ module.exports = {
   catalogView,
   parseMapEntry,
   normName,
+  posSoldOutScan,
+  posSoldOutOptionKeys,
   pluginLineItems,
   cleanSetMap,
   setMapForPlugin,

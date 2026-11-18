@@ -127,7 +127,8 @@ function clientIp(headers) {
 // attempts:         로그인 실패 기록 (src/attempts.js)
 // video:            룰 영상 API (src/video.js createVideoApi). 없으면 /api/video/* 는 503
 // ops:              운영자 계정 (src/ops.js)   monitoring: 프로젝트 전체 사용량 (src/ops.js createMonitoring, 없으면 안내)
-// revokeStoreTokens: async (storeId) => 그 매장 패드·관리자 로그인 끊기 (정지·거절할 때)
+// revokeStoreTokens: async (storeId, only?) => 그 매장 패드·관리자 로그인 끊기 (정지·거절할 때 — 전부,
+//                    120차 비밀번호 바꿀 때 only = { pads, adminPad, adminWeb } 고른 것만)
 // toss:             토스 POS 연동 API (src/toss-routes.js createTossRoutes). 없으면 /api/toss/* 는 503
 // insights:         매장 통계 API (src/insights.js createInsightRoutes, 65차). 없으면 /api/stats/* 는 503
 // translate:        자동 번역 API (src/translate.js createTranslateRoutes, 83차). 없으면 /api/translate/* 는 503
@@ -493,7 +494,26 @@ function createHandler({
     }
     if (!Object.keys(fields).length) throw httpError(400, 'NOTHING', '바꿀 비밀번호를 입력해 주세요.');
     await stores.setSecrets(user.store, fields);
-    return { ok: true, changed: Object.keys(fields).map((k) => k.replace(/Hash$/, '')) };
+    // 120차: 패드 강제 로그아웃 — stores/{매장}.authEpoch {pad, admin} = 지금. 패드가 이 값을 보고 로그인 시각이 앞이면 로그아웃(pad_session_guard.dart)
+    //   패드 비밀번호 → 손님 패드 + 관리자 패드(방 0도 패드 비밀번호로 들어옴) / PIN → 관리자 패드만 / 관리자 웹 비밀번호 → 패드는 그대로
+    const kick = {};
+    const t = now();
+    if (fields.padPasswordHash) {
+      kick.pad = t;
+      kick.admin = t;
+    }
+    if (fields.pinHash) kick.admin = t;
+    if (Object.keys(kick).length) {
+      await stores.setAuthEpoch(user.store, kick);
+      // 앱이 꺼져 있던 패드도 다음에 켤 때·1시간 안에 풀리게 갱신 토큰 취소 (관리자 웹은 그대로)
+      await Promise.resolve(revokeStoreTokens(user.store, { pads: kick.pad != null, adminPad: kick.admin != null, adminWeb: false }))
+        .catch((e) => console.warn('[비밀번호] 패드 로그인 끊기 실패', user.store, e && e.message));
+    }
+    return {
+      ok: true,
+      changed: Object.keys(fields).map((k) => k.replace(/Hash$/, '')),
+      loggedOut: { pads: kick.pad != null, adminPad: kick.admin != null },
+    };
   }
 
   // 예전(매장 1곳) 데이터를 새 매장으로 복사: { legacyPassword, storeId, storeName, padPassword }
