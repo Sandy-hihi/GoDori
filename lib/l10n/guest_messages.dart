@@ -1569,5 +1569,30 @@ const guestMessages = <String, List<String>> {
     "Hold for 2 seconds and teammates get the same color",
     "保持2秒，同队的手指会变成相同颜色",
     "2秒そのままにすると同じチーム同士が同じ色になります"
+  ],
+  "2초 동안 그대로 있으면 한 명에게 불빛이 들어와요": [
+    "Hold for 2 seconds and the light picks one person",
+    "保持2秒，灯光会选中一个人",
+    "2秒そのままにすると1人に光が当たります"
+  ],
+  "손가락이 2개 이상 필요해요": [
+    "Need at least 2 fingers",
+    "至少需要2根手指",
+    "指が2本以上必要です"
+  ],
+  "고르는 중…": [
+    "Picking…",
+    "正在选择…",
+    "選んでいます…"
+  ],
+  "선이 정해졌어요! 다시 하려면 화면을 눌러 주세요": [
+    "First player chosen! Tap the screen to try again",
+    "先手已选出！再来一次请点击屏幕",
+    "先手が決まりました！もう一度やるには画面をタップしてください"
+  ],
+  "선이 정해졌어요!": [
+    "First player chosen!",
+    "先手已选出！",
+    "先手が決まりました！"
   ]
 };

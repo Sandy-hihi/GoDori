@@ -5,7 +5,6 @@ import 'package:boardpad/widgets/pad_shell.dart';
 import 'package:boardpad/widgets/tools/dice_roller.dart';
 import 'package:boardpad/widgets/tools/finger_team_picker.dart';
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 class GameToolsScreen extends StatefulWidget {
@@ -161,12 +160,6 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
     final m = seconds ~/ 60;
     final s = seconds % 60;
     return '${m.toString().padLeft(2, '0')} : ${s.toString().padLeft(2, '0')}';
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _syncControllers(_playerCount);
   }
 
   @override
@@ -386,58 +379,6 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
   // ── 팀 나누기 / 선 뽑기 탭 ──────────────────────────
   bool _isTeamMode = true; // true: 팀 나누기 / false: 선 뽑기
 
-  // 공통 - 이름 입력
-  final List<TextEditingController> _nameControllers = [];
-  int _playerCount = 4;
-  final ScrollController _playerScrollController = ScrollController();
-  Timer? _playerScrollbarTimer;
-  bool _showPlayerScrollbar = false;
-
-  // 선 뽑기
-  List<String> _drawOrder = [];
-  List<String> _remainingPool = [];
-  bool _drawFinished = false;
-
-  void _syncControllers(int count) {
-    if (count >= 5 && count > _nameControllers.length) {
-      _playerScrollbarTimer?.cancel();
-      _showPlayerScrollbar = true;
-      _playerScrollbarTimer = Timer(const Duration(seconds: 2), () {
-        if (mounted) setState(() => _showPlayerScrollbar = false);
-      });
-    }
-    while (_nameControllers.length < count) {
-      _nameControllers.add(TextEditingController());
-    }
-    while (_nameControllers.length > count) {
-      _nameControllers.last.dispose();
-      _nameControllers.removeLast();
-    }
-  }
-
-  List<String> _getPlayerNames() {
-    return List.generate(_playerCount, (i) {
-      final text = _nameControllers[i].text.trim();
-      return text.isEmpty ? '${i + 1}번' : text;
-    });
-  }
-
-  void _initDraw() {
-    setState(() {
-      _drawOrder = [];
-      _remainingPool = List<String>.from(_getPlayerNames())..shuffle(Random());
-      _drawFinished = false;
-    });
-  }
-
-  void _drawNext() {
-    if (_remainingPool.isEmpty) return;
-    setState(() {
-      _drawOrder.add(_remainingPool.removeAt(0));
-      if (_remainingPool.isEmpty) _drawFinished = true;
-    });
-  }
-
   Widget _buildTeamTab() {
     return Column(
       children: [
@@ -450,14 +391,15 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
             children: [
               _buildTeamModeButton('팀 나누기', Icons.group, true),
               const SizedBox(width: 16),
-              _buildTeamModeButton('선 뽑기', Icons.casino, false),
+              _buildTeamModeButton('선 뽑기', Icons.touch_app, false),
             ],
           ),
         ),
         const Divider(height: 1),
         Expanded(
           // 126차: 팀 나누기 = 손가락을 꾹 대면 같은 팀끼리 같은 색 원 (lib/widgets/tools/finger_team_picker.dart)
-          child: _isTeamMode ? FingerTeamPicker(colors: _teamColors) : _buildDraw(),
+          // 127차: 선 뽑기도 손가락 — 꾹 댄 손가락 중 하나에 불빛 (예전 이름 입력·뽑기 순서 화면은 지움)
+          child: FingerTeamPicker(key: ValueKey(_isTeamMode), colors: _teamColors, pickOne: !_isTeamMode),
         ),
       ],
     );
@@ -468,9 +410,6 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
     return GestureDetector(
       onTap: () => setState(() {
         _isTeamMode = isTeam;
-        _drawOrder = [];
-        _remainingPool = [];
-        _drawFinished = false;
       }),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -490,223 +429,11 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
     );
   }
 
-  // ── 이름 입력 목록 (선 뽑기) ─────────────────────────
-  Widget _buildPlayerNameList() {
-    return Scrollbar(
-      controller: _playerScrollController,
-      thumbVisibility: _showPlayerScrollbar,
-      child: ListView.builder(
-        controller: _playerScrollController,
-        padding: const EdgeInsets.only(right: 12),
-        itemCount: _playerCount,
-        itemBuilder: (context, i) => Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: TextField(
-            controller: _nameControllers[i],
-            decoration: InputDecoration(
-              isDense: true,
-              border: const OutlineInputBorder(),
-              prefixIcon: Padding(
-                padding: const EdgeInsets.all(8),
-                child: CircleAvatar(
-                  radius: 12,
-                  backgroundColor: kInk,
-                  child: GuestText('${i + 1}',
-                      style: const TextStyle(color: Colors.white, fontSize: 11)),
-                ),
-              ),
-              prefixIconConstraints: const BoxConstraints(
-                minWidth: 40, minHeight: 40, maxWidth: 40, maxHeight: 40),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── 선 뽑기 화면 ─────────────────────────────────────
-  Widget _buildDraw() {
-    return Row(
-      children: [
-        // 왼쪽: 설정 패널
-        Container(
-          width: 320,
-          color: Colors.white,
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const GuestText('인원 설정', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              _buildCountRow('총 인원', _playerCount, 2, 20, (v) => setState(() { _playerCount = v; _syncControllers(v); _drawOrder = []; _remainingPool = []; _drawFinished = false; })),
-              const SizedBox(height: 20),
-              const GuestText('이름 입력 (선택)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const GuestText('비워두면 번호로 자동 부여', style: TextStyle(fontSize: 12, color: Colors.grey)),
-              const SizedBox(height: 8),
-              Expanded(
-                child: _buildPlayerNameList(),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _initDraw,
-                  icon: const Icon(Icons.refresh),
-                  label: const GuestText('뽑기 초기화', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: kInk,
-                    side: const BorderSide(color: kInk, width: 2),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const VerticalDivider(width: 1),
-        // 오른쪽: 뽑기 화면
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                // 뽑기 버튼 영역
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 8)],
-                  ),
-                  child: _drawFinished
-                      ? Column(
-                          children: [
-                            const Icon(Icons.check_circle, color: kOrange, size: 60),
-                            const SizedBox(height: 8),
-                            const GuestText('모든 순서가 결정됐습니다!',
-                                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kOrange)),
-                          ],
-                        )
-                      : (_remainingPool.isEmpty && _drawOrder.isEmpty)
-                          ? Column(
-                              children: [
-                                const Icon(Icons.touch_app, size: 60, color: Colors.grey),
-                                const SizedBox(height: 8),
-                                const GuestText('초기화 후 뽑기 시작 버튼을 눌러주세요',
-                                    style: TextStyle(fontSize: 18, color: Colors.grey)),
-                                const SizedBox(height: 16),
-                                ElevatedButton.icon(
-                                  onPressed: _initDraw,
-                                  icon: const Icon(Icons.play_arrow),
-                                  label: const GuestText('뽑기 시작', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: kInk,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-                                  ),
-                                ),
-                              ],
-                            )
-                          : Column(
-                              children: [
-                                GuestText('남은 인원: ${_remainingPool.length}명',
-                                    style: const TextStyle(fontSize: 16, color: Colors.grey)),
-                                const SizedBox(height: 16),
-                                ElevatedButton.icon(
-                                  onPressed: _drawNext,
-                                  icon: const Icon(Icons.casino, size: 28),
-                                  label: const GuestText('다음 순서 뽑기!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: kOrange,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 18),
-                                  ),
-                                ),
-                              ],
-                            ),
-                ),
-                const SizedBox(height: 24),
-                // 뽑힌 순서 목록
-                if (_drawOrder.isNotEmpty)
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 8)],
-                      ),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            decoration: const BoxDecoration(
-                              color: kInk,
-                              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-                            ),
-                            child: const GuestText('뽑힌 순서', textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                          ),
-                          Expanded(
-                            child: ListView.builder(
-                              padding: const EdgeInsets.all(12),
-                              itemCount: _drawOrder.length,
-                              itemBuilder: (context, i) {
-                                final rank = i + 1;
-                                return ListTile(
-                                  leading: CircleAvatar(
-                                    backgroundColor: rank == 1 ? Colors.amber : (rank == 2 ? Colors.grey.shade400 : (rank == 3 ? Colors.brown.shade300 : kInk)),
-                                    child: GuestText('$rank', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                  ),
-                                  title: GuestText(_drawOrder[i], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                  subtitle: GuestText('$rank번째'),
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCountRow(String label, int value, int min, int max, ValueChanged<int> onChanged) {
-    return Row(
-      children: [
-        SizedBox(width: 80, child: GuestText(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
-        const Spacer(),
-        IconButton(
-          onPressed: value > min ? () => onChanged(value - 1) : null,
-          icon: const Icon(Icons.remove_circle_outline),
-          color: kInk,
-        ),
-        SizedBox(
-          width: 40,
-          child: GuestText('$value', textAlign: TextAlign.center, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        ),
-        IconButton(
-          onPressed: value < max ? () => onChanged(value + 1) : null,
-          icon: const Icon(Icons.add_circle_outline),
-          color: kInk,
-        ),
-      ],
-    );
-  }
-
   @override
   void dispose() {
     _cdTimer?.cancel();
     _flashTimer?.cancel();
     FlutterRingtonePlayer().stop();
-    _playerScrollbarTimer?.cancel();
-    _playerScrollController.dispose();
-    for (final c in _nameControllers) { c.dispose(); }
     super.dispose();
   }
 }
