@@ -35,6 +35,10 @@
 //     테이블이 바뀌면(table 'update'·'add'·'clear') 5초 뒤 신호 한 번 더 → 서버 기록에 묶인 테이블이 찍힘 (처리 방법은 시험 뒤에 정함)
 //   115차 0.4.2: 단체손님을 풀어도 묶음이 남던 것 — group.tableIds에 자기 테이블이 있고 2개 이상일 때만 묶음으로 봄,
 //     테이블 이벤트를 놓쳐도 1분마다 묶음을 다시 읽어(포스 안이라 무료) 바뀌었을 때만 신호. 토스 묶음 색(group.color)도 보냄
+//   122차 0.4.7: 토스는 합석 때 'merge' 신호를 안 보냄(11-18 서버 기록 — 원래 주문에 CANCELLED만) →
+//     고도리 포스 주문이 CANCELLED면 4초 뒤 다른 테이블 열린 주문들에 그 주문의 줄 ID가 그대로 있는지 봄 →
+//     딱 한 주문에 있으면 그 주문으로 합석(merge 신호와 같게 처리). 줄 ID는 열린 동안 받은 것 + 취소된 주문에 남은 것.
+//     확인용: 그때 줄 ID들을 서버 기록에 ('merge-check')
 //   119차 0.4.6: 116차 합석 추정(신호 없이 줄 수로 짐작)을 뺌 — 진짜 취소를 합석으로 잘못 볼 수 있어서.
 //     합석 신호가 취소보다 늦게 와도 서버가 되살림(118차)
 //   118차 0.4.5: 단체손님 — 0.4.2의 tableIds 조건이 묶음을 못 알아봐서 풂(하나만 남은 묶음만 뺌), tableIds를 서버 기록에
@@ -45,7 +49,7 @@
 import { posPluginSdk } from "@tossplace/pos-plugin-sdk";
 
 const SERVER = "https://godori-pad.web.app";
-const VERSION = "0.4.6";
+const VERSION = "0.4.7";
 const HELLO_EVERY_MS = 10 * 60 * 1000;
 const WAIT_MS = 30 * 1000; // 승인 전·플러그인으로 안 보내는 매장
 const K_TOKEN = "godori.token";
@@ -507,11 +511,13 @@ async function report(posOrderId: string, why: string) {
     if (st === "CANCELLED") {
       await sleep(4000); // 합치기면 'merge' 신호가 곧 옴 — 그때는 취소로 보내지 않음
       if (merged.has(id)) return;
+      if (await mergeByLines(id, order)) return; // 122차: 토스는 합석 신호를 안 보냄 — 같은 줄 ID로 찾음
     }
     const pp = (order.paymentPrice || {}) as Obj;
     const paid = num(pp.paymentPaidValue);
     const unpaid = num(pp.paymentUnpaidValue);
     const lineIds = lineIdsOf(order).slice(0, 100);
+    if (!terminal && lineIds.length) knownLines.set(id, lineIds); // 122차: 합석 찾기용
     const sig = terminal ? st : `${st}:${paid}:${unpaid}:${lineIds.join(",")}`;
     if (lastSig.get(id) === sig) return;
     const { code } = await post("event", {
@@ -536,6 +542,36 @@ async function recheck() {
       continue;
     }
     await report(id, "recheck");
+  }
+}
+
+// 122차: 합석 찾기 — 취소된 고도리 포스 주문의 줄 ID가 그대로 든 다른 열린 주문(테이블 화면)이 딱 하나면 그 주문으로 합침
+const knownLines = new Map<string, string[]>(); // 포스 주문 ID → 열려 있을 때 본 줄 ID
+async function mergeByLines(id: string, order: Obj): Promise<boolean> {
+  try {
+    const mine = new Set([...(knownLines.get(id) || []), ...lineIdsOf(order)]);
+    const { tables, error } = await readTables();
+    const seen: string[] = [];
+    const hits: { orderId: string; tableId: number; title: string; n: number }[] = [];
+    for (const t of tables) {
+      const o = t.order as Obj | undefined;
+      if (!o || o.id == null || String(o.id) === id) continue;
+      const ids = lineIdsOf(o);
+      seen.push(`${t.title} ${o.id} [${ids.join(",")}]`);
+      const n = ids.filter((x) => mine.has(x)).length;
+      if (n > 0) hits.push({ orderId: String(o.id), tableId: Number(t.id), title: String(t.title ?? ""), n });
+    }
+    const verdict = hits.length === 1 ? `합석 → ${hits[0].title} ${hits[0].orderId} (같은 줄 ${hits[0].n}개)` : hits.length ? `후보 ${hits.length}개라 취소로` : "같은 줄 없음 → 취소로";
+    post("hello", {
+      stage: "info", reason: "merge-check",
+      errors: [`취소된 포스 주문 ${id} 줄 [${[...mine].join(",")}] · ${verdict}${error ? ` · 테이블 오류 ${error}` : ""}`, ...seen.slice(0, 8)].map((s) => s.slice(0, 200)),
+    }).catch(() => undefined);
+    if (hits.length !== 1 || !mine.size) return false;
+    await onMerge({ from: { order: { id } }, to: { order: { id: hits[0].orderId }, table: { id: hits[0].tableId } } });
+    return merged.has(id);
+  } catch (e) {
+    console.log("[고도리] 합석 찾기 실패", id, errText(e));
+    return false;
   }
 }
 

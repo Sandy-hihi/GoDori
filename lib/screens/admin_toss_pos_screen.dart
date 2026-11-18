@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/services/toss_pos_service.dart';
 import 'admin_pos_import_dialog.dart';
+import 'admin_pos_sync_dialog.dart';
 
 const _navy = Color(0xFF1E2B3C);
 const _toss = Color(0xFF3182F6);
@@ -911,6 +912,18 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
     await _load();
   }
 
+  // 121차: 포스와 다르게 된 메뉴(가격·옵션·이름)를 포스 값으로 맞추기
+  Future<void> _syncFromPos() async {
+    final n = await showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PosSyncDialog(catalog: _catalog, menuMap: _saved),
+    );
+    if (n == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('메뉴 $n개를 포스 값으로 고쳤어요.')));
+    await _load();
+  }
+
   Widget _menuCard() {
     final linkedCount = _menus.where((m) => _item(_current(m.id)) != null).length;
     return _card(
@@ -924,6 +937,12 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
           onPressed: _catalog.isEmpty || _saving || _dirty ? null : _importFromPos,
           icon: const Icon(Icons.playlist_add, size: 18),
           label: const Text('포스 메뉴 가져오기'),
+        ),
+        // 121차: 연결된 메뉴 중 가격·옵션·이름이 포스와 다른 것 맞추기 (저장 안 한 연결이 있으면 흐려짐)
+        OutlinedButton.icon(
+          onPressed: _catalog.isEmpty || _saving || _dirty ? null : _syncFromPos,
+          icon: const Icon(Icons.sync, size: 18),
+          label: const Text('포스와 다른 메뉴 맞추기'),
         ),
         OutlinedButton.icon(
           onPressed: _catalog.isEmpty || _saving ? null : _autoMatch,

@@ -1,7 +1,7 @@
 {
   "name": "godori-toss-plugin",
   "private": true,
-  "version": "0.4.6",
+  "version": "0.4.7",
   "main": "src/index.ts",
   "scripts": {
     "dev": "webpack serve --config webpack.config.mjs",
