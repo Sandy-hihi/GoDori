@@ -13,7 +13,7 @@ import 'package:boardpad/widgets/home/home_theme.dart';
 ///   - 팀은 고르게(인원 차이 최대 1명). 손가락이 늘거나 줄면 2초를 다시 셈
 ///   - 손가락을 떼도 결과 원은 남음 → 다시 하려면 화면을 다시 누름
 ///   - PC 마우스(실행.bat으로 볼 때): 누른 곳에 점이 고정됨(다시 누르면 지움) — 손가락 여러 개 대신
-///   - 127차 pickOne(선 뽑기): 2초 그대로면 불빛이 손가락들 사이를 돌다가(점점 느려짐) 한 명에게 멈춰 크게 빛남
+///   - 127차 pickOne(선 뽑기) → 128차: 2초 그대로면 한 손가락 원에만 색이 차오름 + 파동 한 번 + 둘레 잔상 (번쩍이는 불빛 돌기는 뺌)
 class FingerTeamPicker extends StatefulWidget {
   final List<Color> colors;
   final bool pickOne;
@@ -34,12 +34,7 @@ class _FingerTeamPickerState extends State<FingerTeamPicker> with TickerProvider
   int _teamCount = 2;
   bool _decided = false;
   int _mouseSeq = -1;
-  // 127차 선 뽑기: 불빛이 도는 순서·몇 칸 돌지·뽑힌 손가락
-  List<int> _order = [];
-  int _steps = 0;
-  int? _winner;
-  bool _spinning = false;
-  int _lastLit = -1;
+  int? _winner; // 선 뽑기: 뽑힌 손가락
 
   late final AnimationController _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))
     ..repeat(reverse: true);
@@ -48,34 +43,13 @@ class _FingerTeamPickerState extends State<FingerTeamPicker> with TickerProvider
       if (s == AnimationStatus.completed) _decide();
     });
   late final AnimationController _burst = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
-  late final AnimationController _roulette = AnimationController(vsync: this, duration: const Duration(milliseconds: 1800))
-    ..addListener(() {
-      final i = _litIndex;
-      if (i != _lastLit) {
-        _lastLit = i;
-        HapticFeedback.selectionClick();
-      }
-    })
-    ..addStatusListener((s) {
-      if (s == AnimationStatus.completed && mounted) {
-        setState(() => _spinning = false);
-        _burst.forward(from: 0);
-        HapticFeedback.heavyImpact();
-      }
-    });
-
   int get _need => widget.pickOne ? 2 : max(2, _teamCount);
-
-  // 불빛이 지금 있는 자리 (_order 안 번호) — 처음엔 빠르게, 점점 느리게 돌다 _winner에서 멈춤
-  int get _litIndex => _order.isEmpty ? -1 : (Curves.easeOutCubic.transform(_roulette.value) * _steps).floor() % _order.length;
-  int? get _litId => _spinning ? (_litIndex < 0 ? null : _order[_litIndex]) : _winner;
 
   @override
   void dispose() {
     _pulse.dispose();
     _hold.dispose();
     _burst.dispose();
-    _roulette.dispose();
     super.dispose();
   }
 
@@ -84,11 +58,7 @@ class _FingerTeamPickerState extends State<FingerTeamPicker> with TickerProvider
     _left.clear();
     _decided = false;
     _burst.reset();
-    _roulette.reset();
     _winner = null;
-    _spinning = false;
-    _order = [];
-    _lastLit = -1;
   }
 
   void _restartHold() {
@@ -104,17 +74,13 @@ class _FingerTeamPickerState extends State<FingerTeamPicker> with TickerProvider
     if (_decided || _fingers.length < _need) return;
     final ids = _fingers.keys.toList()..shuffle(_rand);
     if (widget.pickOne) {
-      // 선 뽑기: 손가락들을 몇 바퀴 돌다가 뽑힌 손가락에서 멈춤
-      final w = _rand.nextInt(ids.length);
+      // 선 뽑기: 한 손가락만 골라 색을 채움 (128차)
       setState(() {
-        _order = ids;
-        _steps = ids.length * (ids.length <= 3 ? 4 : 3) + w;
-        _winner = ids[w];
-        _spinning = true;
+        _winner = ids[_rand.nextInt(ids.length)];
         _decided = true;
-        _lastLit = -1;
       });
-      _roulette.forward(from: 0);
+      _burst.forward(from: 0);
+      HapticFeedback.heavyImpact();
       return;
     }
     // 팀 번호도 섞어서 '1팀'이 늘 한 명 더 많지 않게
@@ -185,9 +151,7 @@ class _FingerTeamPickerState extends State<FingerTeamPicker> with TickerProvider
     }
     final pick = widget.pickOne;
     final String hint;
-    if (_spinning) {
-      hint = '고르는 중…';
-    } else if (_decided) {
+    if (_decided) {
       hint = pick
           ? (_fingers.isEmpty ? '선이 정해졌어요! 다시 하려면 화면을 눌러 주세요' : '선이 정해졌어요!')
           : (_fingers.isEmpty ? '팀이 나뉘었어요! 다시 하려면 화면을 눌러 주세요' : '팀이 나뉘었어요!');
@@ -266,7 +230,7 @@ class _FingerTeamPickerState extends State<FingerTeamPicker> with TickerProvider
                     ),
                   ),
                 AnimatedBuilder(
-                  animation: Listenable.merge([_pulse, _hold, _burst, _roulette]),
+                  animation: Listenable.merge([_pulse, _hold, _burst]),
                   builder: (context, _) => CustomPaint(
                     painter: _FingerPainter(
                       points: points,
@@ -278,8 +242,7 @@ class _FingerTeamPickerState extends State<FingerTeamPicker> with TickerProvider
                       burst: _burst.value,
                       radius: _radius,
                       pickOne: pick,
-                      litId: _litId,
-                      spinning: _spinning,
+                      litId: _winner,
                     ),
                   ),
                 ),
@@ -318,12 +281,10 @@ class _FingerPainter extends CustomPainter {
   final double pulse, hold, burst, radius;
   final bool pickOne;
   final int? litId;
-  final bool spinning;
 
   _FingerPainter({
     this.pickOne = false,
     this.litId,
-    this.spinning = false,
     required this.points,
     required this.team,
     required this.colorOf,
@@ -334,63 +295,58 @@ class _FingerPainter extends CustomPainter {
     required this.radius,
   });
 
-  // 127차 선 뽑기: 불빛 받은 손가락은 크게 빛나고, 나머지는 흐리게
+  // 128차 선 뽑기: 다른 손가락은 기다릴 때 그대로(회색 원), 뽑힌 손가락 원만 가운데부터 색이 차오름
+  //   + 파동 한 번 퍼짐 + 둘레에 옅은 잔상 고리 두 개가 남음
   void _paintPick(Canvas canvas) {
-    const glow = Color(0xFFFFB020);
     for (final e in points.entries) {
-      final c = e.value;
       if (e.key == litId) continue;
-      final r = radius * (spinning ? 1 : 0.8);
-      canvas.drawCircle(c, r, Paint()..color = kInk.withValues(alpha: spinning ? 0.12 : 0.07));
+      final r = radius + pulse * 4;
+      canvas.drawCircle(e.value, r, Paint()..color = kInk.withValues(alpha: 0.08));
       canvas.drawCircle(
-        c,
+        e.value,
         r,
         Paint()
-          ..color = kInk.withValues(alpha: spinning ? 0.3 : 0.15)
+          ..color = kInk.withValues(alpha: 0.28)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 3,
       );
     }
-    final lit = litId == null ? null : points[litId];
-    if (lit == null) return;
-    final done = !spinning;
-    final grow = done ? Curves.easeOutBack.transform(burst.clamp(0.0, 1.0)) : 0.0;
-    final r = radius * (1.05 + 0.35 * grow) + pulse * 6;
-    // 빛 번짐
-    canvas.drawCircle(
-      lit,
-      r * (done ? 2.6 : 1.9),
-      Paint()
-        ..shader = RadialGradient(colors: [glow.withValues(alpha: done ? 0.55 : 0.4), glow.withValues(alpha: 0)])
-            .createShader(Rect.fromCircle(center: lit, radius: r * (done ? 2.6 : 1.9))),
-    );
-    if (done) {
-      // 퍼지는 물결
+    final c = litId == null ? null : points[litId];
+    if (c == null) return;
+    final r = radius + pulse * 4;
+    final fill = Curves.easeOutCubic.transform((burst * 1.8).clamp(0.0, 1.0)); // 앞쪽 절반쯤에 다 참
+    final show = Curves.easeOut.transform((burst * 2).clamp(0.0, 1.0));
+    // 둘레 잔상 (나타난 뒤 남음)
+    for (final (gap, a) in [(16.0, 0.22), (34.0, 0.1)]) {
       canvas.drawCircle(
-        lit,
-        r + Curves.easeOut.transform(burst) * radius * 2.4,
+        c,
+        r + gap,
         Paint()
-          ..color = glow.withValues(alpha: 0.45 * (1 - burst))
+          ..color = kOrange.withValues(alpha: a * show)
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 8,
+          ..strokeWidth = 4,
       );
     }
-    canvas.drawCircle(lit, r, Paint()..color = done ? kOrange : glow);
+    // 파동 한 번
     canvas.drawCircle(
-      lit,
-      r + 5,
+      c,
+      r + Curves.easeOut.transform(burst) * radius * 2.4,
       Paint()
-        ..color = Colors.white.withValues(alpha: 0.9)
+        ..color = kOrange.withValues(alpha: 0.4 * (1 - burst))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 6,
+    );
+    // 원 (기다릴 때와 같은 회색 바탕 위에 주황이 차오름)
+    canvas.drawCircle(c, r, Paint()..color = kInk.withValues(alpha: 0.08));
+    canvas.drawCircle(c, r * fill, Paint()..color = kOrange);
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..color = kOrange
         ..style = PaintingStyle.stroke
         ..strokeWidth = 4,
     );
-    if (done) {
-      final tp = TextPainter(
-        text: TextSpan(text: '★', style: TextStyle(color: Colors.white, fontSize: r * 0.9)),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, lit - Offset(tp.width / 2, tp.height / 2));
-    }
   }
 
   @override
