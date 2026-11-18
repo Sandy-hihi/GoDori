@@ -357,6 +357,32 @@ function createFirestoreTossData(db) {
         return { settled: r.settled, open: r.open };
       });
     },
+    // 125차: 포스 테이블이 비었는데 결제 대기에 남은 주문 중 주문 문서가 없는 것(관리자 패드에서 지운 주문 등) → 취소로 빼기.
+    //   다 빠지고 결제된 게 없으면 주문 내역도 비움(손님이 없는 방). 뺀 수
+    async pruneMissingOrders(storeId, room, atIso) {
+      return db.runTransaction(async (tx) => {
+        const ref = roomRef(storeId, room);
+        const d = await tx.get(ref);
+        const cur = d.exists ? d.data() : {};
+        const open = Array.isArray(cur.open) ? cur.open.map(String) : [];
+        if (!open.length) return 0;
+        const docs = await tx.getAll(...open.map((id) => store(storeId).collection('orders').doc(id)));
+        const gone = docs.filter((x) => !x.exists).map((x) => x.id);
+        if (!gone.length) return 0;
+        tx.set(ref, { ...pruneRoom(cur, gone, atIso), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        return gone.length;
+      });
+    },
+    // 125차: 방 정산 뒤 그 방 진행 중 주문(pending·preparing·ready)을 완료로 — 바꾼 수
+    async completeRoomOrders(storeId, room, atIso) {
+      const snap = await store(storeId).collection('orders').where('status', 'in', ['pending', 'preparing', 'ready']).get();
+      const mine = snap.docs.filter((d) => d.data().room === `#${Number(room)}`);
+      if (!mine.length) return 0;
+      const batch = db.batch();
+      for (const d of mine) batch.update(d.ref, { status: 'completed', completedBySettleAt: atIso });
+      await batch.commit();
+      return mine.length;
+    },
     async listFakeOrders(merchantId, limit = 30) {
       const snap = await db.collection('_tossSandbox').doc(String(merchantId)).collection('orders')
         .orderBy('savedAt', 'desc').limit(limit).get();
@@ -441,6 +467,24 @@ function pickMovable(orders, roomTag, want) {
     if (want.has(String(o.id)) || (!pos && ['pending', 'preparing', 'ready'].includes(o.status))) out.push(String(o.id));
   }
   return out;
+}
+
+// 125차: 결제 대기에서 주문 여러 개를 취소로 뺌 — 남은 게 없고 결제된 것도 없으면 주문 내역까지 비움
+function pruneRoom(cur, ids, atIso) {
+  let state = { ...cur };
+  for (const id of ids) {
+    const r = closeRoom(state, id, false, atIso);
+    if (r.update) state = { ...state, ...r.update };
+  }
+  const open = Array.isArray(state.open) ? state.open : [];
+  const cycle = Array.isArray(state.cycle) ? state.cycle : [];
+  const update = { open, cycle, paidInCycle: state.paidInCycle === true };
+  if (!open.length && !cycle.some((e) => e && e.state === 'paid')) {
+    update.cycle = [];
+    update.paidInCycle = false;
+    update.posPayment = null;
+  }
+  return update;
 }
 
 function closeRoom(cur, orderId, paid, atIso) {
@@ -580,6 +624,24 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
     async listRooms(s) {
       return [...rooms.entries()].filter(([k]) => k.startsWith(`${s}/`))
         .map(([k, v]) => ({ room: k.split('/')[1], ...JSON.parse(JSON.stringify(v)) }));
+    },
+    async pruneMissingOrders(s, r, atIso) {
+      const k = `${s}/${r}`;
+      const cur = rooms.get(k) || { open: [] };
+      const gone = (cur.open || []).map(String).filter((id) => !ordersMap.has(`${s}/${id}`));
+      if (!gone.length) return 0;
+      rooms.set(k, { ...cur, ...pruneRoom(cur, gone, atIso) });
+      return gone.length;
+    },
+    async completeRoomOrders(s, r) {
+      let n = 0;
+      for (const [key, o] of ordersMap.entries()) {
+        if (key.startsWith(`${s}/`) && o.room === `#${Number(r)}` && ['pending', 'preparing', 'ready'].includes(o.status)) {
+          o.status = 'completed';
+          n++;
+        }
+      }
+      return n;
     },
     async resetRoom(s, r, atIso) {
       const k = `${s}/${r}`;

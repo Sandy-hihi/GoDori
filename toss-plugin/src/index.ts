@@ -35,6 +35,7 @@
 //     테이블이 바뀌면(table 'update'·'add'·'clear') 5초 뒤 신호 한 번 더 → 서버 기록에 묶인 테이블이 찍힘 (처리 방법은 시험 뒤에 정함)
 //   115차 0.4.2: 단체손님을 풀어도 묶음이 남던 것 — group.tableIds에 자기 테이블이 있고 2개 이상일 때만 묶음으로 봄,
 //     테이블 이벤트를 놓쳐도 1분마다 묶음을 다시 읽어(포스 안이라 무료) 바뀌었을 때만 신호. 토스 묶음 색(group.color)도 보냄
+//   125차 0.4.8: 같은 포스 주문 알림이 한꺼번에 여러 번 와도 서버엔 한 번(도는 중이면 끝난 뒤 한 번 더만)
 //   122차 0.4.7: 토스는 합석 때 'merge' 신호를 안 보냄(11-18 서버 기록 — 원래 주문에 CANCELLED만) →
 //     고도리 포스 주문이 CANCELLED면 4초 뒤 다른 테이블 열린 주문들에 그 주문의 줄 ID가 그대로 있는지 봄 →
 //     딱 한 주문에 있으면 그 주문으로 합석(merge 신호와 같게 처리). 줄 ID는 열린 동안 받은 것 + 취소된 주문에 남은 것.
@@ -49,7 +50,7 @@
 import { posPluginSdk } from "@tossplace/pos-plugin-sdk";
 
 const SERVER = "https://godori-pad.web.app";
-const VERSION = "0.4.7";
+const VERSION = "0.4.8";
 const HELLO_EVERY_MS = 10 * 60 * 1000;
 const WAIT_MS = 30 * 1000; // 승인 전·플러그인으로 안 보내는 매장
 const K_TOKEN = "godori.token";
@@ -500,7 +501,24 @@ async function addSetParts(posOrderId: string) {
 // 100차: 끝(완료·취소) → 서버가 방 정산. 113차: 열린 주문도 바뀌면(일부 결제·줄 지움) 보냄 — 같은 내용이면 다시 안 보냄
 const lastSig = new Map<string, string>();
 const merged = new Set<string>(); // 113차: 다른 주문에 합쳐져 없어진 포스 주문
+// 125차: 같은 포스 주문 알림이 한꺼번에 여러 번(결제·완료·변경 이벤트) 와도 한 번씩 차례로 — 도는 중이면 끝난 뒤 한 번 더만
+const reporting = new Map<string, boolean>(); // 포스 주문 ID → 끝난 뒤 다시 볼지
 async function report(posOrderId: string, why: string) {
+  const id = String(posOrderId);
+  if (reporting.has(id)) {
+    reporting.set(id, true);
+    return;
+  }
+  reporting.set(id, false);
+  try {
+    await reportOnce(id, why);
+  } finally {
+    const again = reporting.get(id) === true;
+    reporting.delete(id);
+    if (again) report(id, `${why}+`);
+  }
+}
+async function reportOnce(posOrderId: string, why: string) {
   const id = String(posOrderId);
   try {
     const mine = await loadJson<string[]>(K_MINE, []);

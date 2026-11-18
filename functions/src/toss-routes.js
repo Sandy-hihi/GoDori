@@ -151,7 +151,18 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     await data.setOrderToss(storeId, orderId, { posState: state, posStateAt: atIso, ...(reason ? { posReason: reason } : {}) });
     const room = roomOf(order);
     if (!TERMINAL.has(state) || room == null) return { settled: false, open: null };
-    return data.closeRoomOrder(storeId, room, orderId, { paid: state === 'COMPLETED', atIso });
+    const r = await data.closeRoomOrder(storeId, room, orderId, { paid: state === 'COMPLETED', atIso });
+    // 125차: 방 결제가 다 끝나면(정산) 그 방에서 아직 서빙 완료를 안 누른 음식 주문도 '완료'로
+    //   (보드게임 카페는 나갈 때 결제 — 사용자 결정. 먼저 결제하고 나중에 받는 주문도 주문현황에서 빠짐)
+    if (r && r.settled === true) {
+      try {
+        const n = await data.completeRoomOrders(storeId, room, atIso);
+        if (n) console.log(`[토스] ${storeId} ${room}번 방 정산 — 서빙 안 한 주문 ${n}건 완료로`);
+      } catch (e) {
+        console.error('[토스] 정산 뒤 주문 완료 실패', storeId, room, e);
+      }
+    }
+    return r;
   }
 
   // ── 주문 보내기 ──
@@ -684,7 +695,19 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       await data.patchConfig(storeId, { roomBills: next });
       cfg.roomBills = next;
     }
-    return { ok: true, rooms: rooms.length };
+    // 125차: 포스 테이블이 빈 방 — 결제 대기에 주문 문서가 없는 주문(관리자 패드에서 지움 등)이 남아 있으면 빼기
+    //   (주문 문서가 없으면 포스 결제·취소 신호가 와도 찾을 수 없어 방이 영영 '결제 대기'로 남음)
+    let pruned = 0;
+    for (const r of rooms.filter((x) => changes[x] === null)) {
+      try {
+        const n = await data.pruneMissingOrders(storeId, Number(r), nowIso);
+        if (n) console.log(`[토스 플러그인] ${storeId} ${r}번 방 포스 테이블이 비어 — 지워진 주문 ${n}건을 결제 대기에서 뺌`);
+        pruned += n;
+      } catch (e) {
+        console.error('[토스] 지워진 주문 정리 실패', storeId, r, e);
+      }
+    }
+    return { ok: true, rooms: rooms.length, pruned };
   }
 
   async function pluginHello(body, ctx) {

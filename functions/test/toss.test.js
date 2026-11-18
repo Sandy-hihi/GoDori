@@ -949,4 +949,23 @@ test('118차: 합석 때 포스가 원래 주문 취소를 먼저 보내도 — 
   const done = (await ev({ posOrderId: '20', orderState: 'COMPLETED', unpaid: 0 })).body;
   assert.equal(done.matched, 2);
   assert.equal(done.settled, true);
+  // 125차: 정산되면 서빙 완료를 안 누른 음식 주문도 완료로
+  assert.equal((await data.getOrder('platform6', 'a')).status, 'completed');
+  assert.equal((await data.getOrder('platform6', 'b')).status, 'completed');
+});
+
+test('125차: 관리자 패드에서 지운 주문이 결제 대기에 남아도 — 포스 테이블이 비면 빼고 방을 비움', async () => {
+  const PO = { ...ORDER, lines: ORDER.lines.slice(0, 1), price: '3500' };
+  const { call, data, poll, ack, ev } = await pluginSetup({ orders: { a: PO } });
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
+  await poll();
+  await ack({ orderId: 'a', ok: true, posOrderId: '30', tableTitle: '기본홀03' });
+  await ev({ kind: 'bills', bills: [{ tableId: 3, tableTitle: '기본홀03', posOrderId: '30', total: 3500, paid: 0, unpaid: 3500 }] });
+  data.ordersMap.delete('platform6/a'); // 관리자 패드에서 주문 삭제
+  await ev({ posOrderId: '30', orderState: 'CANCELLED', unpaid: 3500 }); // 찾을 주문이 없음
+  assert.deepEqual(data.rooms.get('platform6/3').open, ['a']);
+  const r = (await ev({ kind: 'bills', bills: [] })).body; // 포스 테이블 비움
+  assert.equal(r.pruned, 1);
+  assert.deepEqual(data.rooms.get('platform6/3').open, []);
+  assert.deepEqual(data.rooms.get('platform6/3').cycle, []);
 });
