@@ -64,4 +64,31 @@ void main() {
     expect(roomElapsedLabel(t, t.add(const Duration(minutes: 65))), '1시간 5분째');
     expect(roomElapsedLabel(t, t.add(const Duration(minutes: 120))), '2시간째');
   });
+  test('114차: 모두 취소됨·옮겨 간 방', () {
+    final board = buildRoomBoard(roomCount: 2, roomStatus: {
+      '1': {
+        'open': [],
+        'cycle': [
+          {'id': 'x', 'price': '5000', 'state': 'cancelled'},
+        ],
+      },
+      '2': {'open': [], 'cycle': [], 'settledAt': '2026-11-18T08:00:00Z', 'movedTo': 3},
+    });
+    expect(board[0].allCancelled, isTrue);
+    expect(board[0].total, 0);
+    expect(board[1].movedTo, 3);
+    expect(board[1].allCancelled, isFalse);
+  });
+  test('114차 2: 단체손님 묶음 — group·색 번호', () {
+    final board = buildRoomBoard(roomCount: 6, roomStatus: {
+      '2': {'open': [], 'cycle': [], 'group': {'id': 9, 'rooms': [2, 3]}},
+      '3': {'open': [], 'cycle': [], 'group': {'id': 9, 'rooms': [2, 3]}},
+      '5': {'open': [], 'cycle': [], 'group': {'id': 4, 'rooms': [5, 6]}},
+      '6': {'open': [], 'cycle': [], 'group': {'id': 4, 'rooms': [5, 6]}},
+      '1': {'open': [], 'cycle': [], 'group': null},
+    });
+    expect(board[0].group, isNull);
+    expect(board[1].group!.rooms, [2, 3]);
+    expect(roomGroupColorIndex(board), {9: 0, 4: 1});
+  });
 }

@@ -25,6 +25,8 @@ class AdminRoomBoardScreen extends StatefulWidget {
 
 class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
   static const _orange = Color(0xFFE67E22);
+  // 114차 2: 단체손님 묶음 테두리 색 (토스처럼 묶인 방을 같은 색으로) — 결제 대기 주황·호출 빨강과 겹치지 않게
+  static const _groupColors = [Color(0xFFD6457A), Color(0xFF7B5CD6), Color(0xFF12908E), Color(0xFF2F6FD6), Color(0xFF8D6E3F)];
 
   // 구독은 화면을 열 때 한 번만 (100차 규칙)
   final List<StreamSubscription> _subs = [];
@@ -174,7 +176,24 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
         ),
       );
 
-  Widget _roomCard(RoomBoardEntry e, DateTime now) {
+  Widget _roomCard(RoomBoardEntry e, DateTime now, [Color? groupColor]) {
+    final card = _roomCardInner(e, now, groupColor);
+    if (groupColor == null) return card;
+    // 114차 2: 단체손님 — 카드 바깥을 묶음 색으로 한 번 더 감쌈
+    return Tooltip(
+      message: '포스 단체손님 묶음 · ${e.group!.rooms.map((r) => '$r번').join(', ')} 방',
+      child: Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(17),
+          border: Border.all(color: groupColor, width: 3),
+        ),
+        child: card,
+      ),
+    );
+  }
+
+  Widget _roomCardInner(RoomBoardEntry e, DateTime now, Color? groupColor) {
     final color = _stateColor(e.state);
     final empty = e.state == RoomBoardState.empty;
     final orderParts = [
@@ -216,6 +235,18 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
                     child: Text('번 방', style: TextStyle(color: empty ? Colors.black38 : Colors.black54)),
                   ),
                   const Spacer(),
+                  if (groupColor != null) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: groupColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text('단체',
+                          style: TextStyle(color: groupColor, fontWeight: FontWeight.bold, fontSize: 12)),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
@@ -238,7 +269,14 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
                     color: e.countOf('pending') > 0 ? _orange : kAdminAccent, weight: FontWeight.w600)
               else if (!empty)
                 _line(Icons.receipt_long_outlined, '진행 중 주문 없음', color: Colors.black45),
-              if (e.cycle.isNotEmpty)
+              if (e.posPayment != null)
+                _line(Icons.payments_outlined,
+                    '일부 결제 ${_won(e.posPayment!.paid)} · 남은 ${_won(e.posPayment!.unpaid)} (포스)',
+                    color: _orange, weight: FontWeight.bold)
+              // 114차: 모두 취소된 방이 '합계 0원 · 결제됨'으로 보이던 것
+              else if (e.allCancelled)
+                _line(Icons.payments_outlined, '주문 ${e.cycle.length}건 모두 취소됨', color: Colors.black45)
+              else if (e.cycle.isNotEmpty)
                 _line(Icons.payments_outlined,
                     e.unpaid > 0 ? '결제 전 ${_won(e.unpaid)} / 합계 ${_won(e.total)}' : '합계 ${_won(e.total)} · 결제됨',
                     color: e.unpaid > 0 ? _orange : Colors.black54, weight: e.unpaid > 0 ? FontWeight.bold : FontWeight.normal),
@@ -246,6 +284,9 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
               if (e.firstAt != null && !empty)
                 Text('첫 주문 ${_hm(e.firstAt!)} · ${roomElapsedLabel(e.firstAt!, now)}',
                     style: const TextStyle(color: Colors.black54, fontSize: 12))
+              // 114차: 포스 자리이동·합석으로 옮겨 간 방
+              else if (empty && settledToday && e.movedTo != null)
+                Text('${_hm(e.settledAt!)} ${e.movedTo}번 방으로 옮김', style: const TextStyle(color: Colors.black45, fontSize: 12))
               else if (empty && settledToday)
                 Text('마지막 정산 ${_hm(e.settledAt!)}', style: const TextStyle(color: Colors.black38, fontSize: 12))
               else if (empty)
@@ -271,7 +312,7 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('${e.room}번 방 · ${e.stateLabel}', style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text('${e.room}번 방 · ${e.stateLabel}${e.group == null ? '' : ' · 단체 ${e.group!.rooms.join('·')}번'}', style: const TextStyle(fontWeight: FontWeight.bold)),
         content: SizedBox(
           width: adminDialogWidth(ctx, 520),
           child: SingleChildScrollView(
@@ -313,6 +354,12 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
                   const Divider(height: 20),
                   Text('합계 ${_won(e.total)} · 결제 전 ${_won(e.unpaid)}',
                       style: const TextStyle(fontWeight: FontWeight.bold)),
+                  if (e.posPayment != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text('포스에서 일부 결제됨 ${_won(e.posPayment!.paid)} · 남은 금액 ${_won(e.posPayment!.unpaid)}',
+                          style: const TextStyle(color: _orange, fontSize: 13)),
+                    ),
                   if (e.openCount > 0)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
@@ -344,6 +391,9 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
     final now = DateTime.now();
     final board = buildRoomBoard(roomCount: _roomCount!, roomStatus: _roomStatus, orders: _orders, calls: _calls);
     final shown = _filter == null ? board : board.where((e) => e.state == _filter).toList();
+    final groupIndex = roomGroupColorIndex(board);
+    Color? groupColor(RoomBoardEntry e) =>
+        e.group == null ? null : _groupColors[groupIndex[e.group!.id]! % _groupColors.length];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -360,7 +410,7 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
                     mainAxisSpacing: 14,
                   ),
                   itemCount: shown.length,
-                  itemBuilder: (_, i) => _roomCard(shown[i], now),
+                  itemBuilder: (_, i) => _roomCard(shown[i], now, groupColor(shown[i])),
                 ),
         ),
       ],

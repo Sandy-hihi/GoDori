@@ -179,6 +179,13 @@ class TossPosService {
     return TossSetPart.mapFrom(r['setMap']);
   }
 
+  /// 113차: 포스 상품과 연결 안 된 메뉴를 받을 포스 상품('고도리 기타' 0원 권장). null이면 지움(그 메뉴는 포스 실패)
+  static Future<String?> saveEtcItem(String? itemId) async {
+    final r = await _call('POST', '/api/toss/etc-item', body: {'itemId': itemId});
+    final v = r['etcItemId'];
+    return v == null ? null : '$v';
+  }
+
   /// 메뉴 연결 바꾸기 — 값이 null이면 연결 끊기. 바뀐 뒤 전체 연결표
   static Future<Map<String, String>> saveMenuMap(Map<String, String?> map) async {
     final r = await _call('POST', '/api/toss/menu-map', body: {'map': map});

@@ -86,6 +86,16 @@ class OrderHistoryEntry {
   return (total: total, unpaid: unpaid);
 }
 
+/// 113차: 포스에서 일부만 결제됨 (roomStatus.posPayment — 서버 toss-routes.js 포스 플러그인 event) — 없거나 다 냈으면 null
+({int paid, int unpaid})? roomPosPayment(Map<String, dynamic>? roomStatus) {
+  final p = roomStatus?['posPayment'];
+  if (p is! Map) return null;
+  int n(dynamic v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
+  final paid = n(p['paid']), unpaid = n(p['unpaid']);
+  if (paid <= 0 || unpaid <= 0) return null;
+  return (paid: paid, unpaid: unpaid);
+}
+
 /// 손님에게 보여줄 준비 상태 (주문 문서 status). 진행 중 목록에 없으면(완료·삭제) 'done'
 /// pending → 주문 접수 / preparing → 준비 중 / ready → 준비 완료 / 그 외 → 전달 완료
 String orderHistoryStatusText(String? status) {

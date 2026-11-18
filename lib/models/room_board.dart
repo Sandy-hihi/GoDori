@@ -61,6 +61,9 @@ class RoomBoardEntry {
   final DateTime? firstAt; // 이번 손님 첫 주문 시각
   final DateTime? settledAt;
   final bool beyondCount; // 방 개수를 줄여서 범위 밖인데 기록이 남은 방
+  final ({int paid, int unpaid})? posPayment; // 113차: 포스에서 일부만 결제됨
+  final int? movedTo; // 114차: 포스 자리이동·합석으로 손님이 옮겨 간 방 (원래 방이 비었을 때)
+  final ({int id, List<int> rooms})? group; // 114차 2: 포스 단체손님으로 묶인 방들 (표시만)
 
   const RoomBoardEntry({
     required this.room,
@@ -74,7 +77,13 @@ class RoomBoardEntry {
     this.firstAt,
     this.settledAt,
     this.beyondCount = false,
+    this.posPayment,
+    this.movedTo,
+    this.group,
   });
+
+  /// 114차: 이번 손님 주문이 모두 취소됨 (합계 0원인데 '결제됨'으로 보이지 않게)
+  bool get allCancelled => cycle.isNotEmpty && cycle.every((e) => e.cancelled);
 
   int countOf(String status) => orders.where((o) => o.status == status).length;
 
@@ -177,9 +186,35 @@ List<RoomBoardEntry> buildRoomBoard({
       firstAt: first,
       settledAt: _time(s?['settledAt']),
       beyondCount: n > roomCount,
+      posPayment: roomPosPayment(s),
+      movedTo: s?['movedTo'] is num ? (s!['movedTo'] as num).toInt() : null,
+      group: roomGroupOf(s),
     ));
   }
   return out;
+}
+
+/// 114차 2: roomStatus.group {id, rooms} (서버가 포스 단체손님 묶음에서 씀)
+({int id, List<int> rooms})? roomGroupOf(Map<String, dynamic>? s) {
+  final g = s?['group'];
+  if (g is! Map || g['id'] is! num) return null;
+  final rooms = g['rooms'] is List
+      ? [for (final r in g['rooms'] as List) if (r is num) r.toInt()]
+      : <int>[];
+  return (id: (g['id'] as num).toInt(), rooms: rooms);
+}
+
+/// 114차 2: 묶음마다 색 번호 — 가장 작은 방 번호 순서대로 0, 1, 2 …
+Map<int, int> roomGroupColorIndex(List<RoomBoardEntry> board) {
+  final firstRoom = <int, int>{};
+  for (final e in board) {
+    final g = e.group;
+    if (g == null) continue;
+    final r = firstRoom[g.id];
+    if (r == null || e.room < r) firstRoom[g.id] = e.room;
+  }
+  final ids = firstRoom.keys.toList()..sort((a, b) => firstRoom[a]!.compareTo(firstRoom[b]!));
+  return {for (var i = 0; i < ids.length; i++) ids[i]: i};
 }
 
 /// '35분째' / '1시간 5분째'

@@ -1379,6 +1379,11 @@ const guestMessages = <String, List<String>> {
     "未结账",
     "未会計"
   ],
+  "일부 결제됨": [
+    "Partly paid",
+    "已部分付款",
+    "一部支払い済み"
+  ],
   "주문 접수": [
     "Received",
     "已接单",

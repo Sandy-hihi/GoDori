@@ -91,7 +91,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                     for (final d in a.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
                       d.id: d.data(),
                   };
-                  return _body(context, list, active, statusKnown: a.hasData);
+                  return _body(context, list, active, statusKnown: a.hasData, payment: roomPosPayment(r.data!.data()));
                 },
               );
             },
@@ -106,6 +106,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     List<OrderHistoryEntry> list,
     Map<String, Map<String, dynamic>> active, {
     required bool statusKnown,
+    ({int paid, int unpaid})? payment, // 113차: 포스에서 일부만 결제됨
   }) {
     final totals = orderHistoryTotals(list);
     return Column(
@@ -143,7 +144,18 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
               GuestText(wonText('${totals.total}'),
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kInk)),
               const Spacer(),
-              if (totals.unpaid != totals.total) ...[
+              // 113차: 포스에서 나눠 내는 중이면 결제된 돈·남은 돈(포스 계산서 기준)
+              if (payment != null) ...[
+                const GuestText('일부 결제됨', style: TextStyle(fontSize: 16, color: kMuted)),
+                const SizedBox(width: 8),
+                GuestText(wonText('${payment.paid}'),
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: kBody)),
+                const SizedBox(width: 18),
+                const GuestText('결제 전', style: TextStyle(fontSize: 16, color: kMuted)),
+                const SizedBox(width: 8),
+                GuestText(wonText('${payment.unpaid}'),
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kOrange)),
+              ] else if (totals.unpaid != totals.total) ...[
                 const GuestText('결제 전', style: TextStyle(fontSize: 16, color: kMuted)),
                 const SizedBox(width: 8),
                 GuestText(wonText('${totals.unpaid}'),

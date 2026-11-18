@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'package:boardpad/services/store_scope.dart';
 import 'package:boardpad/services/toss_pos_service.dart';
+import 'admin_pos_import_dialog.dart';
 
 const _navy = Color(0xFF1E2B3C);
 const _toss = Color(0xFF3182F6);
@@ -890,6 +891,26 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
     return out;
   }
 
+  // 113차: 포스 메뉴 가져오기 (저장 안 한 연결이 있으면 먼저 저장 — 버튼이 흐려짐)
+  Future<void> _importFromPos() async {
+    final linked = <String>{
+      for (final v in _saved.values)
+        if (TossMenuLink.parse(v)?.itemId != null) TossMenuLink.parse(v)!.itemId,
+    };
+    final n = await showDialog<int>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PosImportDialog(
+        catalog: _catalog,
+        linkedItemIds: linked,
+        existingNames: {for (final m in _menus) PosImportDialog.nameKey(m.name)},
+      ),
+    );
+    if (n == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('포스 메뉴 $n개를 가져와 연결했어요. 사진은 메뉴 관리에서 넣어 주세요.')));
+    await _load();
+  }
+
   Widget _menuCard() {
     final linkedCount = _menus.where((m) => _item(_current(m.id)) != null).length;
     return _card(
@@ -898,6 +919,12 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
           '옵션은 포스 옵션과 이름이 같아야 같이 들어가요(띄어쓰기·아이스/ICE는 같게 봐요). '
           '포스에서 한 상품에 묶인 메뉴(예: 에이드 › 자몽에이드)는 상품을 고른 뒤 아래에서 옵션을 골라 두세요.',
       action: Wrap(spacing: 8, children: [
+        // 113차: 아직 연결 안 된 포스 상품을 고도리 메뉴로 만들고 바로 연결
+        OutlinedButton.icon(
+          onPressed: _catalog.isEmpty || _saving || _dirty ? null : _importFromPos,
+          icon: const Icon(Icons.playlist_add, size: 18),
+          label: const Text('포스 메뉴 가져오기'),
+        ),
         OutlinedButton.icon(
           onPressed: _catalog.isEmpty || _saving ? null : _autoMatch,
           icon: const Icon(Icons.auto_fix_high, size: 18),
@@ -919,6 +946,81 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
           const Text('포스에 상품이 없거나 아직 연결 전이에요.', style: TextStyle(color: Colors.black45)),
         if (_menus.isEmpty) const Text('고도리 메뉴가 없어요.', style: TextStyle(color: Colors.black45)),
         ..._menuList(),
+      ],
+    );
+  }
+
+  // 113차: 포스 상품과 연결 안 된 메뉴를 받을 포스 상품 — 고르면 그 메뉴 줄이 이 상품(값 0 권장)으로 들어가고 메모에 원래 이름·옵션·값
+  bool _etcBusy = false;
+  Future<void> _saveEtc(String? id) async {
+    if (_etcBusy) return;
+    setState(() => _etcBusy = true);
+    try {
+      final v = await TossPosService.saveEtcItem(id);
+      if (!mounted) return;
+      setState(() => _status = {..._status, 'etcItemId': v});
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(v == null
+            ? '연결 안 된 메뉴는 다시 포스로 넘어가지 않아요(\'포스 실패\'로 남아요).'
+            : '연결 안 된 메뉴는 이제 이 상품으로 포스에 들어가요.'),
+      ));
+    } on TossPosException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } finally {
+      if (mounted) setState(() => _etcBusy = false);
+    }
+  }
+
+  Widget _etcCard() {
+    final cur = _status['etcItemId']?.toString();
+    final items = [..._catalog]..sort((a, b) {
+        final za = (a.price ?? 0) == 0, zb = (b.price ?? 0) == 0;
+        if (za != zb) return za ? -1 : 1; // 0원 상품 먼저
+        return a.title.compareTo(b.title);
+      });
+    TossCatalogItem? picked;
+    for (final i in _catalog) {
+      if (i.id == cur) picked = i;
+    }
+    final missing = cur != null && picked == null;
+    const none = '고르지 않음 — 연결 안 된 메뉴는 \'포스 실패\'로 남아요';
+    return _card(
+      title: '연결 안 된 메뉴 받기',
+      subtitle: '포스 상품과 연결하지 않은 고도리 메뉴도 포스로 넘기려면, 받아 줄 포스 상품을 하나 골라 주세요.\n'
+          '토스 포스에 0원짜리 \'고도리 기타\' 상품을 만들어 고르는 걸 권해요 — 그 줄 메모에 원래 메뉴 이름·옵션·값이 적혀요.\n'
+          '포스는 고른 상품 값으로 계산하니, 결제 전에 직원이 포스에서 금액을 맞춰 주세요.',
+      children: [
+        if (_status['mode'] != 'live')
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text('진짜 포스(포스 플러그인)에 연결된 매장에서만 써요.', style: TextStyle(color: Colors.black54)),
+          ),
+        DropdownButton<String?>(
+          isExpanded: true,
+          value: picked?.id,
+          hint: Text(missing ? '골라 둔 상품이 포스에 없어요 — 다시 골라 주세요' : none,
+              style: TextStyle(color: missing ? _red : Colors.black54)),
+          items: [
+            const DropdownMenuItem<String?>(value: null, child: Text(none)),
+            for (final i in items)
+              DropdownMenuItem<String?>(
+                value: i.id,
+                child: Text('${i.title} · ${i.price == null ? '-' : '${i.price}원'}${i.category.isEmpty ? '' : ' · ${i.category}'}',
+                    overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: _etcBusy
+              ? null
+              : (v) {
+                  if (v != cur) _saveEtc(v);
+                },
+        ),
+        if (picked != null && (picked.price ?? 0) > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text('고른 상품 값(${picked.price}원)이 0원이 아니에요 — 이 값이 계산서에 더해져요. 0원 상품을 권해요.',
+                style: const TextStyle(color: _red)),
+          ),
       ],
     );
   }
@@ -989,6 +1091,7 @@ class _AdminTossPosScreenState extends State<AdminTossPosScreen> {
                     children: [
                       _statusCard(),
                       if (ready) _menuCard(),
+                      if (ready) _etcCard(), // 113차
                       if (ready) _setCard(),
                       if (ready) _failedCard(),
                     ],

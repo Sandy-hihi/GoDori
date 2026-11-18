@@ -225,6 +225,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
     final messenger = ScaffoldMessenger.of(context);
     var parsed = parseMenuBulkText('');
     var saving = false;
+    var overwrite = false; // 113차: 같은 이름이면 덮어쓰기
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -240,7 +241,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                 const Text(
                   '한 줄에 메뉴 하나:  이름 | 가격 | 옵션\n'
                   '"# 카테고리" 줄 아래 메뉴는 그 카테고리로 들어가요. 옵션은  그룹*: 선택, 선택+500; 그룹2: 선택  (* = 필수)\n'
-                  '이미 같은 이름의 메뉴가 있으면 건너뛰어요. 사진은 나중에 메뉴마다 넣어 주세요.',
+                  '이미 같은 이름의 메뉴가 있으면 건너뛰어요(아래에서 덮어쓰기를 켤 수 있어요). 사진은 나중에 메뉴마다 넣어 주세요.',
                   style: TextStyle(color: Colors.black54, height: 1.5, fontSize: 13),
                 ),
                 const SizedBox(height: 12),
@@ -261,6 +262,17 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                   '${parsed.menus.isEmpty ? '' : ' · 카테고리 ${parsed.menus.map((m) => m.category).toSet().length}개'}'
                   '${parsed.errors.isEmpty ? '' : ' · 고칠 줄 ${parsed.errors.length}개'}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                // 113차: 같은 이름(띄어쓰기 무시)이면 카테고리·가격·옵션을 글대로 바꿈 — 사진·품절·번역은 그대로
+                CheckboxListTile(
+                  value: overwrite,
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  activeColor: kAdminAccent,
+                  title: const Text('같은 이름이면 덮어쓰기', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('카테고리·가격·옵션을 이 글대로 바꿔요. 사진·품절·번역·토스 메뉴 연결은 그대로예요.'),
+                  onChanged: saving ? null : (v) => setDialog(() => overwrite = v ?? false),
                 ),
                 if (parsed.errors.isNotEmpty)
                   ConstrainedBox(
@@ -283,7 +295,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                   : () async {
                       setDialog(() => saving = true);
                       try {
-                        final msg = await _bulkAddMenus(parsed.menus);
+                        final msg = await _bulkAddMenus(parsed.menus, overwrite: overwrite);
                         if (dialogContext.mounted) Navigator.pop(dialogContext);
                         messenger.showSnackBar(SnackBar(content: Text(msg)));
                       } catch (e) {
@@ -291,8 +303,9 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                         messenger.showSnackBar(SnackBar(content: Text('추가하지 못했어요: $e')));
                       }
                     },
-              style: ElevatedButton.styleFrom(backgroundColor: kAdminAccent, foregroundColor: Colors.white),
-              child: Text(saving ? '추가하는 중…' : '${parsed.menus.length}개 추가'),
+              // 처리 중엔 글자는 그대로, 버튼만 흐리게 (100차) — 113차에 고침
+              style: busyButtonStyle(kAdminAccent),
+              child: Text(overwrite ? '${parsed.menus.length}개 추가·덮어쓰기' : '${parsed.menus.length}개 추가'),
             ),
           ],
         ),
@@ -300,16 +313,32 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
     );
   }
 
-  Future<String> _bulkAddMenus(List<MenuBulkLine> lines) async {
+  Future<String> _bulkAddMenus(List<MenuBulkLine> lines, {bool overwrite = false}) async {
     String key(String s) => s.replaceAll(RegExp(r'\s+'), '');
     final existing = await StoreScope.col('menus').get();
-    final have = {for (final d in existing.docs) key('${d.data()['name'] ?? ''}')};
-    final toAdd = lines.where((l) => !have.contains(key(l.name))).toList();
-    final skipped = lines.length - toAdd.length;
-    if (toAdd.isEmpty) return '모두 이미 있는 메뉴라서 추가하지 않았어요.';
+    final byName = <String, DocumentReference<Map<String, dynamic>>>{};
+    for (final d in existing.docs) {
+      byName.putIfAbsent(key('${d.data()['name'] ?? ''}'), () => d.reference);
+    }
+    final toAdd = lines.where((l) => !byName.containsKey(key(l.name))).toList();
+    // 113차: 같은 이름이면 덮어쓰기 (켰을 때만)
+    final toUpdate = overwrite ? lines.where((l) => byName.containsKey(key(l.name))).toList() : <MenuBulkLine>[];
+    final skipped = lines.length - toAdd.length - toUpdate.length;
+    if (toAdd.isEmpty && toUpdate.isEmpty) {
+      return '모두 이미 있는 메뉴라서 추가하지 않았어요. (바꾸려면 \'같은 이름이면 덮어쓰기\'를 켜 주세요)';
+    }
     final catRef = StoreScope.col('settings').doc('categories');
     final cats = List<String>.from((((await catRef.get()).data() ?? const {})['list'] as List?) ?? const []);
-    final newCats = toAdd.map((l) => l.category).where((c) => !cats.contains(c)).toSet().toList();
+    final newCats = [...toAdd, ...toUpdate].map((l) => l.category).where((c) => !cats.contains(c)).toSet().toList();
+    for (var i = 0; i < toUpdate.length; i += 400) {
+      final batch = FirebaseFirestore.instance.batch();
+      for (var j = i; j < toUpdate.length && j < i + 400; j++) {
+        final l = toUpdate[j];
+        // 목록 옵션 복사본은 아래 syncMenus가 다시 붙임 (106차)
+        batch.update(byName[key(l.name)]!, {'category': l.category, 'price': l.price, 'optionGroups': l.optionGroups});
+      }
+      await batch.commit();
+    }
     final base = DateTime.now().millisecondsSinceEpoch;
     // 1ms씩 늦춰서 붙여 넣은 순서대로 보이게 (목록은 timestamp 순)
     for (var i = 0; i < toAdd.length; i += 400) {
@@ -333,7 +362,8 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
       await OptionLibrary.syncMenus(); // 106차: 카테고리에 붙은 목록 옵션을 새 메뉴에도
     } catch (_) {}
     TranslateSync.kick(); // 손님 패드 자동 번역
-    return '${toAdd.length}개 추가했어요.${skipped > 0 ? ' (이미 있는 $skipped개는 건너뜀)' : ''}'
+    return '${toAdd.length}개 추가했어요.${toUpdate.isEmpty ? '' : ' ${toUpdate.length}개는 덮어썼어요.'}'
+        '${skipped > 0 ? ' (이미 있는 $skipped개는 건너뜀)' : ''}'
         '${newCats.isEmpty ? '' : ' 새 카테고리: ${newCats.join(', ')}'}';
   }
 
@@ -813,21 +843,37 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                           ],
                                         ),
                                         const SizedBox(height: 8),
+                                        // 113차: 선택지를 누르면 품절을 켜고 끔 (메뉴 전용 옵션 — 손님 패드에서 흐리게·못 고름)
                                         Wrap(
                                           spacing: 8,
+                                          runSpacing: 4,
                                           children:
                                               (group['options']
                                                       as List<dynamic>)
                                                   .map(
-                                                    (opt) => Chip(
-                                                      label: Text(
-                                                        '${opt['name']} (+${opt['price']}원)${opt['isDefault'] == true ? ' · 기본' : ''}',
-                                                        style: const TextStyle(
-                                                          fontSize: 12,
+                                                    (opt) => Tooltip(
+                                                      message: opt['soldOut'] == true ? '눌러서 다시 팔기' : '눌러서 품절',
+                                                      child: FilterChip(
+                                                        label: Text(
+                                                          '${opt['name']} (+${opt['price']}원)${opt['isDefault'] == true ? ' · 기본' : ''}'
+                                                          '${opt['soldOut'] == true ? ' · 품절' : ''}',
+                                                          style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: opt['soldOut'] == true ? Colors.red : null,
+                                                          ),
                                                         ),
+                                                        selected: opt['soldOut'] == true,
+                                                        showCheckmark: false,
+                                                        selectedColor: Colors.red.shade50,
+                                                        backgroundColor: Colors.grey.shade100,
+                                                        onSelected: (v) => setState(() {
+                                                          if (v) {
+                                                            opt['soldOut'] = true;
+                                                          } else {
+                                                            opt.remove('soldOut');
+                                                          }
+                                                        }),
                                                       ),
-                                                      backgroundColor:
-                                                          Colors.grey.shade100,
                                                     ),
                                                   )
                                                   .toList(),
@@ -1390,6 +1436,7 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                               final autoNow = SoldOutSchedule.activeFor(
                                   autoRules, doc.id, (menu['category'] ?? '').toString(), DateTime.now());
                               final manualSoldOut = menu['isSoldOut'] == true;
+                              final posSoldOut = menu['posSoldOut'] == true; // 113차: 토스 포스에서 품절 (서버가 1분마다 따라 씀)
 
                               return ListTile(
                                 contentPadding: EdgeInsets.symmetric(
@@ -1497,11 +1544,13 @@ class _AdminMenuManageScreenState extends State<AdminMenuManageScreen> {
                                       Text(
                                           manualSoldOut
                                               ? '품절'
-                                              : autoNow != null
-                                                  ? '자동 품절'
-                                                  : '판매중',
+                                              : posSoldOut
+                                                  ? '포스 품절'
+                                                  : autoNow != null
+                                                      ? '자동 품절'
+                                                      : '판매중',
                                           style: TextStyle(
-                                            color: manualSoldOut
+                                            color: manualSoldOut || posSoldOut
                                                 ? Colors.red
                                                 : autoNow != null
                                                     ? Colors.orange.shade800

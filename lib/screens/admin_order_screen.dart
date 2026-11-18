@@ -247,6 +247,9 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
             },
           ),
 
+          // 113차: 포스로 못 넘어간 주문 알림 (토스 POS 연동 매장 — 실패 또는 2분 넘게 '포스 대기')
+          const TossStuckBanner(),
+
           // ── 주문 목록 섹션 ──
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
@@ -522,6 +525,102 @@ class _AdminOrderScreenState extends State<AdminOrderScreen> {
       child: Text(flow.buttonLabel(currentStatus),
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white, height: 1.25)),
+    );
+  }
+}
+
+
+/// 113차: 포스로 못 넘어간 주문 알림 — 토스 POS 연동 매장의 주문 중 최근 3시간 안에
+///   포스 보내기 실패(failed) 또는 2분 넘게 '포스 대기'(queued·claimed)인 것.
+///   새로 생기면 띵동 한 번. 포스 전원·인터넷을 확인하고 주문 카드의 '포스 실패 · 다시'로 다시 보냄
+class TossStuckBanner extends StatefulWidget {
+  const TossStuckBanner({super.key});
+
+  @override
+  State<TossStuckBanner> createState() => _TossStuckBannerState();
+}
+
+class _TossStuckBannerState extends State<TossStuckBanner> {
+  static const _waitLimit = Duration(minutes: 2);
+  static const _recent = Duration(hours: 3);
+  // 구독은 한 번만 (100차 규칙) — tossPos.state 한 칸 조건이라 색인 필요 없음
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _stream = StoreScope.col('orders')
+      .where('tossPos.state', whereIn: const ['queued', 'claimed', 'failed'])
+      .snapshots()
+      .metered();
+  Timer? _tick;
+  final Set<String> _alerted = {};
+  final _player = AudioPlayer();
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    _player.dispose();
+    super.dispose();
+  }
+
+  static DateTime? _at(dynamic v) => DateTime.tryParse('${v ?? ''}')?.toLocal();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _stream,
+      builder: (context, snap) {
+        final now = DateTime.now();
+        final failed = <String>[];
+        final waiting = <String>[];
+        for (final d in snap.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[]) {
+          final t = (d.data()['tossPos'] as Map?) ?? const {};
+          final room = '${d.data()['room'] ?? ''}'.replaceAll('#', '');
+          final label = room.isEmpty ? '?' : '$room번';
+          if (t['state'] == 'failed') {
+            final at = _at(t['failedAt']);
+            if (at != null && now.difference(at) < _recent) failed.add('${d.id}|$label');
+          } else {
+            final at = _at(t['queuedAt']);
+            if (at != null && now.difference(at) >= _waitLimit && now.difference(at) < _recent) waiting.add('${d.id}|$label');
+          }
+        }
+        final all = [...failed, ...waiting];
+        final fresh = all.where((k) => !_alerted.contains(k)).toList();
+        if (fresh.isNotEmpty) {
+          _alerted.addAll(fresh);
+          _player.play(AssetSource('sounds/ddingdong.mp3'));
+        }
+        if (all.isEmpty) return const SizedBox.shrink();
+        final rooms = {for (final k in all) k.split('|').last}.join(', ');
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF3E0),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFE67E22), width: 1.5),
+          ),
+          child: Row(children: [
+            const Icon(Icons.point_of_sale, color: Color(0xFFE67E22)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '포스로 넘어가지 못한 주문 ${all.length}건 ($rooms 방)'
+                '${failed.isNotEmpty ? ' · 실패 ${failed.length}건' : ''}'
+                '${waiting.isNotEmpty ? ' · 2분 넘게 대기 ${waiting.length}건' : ''}\n'
+                '포스 전원·인터넷을 확인하고, 주문 카드의 \'포스 실패 · 다시\'를 누르거나 포스에 직접 입력해 주세요.',
+                style: const TextStyle(color: Color(0xFF8A4A0F), fontWeight: FontWeight.w600, height: 1.35),
+              ),
+            ),
+          ]),
+        );
+      },
     );
   }
 }

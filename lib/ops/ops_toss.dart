@@ -317,6 +317,23 @@ class _PluginDialogState extends State<_PluginDialog> {
                         ]),
                       );
                     }),
+                  // 113차: 플러그인 알림(세트를 뺐는데 구성품 줄이 남음 등) · 최근 오류 — 최근 것이 위
+                  if ((p['notes'] as List? ?? const []).isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    const Text('플러그인 알림', style: TextStyle(fontWeight: FontWeight.bold)),
+                    for (final n in (p['notes'] as List).reversed.take(10))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text('• ${_time(n is Map ? n['at'] : null)}  ${n is Map ? n['text'] : n}',
+                            style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                      ),
+                  ],
+                  if ((p['errors'] as List? ?? const []).isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    const Text('마지막 신호의 오류', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                    for (final e in (p['errors'] as List).take(10))
+                      Text('• $e', style: const TextStyle(fontSize: 13, color: Colors.red)),
+                  ],
                 ]);
               },
             ),

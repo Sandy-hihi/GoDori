@@ -515,7 +515,10 @@ test('포스 플러그인 2단계 (100차): 기기 승인 → 패드 주문 대�
 
   // 포스 주문 완료(남은 금액 0) → 그 포스 주문에 들어간 고도리 주문 둘 다 결제 → 방 정산
   const ev = (body) => call('POST', '/api/toss/plugin/event', { body: { ...dev, token, ...body } });
-  assert.equal((await ev({ posOrderId: '777', orderState: 'OPENED' })).body.matched, 0);
+  // 113차: 열린 주문 신호는 그 포스 주문의 고도리 주문을 찾되(줄·일부 결제 확인) 정산은 안 함
+  const opened = (await ev({ posOrderId: '777', orderState: 'OPENED' })).body;
+  assert.equal(opened.matched, 2);
+  assert.equal(opened.cancelled, 0);
   const done = await ev({ posOrderId: '777', orderState: 'COMPLETED', unpaid: 0 });
   assert.equal(done.body.matched, 2);
   assert.equal(done.body.settled, true);
@@ -604,6 +607,162 @@ test('세트 구성품 (103차): 관리자가 세트 → 구성품 저장 → �
   assert.deepEqual(p3.body.sets, []);
 });
 
+// 113차: 토스 포스 플러그인 3단계 — 줄만 지움·일부 결제·테이블 옮기기/합치기·연결 안 된 메뉴(기타 상품)·포스 품절 따라가기·알림
+async function pluginSetup({ orders, menuMap, menus } = {}) {
+  const catalog = fakeCatalogFromMenus(menus || MENUS);
+  const live = { mode: 'live', listCatalogItems: async () => catalog, createOrder: async () => ({ id: '1' }) };
+  const ctx = make({ live, orders });
+  const { call } = ctx;
+  await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'live', merchantId: '738910' } });
+  await call('POST', '/api/toss/menu-map', { token: 'admin', body: { map: menuMap || { m1: catalog[0].id, m2: catalog[1].id } } });
+  await call('POST', '/api/ops/toss/config', { token: 'ops', body: { storeId: 'platform6', via: 'plugin' } });
+  const dev = { merchantId: '738910', serial: 'P', version: '0.4.0' };
+  const token = (await call('POST', '/api/toss/plugin/hello', { body: dev })).body.deviceToken;
+  await call('POST', '/api/ops/toss/plugin-device', { token: 'ops', body: { merchantId: '738910', serial: 'P', approved: true } });
+  const poll = (body = {}) => call('POST', '/api/toss/plugin/poll', { body: { ...dev, token, ...body } });
+  const ack = (body) => call('POST', '/api/toss/plugin/ack', { body: { ...dev, token, ...body } });
+  const ev = (body) => call('POST', '/api/toss/plugin/event', { body: { ...dev, token, ...body } });
+  return { ...ctx, catalog, poll, ack, ev };
+}
+
+test('113차: 포스에서 고도리 주문 줄을 모두 지우면 그 주문만 취소, 일부 결제는 방에 표시 → 다 내면 정산·표시 지움', async () => {
+  const PO = { ...ORDER, lines: ORDER.lines.slice(0, 2), price: '9000' };
+  const { call, data, poll, ack, ev } = await pluginSetup({ orders: { a: PO, b: { ...PO, price: '5000' } } });
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'b' } });
+  assert.equal((await poll()).body.orders.length, 2);
+  await ack({ orderId: 'a', ok: true, posOrderId: '777', lineIds: ['L1', 'L2'] });
+  await ack({ orderId: 'b', ok: true, posOrderId: '777', appended: true, lineIds: ['L3', 'L4'] });
+  assert.deepEqual((await data.getOrder('platform6', 'a')).tossPos.lineIds, ['L1', 'L2']);
+  // b의 줄 하나만 지움 → 남은 줄 수만 표시
+  let r = (await ev({ posOrderId: '777', orderState: 'OPENED', lineIds: ['L1', 'L2', 'L3'], paid: 0, unpaid: 14000 })).body;
+  assert.equal(r.partial, 1);
+  assert.equal((await data.getOrder('platform6', 'b')).tossPos.linesLeft, 1);
+  // a의 줄을 모두 지움 → a만 취소, 방 결제 대기에서 빠짐
+  r = (await ev({ posOrderId: '777', orderState: 'OPENED', lineIds: ['L3'], paid: 0, unpaid: 5000 })).body;
+  assert.equal(r.cancelled, 1);
+  const ta = (await data.getOrder('platform6', 'a')).tossPos;
+  assert.equal(ta.posState, 'CANCELLED');
+  assert.ok(ta.posReason);
+  assert.deepEqual(data.rooms.get('platform6/3').open, ['b']);
+  assert.equal(data.rooms.get('platform6/3').cycle.find((e) => e.id === 'a').state, 'cancelled');
+  // 일부 결제
+  r = (await ev({ posOrderId: '777', orderState: 'OPENED', lineIds: ['L3'], paid: 3000, unpaid: 2000 })).body;
+  assert.equal(r.partialPaid, true);
+  assert.deepEqual({ ...data.rooms.get('platform6/3').posPayment, at: undefined }, { paid: 3000, unpaid: 2000, posOrderId: '777', at: undefined });
+  // 다 냄 → b 결제, 정산, 일부 결제 표시 지움. 이미 줄 지움으로 취소한 a는 그대로 취소
+  const done = (await ev({ posOrderId: '777', orderState: 'COMPLETED', unpaid: 0 })).body;
+  assert.equal(done.settled, true);
+  assert.equal(data.rooms.get('platform6/3').posPayment, null);
+  assert.equal((await data.getOrder('platform6', 'a')).tossPos.posState, 'CANCELLED');
+  assert.equal((await data.getOrder('platform6', 'b')).tossPos.posState, 'COMPLETED');
+});
+
+test('113차: 포스 테이블 옮기기·합치기 → 고도리 주문 테이블·포스 주문 번호를 따라감, 합친 주문이 끝나면 정산', async () => {
+  const PO = { ...ORDER, lines: ORDER.lines.slice(0, 1), price: '4000' };
+  const { call, data, poll, ack, ev } = await pluginSetup({ orders: { a: PO } });
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
+  await poll();
+  await ack({ orderId: 'a', ok: true, posOrderId: '10', tableId: 1, tableTitle: '기본홀03', lineIds: ['X1'] });
+  assert.equal((await ev({ kind: 'move', posOrderId: '10', toTableId: 2, toTableTitle: '기본홀05' })).body.matched, 1);
+  assert.equal((await data.getOrder('platform6', 'a')).tossPos.tableTitle, '기본홀05');
+  assert.equal((await ev({ kind: 'merge', fromPosOrderId: '10' })).status, 400);
+  assert.equal((await ev({ kind: 'merge', fromPosOrderId: '10', toPosOrderId: '20', toTableId: 3, toTableTitle: '기본홀07' })).body.matched, 1);
+  const t = (await data.getOrder('platform6', 'a')).tossPos;
+  assert.equal(t.posOrderId, '20');
+  assert.equal(t.mergedFrom, '10');
+  assert.equal(t.lineIds, undefined); // 합치면 줄 추적은 그만둠
+  // 합쳐진(없어진) 예전 포스 주문의 취소 신호는 이제 아무 주문에도 안 걸림
+  assert.equal((await ev({ posOrderId: '10', orderState: 'CANCELLED' })).body.matched, 0);
+  const done = (await ev({ posOrderId: '20', orderState: 'COMPLETED', unpaid: 0 })).body;
+  assert.equal(done.matched, 1);
+  assert.equal(done.settled, true);
+});
+
+test('114차: 자리이동·합석이면 방도 테이블을 따라감 — 원래 방은 비우고(패드 처음 화면) 결제 대기·주문 내역·주문 방 번호를 옮김', async () => {
+  const PO = { ...ORDER, lines: ORDER.lines.slice(0, 1), price: '4000' };
+  const { call, data, poll, ack, ev } = await pluginSetup({ orders: { a: PO, b: { ...PO, room: '#2' }, c: { ...PO, room: '#5' }, d: { ...PO, status: 'preparing' } } });
+  for (const [id, pad] of [['a', 'pad3'], ['b', 'admin'], ['c', 'admin']]) {
+    await call('POST', '/api/toss/send-order', { token: pad, body: { orderId: id } });
+  }
+  await poll();
+  await ack({ orderId: 'a', ok: true, posOrderId: '30', tableTitle: '기본홀03' });
+  await ack({ orderId: 'b', ok: true, posOrderId: '20', tableTitle: '기본홀02' });
+  await ack({ orderId: 'c', ok: true, posOrderId: '50', tableTitle: '기본홀05' });
+  // 자리이동: 3번 방(기본홀03) → 기본홀07
+  const mv = (await ev({ kind: 'move', posOrderId: '30', toTableId: 7, toTableTitle: '기본홀07' })).body;
+  assert.equal(mv.toRoom, 7);
+  // 114차 2: 포스로 안 간 같은 방 주문(d — 준비 중)도 같이 옮김
+  assert.deepEqual(mv.movedRooms, [{ from: 3, orders: 2, calls: 0, emptied: true }]);
+  assert.equal((await data.getOrder('platform6', 'd')).room, '#7');
+  const r3 = data.rooms.get('platform6/3');
+  assert.deepEqual(r3.open, []);
+  assert.deepEqual(r3.cycle, []);
+  assert.ok(r3.settledAt); // 3번 방 패드 → 처음 화면
+  assert.equal(r3.movedTo, 7);
+  assert.deepEqual(data.rooms.get('platform6/7').open, ['a']);
+  assert.equal(data.rooms.get('platform6/7').cycle[0].id, 'a');
+  assert.equal((await data.getOrder('platform6', 'a')).room, '#7');
+  // 합석: 5번 방 주문을 2번 방 주문에 합침 → 합친 주문이 있던 2번 방으로
+  const mg = (await ev({ kind: 'merge', fromPosOrderId: '50', toPosOrderId: '20', toTableId: 2, toTableTitle: '기본홀02' })).body;
+  assert.equal(mg.toRoom, 2);
+  assert.deepEqual(data.rooms.get('platform6/2').open.sort(), ['b', 'c']);
+  assert.ok(data.rooms.get('platform6/5').settledAt);
+  // 합친 주문 결제 → 2번 방 정산(두 주문 다 결제)
+  const done = (await ev({ posOrderId: '20', orderState: 'COMPLETED', unpaid: 0 })).body;
+  assert.equal(done.matched, 2);
+  assert.equal(done.settled, true);
+  // 카운터처럼 방 번호를 모르는 테이블로 옮기면 방은 그대로
+  const cnt = (await ev({ kind: 'move', posOrderId: '30', toTableId: 99, toTableTitle: '카운터' })).body;
+  assert.equal(cnt.toRoom, null);
+  assert.equal((await data.getOrder('platform6', 'a')).room, '#7');
+});
+
+test('113차: 연결 안 된 메뉴 — 기타 상품을 정하면 그 상품 줄(값 0)+메모로, 안 정하면 예전처럼 실패', async () => {
+  const { call, data, catalog, poll } = await pluginSetup({ orders: { a: ORDER, b: ORDER } });
+  // 기타 상품 없음 → 쿠키 때문에 실패
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'a' } });
+  assert.equal((await poll()).body.orders.length, 0);
+  assert.equal((await data.getOrder('platform6', 'a')).tossPos.code, 'NOT_MAPPED');
+  // 기타 상품 정하기 (라면 상품을 기타로 씀 — 시험용)
+  assert.equal((await call('POST', '/api/toss/etc-item', { token: 'admin', body: { itemId: 'x' } })).status, 400);
+  assert.equal((await call('POST', '/api/toss/etc-item', { token: 'pad3', body: { itemId: '1' } })).status, 403);
+  const etc = catalog[2];
+  assert.equal((await call('POST', '/api/toss/etc-item', { token: 'admin', body: { itemId: etc.id } })).status, 200);
+  assert.equal((await call('GET', '/api/toss/status', { token: 'admin' })).body.etcItemId, String(etc.id));
+  await call('POST', '/api/toss/send-order', { token: 'pad3', body: { orderId: 'b' } });
+  const p = (await poll()).body.orders;
+  assert.equal(p.length, 1);
+  const cookie = p[0].lineItems[2];
+  assert.equal(String(cookie.item.id), String(Number.isSafeInteger(Number(etc.id)) ? Number(etc.id) : etc.id));
+  assert.equal(cookie.chargePrice.value, 0);
+  assert.equal(cookie.memo, '쿠키 2500원');
+  assert.ok(p[0].warnings.some((w) => /쿠키/.test(w) && /2500원/.test(w)));
+  // 지우기
+  assert.equal((await call('POST', '/api/toss/etc-item', { token: 'admin', body: { itemId: null } })).body.etcItemId, null);
+});
+
+test('113차: 포스 품절 → 고도리 메뉴 posSoldOut (1분마다, 바뀐 것만), 플러그인 알림 저장', async () => {
+  const menus = MENUS.map((m) => ({ ...m, optionGroups: [...m.optionGroups] }));
+  const { call, data, poll, tick, catalog } = await pluginSetup({ menus });
+  // 라면(m3) 포스 상품은 품절 — m3를 그 상품에 연결
+  await call('POST', '/api/toss/menu-map', { token: 'admin', body: { map: { m3: catalog[2].id } } });
+  tick(61 * 1000);
+  await poll({ notes: ['세트 구성품 줄이 남았어요', ''] });
+  const m3 = (await data.listMenus('platform6')).find((m) => m.id === 'm3');
+  assert.equal(m3.posSoldOut, true);
+  assert.deepEqual((await call('GET', '/api/toss/status', { token: 'admin' })).body.posSoldOutMenus, ['m3']);
+  const notes = (await call('GET', '/api/ops/toss/plugins', { token: 'ops' })).body.plugins[0].notes;
+  assert.deepEqual(notes.map((n) => n.text), ['세트 구성품 줄이 남았어요']);
+  // 포스에서 다시 판매 → 1분 뒤 풀림
+  catalog[2].state = 'ON_SALE';
+  await poll();
+  assert.equal((await data.listMenus('platform6')).find((m) => m.id === 'm3').posSoldOut, true); // 1분 안 지남
+  tick(61 * 1000);
+  await poll();
+  assert.equal((await data.listMenus('platform6')).find((m) => m.id === 'm3').posSoldOut, false);
+});
+
 test('방 결제 대기 비우기 (102차): 운영자만, 남은 방 목록 → 비우면 open·cycle 비고 정산 표시는 없음', async () => {
   const { call, data } = make({ orders: { a: ORDER, b: { ...ORDER, room: '#4' } } });
   await call('POST', '/api/ops/toss/link', { token: 'ops', body: { storeId: 'platform6', mode: 'fake' } });
@@ -627,4 +786,21 @@ test('방 결제 대기 비우기 (102차): 운영자만, 남은 방 목록 → 
 test('웹훅 비밀값이 없으면 503', async () => {
   const { call } = make({ webhookSecret: '' });
   assert.equal((await call('POST', '/api/toss/webhook', { body: {}, rawBody: Buffer.from('{}') })).status, 503);
+});
+
+test('114차 2: 단체손님 — 묶인 테이블의 방들을 roomStatus.group에 (표시만), 풀면 지움', async () => {
+  const { call, data } = await pluginSetup({ orders: {} });
+  const dev = { merchantId: '738910', serial: 'P', version: '0.4.1' };
+  const hello = (tables) => call('POST', '/api/toss/plugin/hello', { body: { ...dev, tables } });
+  const T = (id, title, groupId) => ({ id, hallId: 1, title, ...(groupId != null ? { groupId } : {}) });
+  await hello([T(1, '기본홀01'), T(2, '기본홀02', 9), T(3, '기본홀03', 9), T(4, '카운터', 8), T(5, '기본홀05', 8)]);
+  assert.deepEqual(data.rooms.get('platform6/2').group, { id: 9, rooms: [2, 3] });
+  assert.deepEqual(data.rooms.get('platform6/3').group, { id: 9, rooms: [2, 3] });
+  // 카운터 + 5번: 방 번호를 아는 건 5번뿐이어도 묶음 표시
+  assert.deepEqual(data.rooms.get('platform6/5').group, { id: 8, rooms: [5] });
+  assert.equal(data.rooms.get('platform6/1'), undefined);
+  // 풂 → 지움
+  await hello([T(1, '기본홀01'), T(2, '기본홀02'), T(3, '기본홀03'), T(4, '카운터'), T(5, '기본홀05')]);
+  assert.equal(data.rooms.get('platform6/2').group, null);
+  assert.equal(data.rooms.get('platform6/5').group, null);
 });

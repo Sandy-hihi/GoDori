@@ -22,16 +22,30 @@
 //   0.3.3: 11-16 시험 — 포스가 줄의 chargePrice 0을 무시하고 상품 값으로 받음(로제 떡볶이 x2 16,800원이 계산서에 더해짐)
 //          → 구성품은 1개씩 줄로 넣고, 그 줄에 상품 값(+ 골라 둔 옵션 값)만큼 할인(discounts)을 붙여 0원으로 만듦
 //          → 이미 있는 구성품 줄은 memo(SET_MEMO)로 알아봄
+//   113차 0.4.0: 3단계
+//     · 넣은 주문이 만든 포스 줄 ID를 서버에(ack lineIds) → 포스에서 그 고도리 주문 줄을 모두 지우면 그 주문만 취소로
+//     · 열린 주문이 바뀔 때도 신호(orderState OPENED + paid·unpaid·lineIds) → 일부 결제(나눠 내기)를 패드·방 현황판에
+//       (같은 내용이면 다시 안 보냄 — lastSig)
+//     · 테이블 옮기기·합치기(table 'move'·'merge') → 서버가 고도리 주문의 테이블·포스 주문 번호를 따라 바꿈
+//       합쳐져 없어진 포스 주문의 '취소' 신호는 보내지 않음(4초 기다려 합치기 신호가 먼저 오게)
+//     · 놓친 신호 다시 확인: 고도리 주문이 든 열린 포스 주문(godori.open)을 2분마다 다시 읽어 보냄
+//     · 켜질 때·10분마다 오늘 열린 포스 주문을 훑어 세트 구성품 덧붙이기(포스가 꺼져 있던 동안 들어온 세트 주문)
+//     · 세트를 뺐는데 구성품 줄이 남으면 알림(poll notes → 운영자 페이지 '포스 플러그인' 창) — SDK에 줄 지우기가 없어 직원이 지워야 함
+//   114차 0.4.1: 단체손님(테이블 묶기 — PluginTable.group {id, tableIds}) 알아보기용 — 신호(hello) 테이블에 groupId,
+//     테이블이 바뀌면(table 'update'·'add'·'clear') 5초 뒤 신호 한 번 더 → 서버 기록에 묶인 테이블이 찍힘 (처리 방법은 시험 뒤에 정함)
 import { posPluginSdk } from "@tossplace/pos-plugin-sdk";
 
 const SERVER = "https://godori-pad.web.app";
-const VERSION = "0.3.3";
+const VERSION = "0.4.1";
 const HELLO_EVERY_MS = 10 * 60 * 1000;
 const WAIT_MS = 30 * 1000; // 승인 전·플러그인으로 안 보내는 매장
 const K_TOKEN = "godori.token";
 const K_DONE = "godori.done"; // { 고도리 주문 ID: { posOrderId, tableId, tableTitle, appended } } — 최근 200개
 const K_MINE = "godori.mine"; // 고도리 주문을 넣은 포스 주문 ID — 최근 300개
 const K_PARTS = "godori.parts"; // 103차 { 포스 주문 ID: { 구성품 상품 ID: 덧붙인 개수 } } — 최근 200개
+const K_OPEN = "godori.open"; // 113차 { 포스 주문 ID: 넣은 시각 ms } — 아직 안 끝난 고도리 포스 주문 (다시 확인용)
+const RECHECK_MS = 2 * 60 * 1000; // 113차: 열린 고도리 포스 주문 다시 확인 간격
+const OPEN_KEEP_MS = 2 * 86400 * 1000; // 이틀 넘은 건 그만 확인
 const SET_MEMO = "세트 구성품(재고 차감용)";
 const SET_DISCOUNT = "세트 구성품";
 
@@ -83,8 +97,33 @@ async function remember(orderId: string, info: Obj) {
   const keys = Object.keys(done);
   for (const k of keys.slice(0, Math.max(0, keys.length - 200))) delete done[k];
   await saveJson(K_DONE, done);
+  await rememberPosOrder(String(info.posOrderId));
+}
+
+// 113차: 고도리 주문이 든 포스 주문 기억 (끝났는지 확인·다시 확인용)
+async function rememberPosOrder(posOrderId: string) {
   const mine = await loadJson<string[]>(K_MINE, []);
-  if (!mine.includes(info.posOrderId)) await saveJson(K_MINE, [...mine, info.posOrderId].slice(-300));
+  if (!mine.includes(posOrderId)) await saveJson(K_MINE, [...mine, posOrderId].slice(-300));
+  const open = await loadJson<Obj>(K_OPEN, {});
+  if (!open[posOrderId]) {
+    open[posOrderId] = Date.now();
+    await saveJson(K_OPEN, open);
+  }
+}
+async function forgetOpen(posOrderId: string) {
+  const open = await loadJson<Obj>(K_OPEN, {});
+  if (open[posOrderId] == null) return;
+  delete open[posOrderId];
+  await saveJson(K_OPEN, open);
+}
+const lineIdsOf = (order: Obj | null | undefined): string[] =>
+  (((order && order.lineItems) as Obj[]) || []).map((li) => String(li && li.id)).filter((x) => x && x !== "undefined");
+async function readLineIds(posOrderId: string): Promise<string[]> {
+  try {
+    return lineIdsOf((await posPluginSdk.order.getOrder(posOrderId)) as Obj);
+  } catch {
+    return [];
+  }
 }
 
 // ── 서버 ──
@@ -152,7 +191,10 @@ async function hello(reason: string) {
     }
     const t = await readTables();
     if (t.error) tableError = [tableError, `tables: ${t.error}`].filter(Boolean).join(" / ");
-    const tables = t.tables.map((x) => ({ id: Number(x.id), hallId: Number(x.hallId), title: String(x.title ?? ""), hasOrder: !!x.order }));
+    const tables = t.tables.map((x) => ({
+      id: Number(x.id), hallId: Number(x.hallId), title: String(x.title ?? ""), hasOrder: !!x.order,
+      ...(x.group && x.group.id != null ? { groupId: Number(x.group.id) } : {}), // 114차: 단체손님
+    }));
     const { code, json } = await post("hello", {
       stage: "hello", reason, ...who(), merchantName: state.merchantName, halls, tables, tableError, errors,
     });
@@ -216,8 +258,10 @@ async function place(o: Obj) {
   }
   const open = table.order && ["OPENED", "REQUESTED"].includes(String(table.order.orderState)) ? table.order : null;
   let posOrder: Obj | null = null;
+  let before: string[] = []; // 113차: 덧붙이기 전 줄 — 새로 생긴 줄만 이 고도리 주문 것
   try {
     if (open) {
+      before = await readLineIds(String(open.id));
       posOrder = await posPluginSdk.order.addMenu(String(open.id), { discounts: [], lineItems: o.lineItems } as any);
     } else {
       posOrder = await posPluginSdk.order.add({
@@ -228,11 +272,15 @@ async function place(o: Obj) {
     await ack({ orderId, ok: false, code: "POS_REJECTED", error: `포스가 주문을 받지 않았어요: ${errText(e)}`.slice(0, 200) });
     return;
   }
+  const posOrderId = String((posOrder && posOrder.id) || (open && open.id) || "");
+  let after = lineIdsOf(posOrder);
+  if (!after.length && posOrderId) after = await readLineIds(posOrderId);
   const info = {
-    posOrderId: String((posOrder && posOrder.id) || (open && open.id) || ""),
+    posOrderId,
     tableId: Number(table.id),
     tableTitle: String(table.title ?? ""),
     appended: !!open,
+    lineIds: after.filter((id) => !before.includes(id)).slice(0, 100),
   };
   if (!info.posOrderId) {
     await ack({ orderId, ok: false, code: "NO_POS_ID", error: "포스가 주문 번호를 돌려주지 않았어요." });
@@ -246,7 +294,9 @@ async function place(o: Obj) {
 
 // 폴링 — 웹소켓으로 바꿀 때는 이 함수만 바꾸면 됨
 async function poll() {
-  const { code, json } = await post("poll", { ...who(), setMapRev: sets.rev });
+  const sending = notes.slice(0, 10);
+  const { code, json } = await post("poll", { ...who(), setMapRev: sets.rev, ...(sending.length ? { notes: sending } : {}) });
+  if (code === 200 && sending.length) notes.splice(0, sending.length);
   if (code === 403) {
     state.approved = false;
     state.pollMs = WAIT_MS;
@@ -314,6 +364,16 @@ function kickSetParts(posOrderId: string) {
   })();
 }
 
+// 113차: 운영자에게 보일 알림 (다음 poll 때 보냄, 같은 알림은 한 번만)
+const notes: string[] = [];
+const noted = new Set<string>();
+function pushNote(key: string, text: string) {
+  if (noted.has(key)) return;
+  noted.add(key);
+  notes.push(text.slice(0, 200));
+  if (notes.length > 30) notes.splice(0, notes.length - 30);
+}
+
 // 0.3.1: 서버 기록(firebase functions:log)에 남김 — 가맹점 ID를 빼고 보내서 서버가 저장은 안 하고 기록만
 //   (가맹점 ID를 넣어 hello로 보내면 저장된 테이블 목록이 빈 목록으로 덮임 — 0.3.0 실수)
 function setLog(stage: string, text: string) {
@@ -337,6 +397,21 @@ async function addSetParts(posOrderId: string) {
       if (p.whenChoice != null && !picked.has(num(p.whenChoice))) continue; // 그 옵션을 안 고른 세트
       const cur = need.get(p.itemId);
       need.set(p.itemId, { qty: (cur ? cur.qty : 0) + n * num(p.qty), part: cur ? cur.part : p, dining: cur ? cur.dining : String(li.diningOption || "HERE") });
+    }
+  }
+  // 113차: 세트를 뺐는데 덧붙인 구성품 줄이 남았는지 (SDK에 줄 지우기가 없어 알림만)
+  const ours = new Map<number, { n: number; title: string }>();
+  for (const li of lines) {
+    if (String(li.memo || "") !== SET_MEMO) continue;
+    const id = num(li.item && li.item.id);
+    const cur = ours.get(id);
+    ours.set(id, { n: (cur ? cur.n : 0) + num(li.quantity && li.quantity.value), title: String((li.item && li.item.title) || id) });
+  }
+  for (const [id, o] of ours) {
+    const extra = o.n - (need.get(id) ? need.get(id)!.qty : 0);
+    if (extra > 0) {
+      pushNote(`orphan:${posOrderId}:${id}:${extra}`,
+        `포스 주문 ${posOrderId}: 세트를 뺐는데 구성품 '${o.title}' 줄 ${extra}개가 남았어요 — 포스에서 직접 지워 주세요(0원 줄이라 금액은 그대로).`);
     }
   }
   if (!need.size) return;
@@ -386,24 +461,120 @@ async function addSetParts(posOrderId: string) {
   setLog("info", `덧붙임 ${posOrderId}: ${done}`);
 }
 
-// ── 포스 주문이 끝나면 알림 ──
-const reported = new Set<string>();
+// ── 포스 주문 상태 알림 ──
+// 100차: 끝(완료·취소) → 서버가 방 정산. 113차: 열린 주문도 바뀌면(일부 결제·줄 지움) 보냄 — 같은 내용이면 다시 안 보냄
+const lastSig = new Map<string, string>();
+const merged = new Set<string>(); // 113차: 다른 주문에 합쳐져 없어진 포스 주문
 async function report(posOrderId: string, why: string) {
+  const id = String(posOrderId);
   try {
     const mine = await loadJson<string[]>(K_MINE, []);
-    if (!mine.includes(String(posOrderId))) return; // 고도리 주문이 안 들어간 포스 주문
-    const order = await posPluginSdk.order.getOrder(String(posOrderId));
+    if (!mine.includes(id) || merged.has(id)) return; // 고도리 주문이 안 들어간(또는 합쳐진) 포스 주문
+    const order = (await posPluginSdk.order.getOrder(id)) as Obj;
     const st = String(order.orderState);
-    if (st !== "COMPLETED" && st !== "CANCELLED") return;
-    const key = `${posOrderId}:${st}`;
-    if (reported.has(key)) return;
+    const terminal = st === "COMPLETED" || st === "CANCELLED";
+    if (st === "CANCELLED") {
+      await sleep(4000); // 합치기면 'merge' 신호가 곧 옴 — 그때는 취소로 보내지 않음
+      if (merged.has(id)) return;
+    }
+    const pp = (order.paymentPrice || {}) as Obj;
+    const paid = num(pp.paymentPaidValue);
+    const unpaid = num(pp.paymentUnpaidValue);
+    const lineIds = lineIdsOf(order).slice(0, 100);
+    const sig = terminal ? st : `${st}:${paid}:${unpaid}:${lineIds.join(",")}`;
+    if (lastSig.get(id) === sig) return;
     const { code } = await post("event", {
-      ...who(), posOrderId: String(posOrderId), orderState: st, paymentState: order.paymentState,
-      unpaid: order.paymentPrice ? order.paymentPrice.paymentUnpaidValue : null, reason: why,
+      ...who(), posOrderId: id, orderState: st, paymentState: order.paymentState, paid, unpaid, lineIds, reason: why,
     });
-    if (code === 200) reported.add(key);
+    if (code === 200) {
+      lastSig.set(id, sig);
+      if (terminal) await forgetOpen(id);
+    }
   } catch (e) {
-    console.log("[고도리] 주문 끝 알리기 실패", errText(e));
+    console.log("[고도리] 주문 상태 알리기 실패", id, errText(e));
+  }
+}
+
+// 113차: 놓친 신호 다시 확인 — 열린 고도리 포스 주문을 다시 읽어 보냄(같으면 안 보냄), 이틀 넘은 건 그만
+async function recheck() {
+  const open = await loadJson<Obj>(K_OPEN, {});
+  const old = Date.now() - OPEN_KEEP_MS;
+  for (const [id, at] of Object.entries(open)) {
+    if (num(at) < old) {
+      await forgetOpen(id);
+      continue;
+    }
+    await report(id, "recheck");
+  }
+}
+
+// 113차: 테이블 옮기기·합치기
+async function tableTitleOf(tableId: unknown): Promise<string> {
+  const { tables } = await readTables();
+  const t = tables.find((x) => Number(x.id) === Number(tableId));
+  return t ? String(t.title ?? "") : "";
+}
+async function onMove(p: Obj) {
+  try {
+    const id = String((p && p.order && p.order.id) || "");
+    const mine = await loadJson<string[]>(K_MINE, []);
+    if (!id || !mine.includes(id)) return;
+    const toTableId = p.to && p.to.table ? p.to.table.id : null;
+    await post("event", { ...who(), kind: "move", posOrderId: id, toTableId, toTableTitle: await tableTitleOf(toTableId) });
+  } catch (e) {
+    console.log("[고도리] 테이블 옮기기 알리기 실패", errText(e));
+  }
+}
+async function onMerge(p: Obj) {
+  try {
+    const from = String((p && p.from && p.from.order && p.from.order.id) || "");
+    const to = String((p && p.to && p.to.order && p.to.order.id) || "");
+    const mine = await loadJson<string[]>(K_MINE, []);
+    if (!from || !to || !mine.includes(from)) return;
+    merged.add(from);
+    await rememberPosOrder(to);
+    await forgetOpen(from);
+    const toTableId = p.to && p.to.table ? p.to.table.id : null;
+    await post("event", {
+      ...who(), kind: "merge", fromPosOrderId: from, toPosOrderId: to, toTableId, toTableTitle: await tableTitleOf(toTableId),
+    });
+    lastSig.delete(to);
+    report(to, "merge");
+  } catch (e) {
+    console.log("[고도리] 테이블 합치기 알리기 실패", errText(e));
+  }
+}
+
+// 114차: 테이블이 바뀌면 5초 뒤(여러 번 와도 한 번) 묶음(group)을 보고, 묶음이 달라졌을 때만 신호
+//   (테이블 'update'는 주문이 바뀔 때마다 와서 매번 신호를 보내면 서버 횟수 제한·저장 비용이 늘어남)
+let tableTimer: ReturnType<typeof setTimeout> | null = null;
+let lastGroupSig = "";
+function tableChanged() {
+  if (tableTimer) return;
+  tableTimer = setTimeout(async () => {
+    tableTimer = null;
+    const { tables } = await readTables();
+    const sig = tables
+      .filter((t) => t.group && t.group.id != null)
+      .map((t) => `${t.group.id}:${t.id}`)
+      .sort()
+      .join(",");
+    if (sig === lastGroupSig) return;
+    lastGroupSig = sig;
+    hello("table");
+  }, 5000);
+}
+
+// 113차: 오늘(최근 24시간) 열린 포스 주문을 훑어 세트 구성품 덧붙이기 — 포스가 꺼져 있던 동안 들어온 세트 주문
+async function scanOpenOrders() {
+  if (!sets.map.size) return;
+  try {
+    const list = await posPluginSdk.order.getOrders({
+      start: new Date(Date.now() - 86400 * 1000).toISOString(), end: new Date().toISOString(), size: 50, orderStates: ["OPENED", "REQUESTED"] as any,
+    });
+    for (const o of asList(list)) kickSetParts(String(o.id));
+  } catch (e) {
+    console.log("[고도리] 열린 주문 훑기 실패", errText(e));
   }
 }
 
@@ -428,11 +599,30 @@ async function main() {
     });
     posPluginSdk.order.on("add", (id) => kickSetParts(String(id)));
     posPluginSdk.payment.on("paid", (_paymentId, orderId) => report(String(orderId), "paid"));
+    posPluginSdk.payment.on("cancel", (_paymentId, orderId) => report(String(orderId), "pay-cancel")); // 113차: 결제 취소도
   } catch (e) {
     post("hello", { stage: "error", reason: "events", errors: [`on: ${errText(e)}`] }).catch(() => undefined);
   }
+  try {
+    posPluginSdk.table.on("move", (p) => onMove(p as unknown as Obj)); // 113차
+    posPluginSdk.table.on("merge", (p) => onMerge(p as unknown as Obj));
+    // 114차: 테이블이 바뀌면(단체손님 묶기 등) 5초 뒤 신호 한 번 — 묶인 테이블(groupId)을 서버 기록에
+    for (const ev of ["update", "add", "clear"] as const) posPluginSdk.table.on(ev, () => tableChanged());
+  } catch (e) {
+    post("hello", { stage: "error", reason: "table-events", errors: [`table.on: ${errText(e)}`] }).catch(() => undefined);
+  }
   await hello("start");
-  setInterval(() => hello("timer"), HELLO_EVERY_MS);
+  setInterval(() => {
+    hello("timer");
+    scanOpenOrders();
+  }, HELLO_EVERY_MS);
+  setInterval(() => {
+    if (state.approved) recheck().catch(() => undefined);
+  }, RECHECK_MS);
+  setTimeout(() => {
+    scanOpenOrders();
+    recheck().catch(() => undefined);
+  }, 15 * 1000); // 켜진 뒤 세트 구성표를 받을 시간을 두고
   loop();
 }
 

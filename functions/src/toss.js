@@ -262,6 +262,8 @@ function pluginLineItems(lineItems, catalogById = new Map()) {
         quantity: { value: li.quantity },
         chargePrice: { value: unit },
         optionChoices: (li.optionChoices || []).map((c) => ({ id: safeId(c.optionChoiceId), quantity: c.quantity || 1 })),
+        // 113차: 연결 안 된 메뉴를 '고도리 기타' 상품으로 넣을 때 원래 메뉴 이름·옵션·값
+        ...(li.memo ? { memo: String(li.memo).slice(0, 100) } : {}),
       };
     }
     const opts = li.optionChoices || [];

@@ -71,7 +71,13 @@ class _TossSendBadgeState extends State<TossSendBadge> {
       final warn = (t['warnings'] as List?)?.join('\n') ?? '';
       // 100차: 포스 플러그인으로 넣은 주문은 테이블 이름도 (같은 테이블 열린 주문에 덧붙였으면 표시)
       final table = '${t['tableTitle'] ?? ''}';
-      final tip = [if (table.isNotEmpty) '포스 테이블 $table${t['appended'] == true ? ' (열린 주문에 추가)' : ''}', if (warn.isNotEmpty) warn].join('\n');
+      final tip = [
+        if (table.isNotEmpty) '포스 테이블 $table${t['appended'] == true ? ' (열린 주문에 추가)' : ''}',
+        // 113차: 포스에서 줄 일부를 지움·테이블 합치기
+        if (t['linesLeft'] != null) '포스에서 이 주문 줄 일부를 지웠어요 (남은 ${t['linesLeft']}줄)',
+        if (t['mergedFrom'] != null) '포스에서 다른 테이블 주문과 합쳐졌어요',
+        if (warn.isNotEmpty) warn,
+      ].join('\n');
       return _chip(fake ? '가짜 포스 ✓' : table.isEmpty ? '포스 ✓' : '포스 ✓ $table', const Color(0xFF27AE60),
           icon: Icons.point_of_sale, tip: tip.isEmpty ? null : tip);
     }

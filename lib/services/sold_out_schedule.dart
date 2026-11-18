@@ -200,9 +200,10 @@ class SoldOutSchedule {
   static List<SoldOutRule> rulesFor(List<SoldOutRule> rules, String menuId, String category) =>
       [for (final r in rules) if (r.appliesTo(menuId, category)) r];
 
-  /// 메뉴 문서가 지금 품절인지 — 손으로 켠 품절(isSoldOut) 또는 자동 품절
+  /// 메뉴 문서가 지금 품절인지 — 손으로 켠 품절(isSoldOut) 또는 포스 품절(posSoldOut — 113차, 서버가 토스 포스 상품 품절을 따라 씀) 또는 자동 품절
   static bool menuSoldOut(Map<String, dynamic> menu, String menuId, List<SoldOutRule> rules, [DateTime? now]) {
     if (menu['isSoldOut'] == true || menu['isSoldOut'] == 'true') return true;
+    if (menu['posSoldOut'] == true) return true;
     if (rules.isEmpty) return false;
     return activeFor(rules, menuId, (menu['category'] ?? '').toString(), now ?? DateTime.now()) != null;
   }

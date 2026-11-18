@@ -9,7 +9,16 @@
 //   POST /api/toss/plugin/poll    (100차, 포스 플러그인 — 승인된 기기 열쇠) { merchantId, serial, token } → { orders[], pollMs }
 //                                 이 가맹점에 연결된 매장(via 'plugin')의 대기 주문을 가져감(한 포스만 — claimed)
 //   POST /api/toss/plugin/ack     (100차) { …, orderId, ok, posOrderId, tableId, tableTitle, appended, posAmount, error } 포스에 넣은 결과
+//                                 113차 lineIds: 이 고도리 주문이 포스 주문에 만든 줄 ID (포스에서 그 줄만 지웠는지 알아보려고)
 //   POST /api/toss/plugin/event   (100차) { …, posOrderId, orderState, paymentState, unpaid } 포스 주문이 끝남(완료·취소) → 방 정산
+//                                 113차: 열린 주문도 { …, paid, unpaid, lineIds } — 일부 결제(방 posPayment)·고도리 줄을 모두 지움(그 주문 취소)
+//                                 113차 kind 'move' { posOrderId, toTableId, toTableTitle } / 'merge' { fromPosOrderId, toPosOrderId, toTableId, toTableTitle }
+//                                   — 포스에서 테이블을 옮기거나 합침 → 고도리 주문의 테이블·포스 주문 번호를 따라 바꿈
+//                                   114차: ★방도 테이블을 따라감 — 옮긴 테이블 이름의 방 번호(기본홀03 = 3번 방, 합석은 합친 주문이 있던 방)로
+//                                   결제 대기·주문 내역·주문 문서 room을 옮기고, 원래 방이 비면 그 방 패드는 처음 화면·기본 언어로(settledAt)
+//   113차 poll: body.notes[] = 플러그인 알림(세트 구성품 줄이 남음 등) → _tossPlugin/{가맹점}.notes. 1분마다 포스 상품 품절을 고도리 메뉴 posSoldOut으로
+//   POST /api/toss/etc-item       (113차, 관리자) { itemId | null } 포스 상품과 연결 안 된 메뉴를 받을 포스 상품('고도리 기타' 0원 권장)
+//                                 → 그 줄은 이 상품으로 넣고 줄 메모에 원래 메뉴 이름·옵션·값 (포스가 상품 값으로 계산 — 직원이 금액 확인)
 //   POST /api/toss/send-order     (패드·관리자) { orderId }  주문을 포스로 보내기. 패드는 주문 직후 자동, 관리자는 '다시 보내기'
 //                                 100차: via 'plugin' 매장은 서버에 'queued'로 두고 포스 플러그인이 가져감
 //   GET  /api/toss/status         (관리자) 연결 상태·메뉴 연결표·보내기 실패한 주문
@@ -46,6 +55,7 @@ const crypto = require('crypto');
 
 const PLUGIN_POLL_MS = 3000; // 100차: 포스 플러그인이 주문을 물어보는 간격 (폴링 — 웹소켓은 커지면 바꿀 것 23번)
 const PLUGIN_IDLE_MS = 30000; // 플러그인으로 보내지 않는 매장·승인 전 기기
+const SOLD_OUT_SYNC_MS = 60 * 1000; // 113차: 포스 품절 → 고도리 메뉴 posSoldOut 확인 간격
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
 const FAKE_PREFIX = 'fake-';
@@ -61,6 +71,14 @@ const ORDER_EVENTS = {
 
 // 주문이 끝난 상태 — 방 결제 대기 목록에서 뺌 (COMPLETED만 '결제 완료'로 셈)
 const TERMINAL = new Set(['COMPLETED', 'CANCELLED', 'DECLINED', 'EXPIRED']);
+// 114차: 포스 테이블 이름 → 방 번호 (플러그인 pickTable의 반대: 'N번방'·'방N'·'N번'·'roomN'·'N' → 없으면 이름 끝 숫자). 카운터 등은 null
+function roomFromTableTitle(title) {
+  const s = String(title || '').replace(/\s+/g, '').toLowerCase();
+  const m = /^(?:(\d{1,3})번방?|방(\d{1,3})|room(\d{1,3})|(\d{1,3}))$/.exec(s);
+  if (m) return Number(m[1] || m[2] || m[3] || m[4]) || null;
+  const end = /(\d{1,3})$/.exec(s);
+  return end ? Number(end[1]) || null : null;
+}
 const roomOf = (order) => {
   const m = /^#(\d{1,3})$/.exec(String((order && order.room) || ''));
   return m ? Number(m[1]) : null;
@@ -251,13 +269,69 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     return { setMapRev: rev, sets: setMapForPlugin(cfg.setMap || {}) };
   }
 
+  // 113차: 연결 안 된 메뉴 줄(AD_HOC) → '고도리 기타' 포스 상품 줄 (값 0 — 포스는 상품 값으로 계산, 메모에 원래 값)
+  function etcLine(li, etc, warnings) {
+    if (li.targetType === 'ITEM') return li;
+    const opts = li.optionChoices || [];
+    const unit = Math.max(0, Number(li.itemPrice && li.itemPrice.priceValue) || 0) + opts.reduce((s, c) => s + Math.max(0, Number(c.price) || 0), 0);
+    const name = String((li.item && li.item.title) || '');
+    const optText = opts.map((c) => `${c.title}${Number(c.price) ? `+${Number(c.price)}` : ''}`).join(', ');
+    warnings.push(`'${name}'은(는) 포스 상품과 연결되지 않아 '${etc.title}'(으)로 넣었어요 — 포스에서 금액(${unit * li.quantity}원)을 확인해 주세요.`);
+    return {
+      diningOption: 'HERE', targetType: 'ITEM', targetId: String(etc.id),
+      itemPrice: { ...(li.itemPrice || {}), title: String(etc.title || ''), priceValue: 0 },
+      quantity: li.quantity, optionChoices: [],
+      memo: `${name}${optText ? ` (${optText})` : ''} ${unit}원`,
+    };
+  }
+
+  // 113차: 포스 플러그인 알림 저장
+  async function saveNotes(merchantId, raw) {
+    const notes = (Array.isArray(raw) ? raw : []).slice(0, 10).map((n) => cleanText(n, 200)).filter(Boolean);
+    if (!notes.length) return;
+    const at = new Date(now()).toISOString();
+    await data.addPluginNotes(merchantId, notes.map((text) => ({ at, text })));
+    console.log(`[토스 플러그인] 가맹점 ${merchantId} 알림: ${notes.join(' | ')}`);
+  }
+
+  // 113차: 포스 품절 → 고도리 메뉴 posSoldOut (메뉴 연결된 포스 상품 기준, 1분마다, 바뀐 메뉴만 씀)
+  //   토스는 품절을 바꾸는 API가 없어서 반대 방향(고도리 → 포스)은 못 함
+  const soldOutSyncAt = new Map(); // storeId → ms
+  async function syncPosSoldOut(storeId, cfg) {
+    const t = now();
+    if (t - (soldOutSyncAt.get(storeId) || 0) < SOLD_OUT_SYNC_MS) return;
+    soldOutSyncAt.set(storeId, t);
+    try {
+      const sold = new Set((await catalogOf(cfg)).filter((i) => i.state === 'SOLD_OUT').map((i) => String(i.id)));
+      const next = [];
+      for (const [menuId, v] of Object.entries(cfg.menuMap || {})) {
+        const e = parseMapEntry(v);
+        if (e && sold.has(e.itemId)) next.push(menuId);
+      }
+      next.sort();
+      const before = (Array.isArray(cfg.posSoldOutMenus) ? cfg.posSoldOutMenus.map(String) : []).sort();
+      if (before.join(',') === next.join(',')) return;
+      const changes = {};
+      for (const id of next) if (!before.includes(id)) changes[id] = true;
+      for (const id of before) if (!next.includes(id)) changes[id] = false;
+      await data.setMenusPosSoldOut(storeId, changes);
+      await data.patchConfig(storeId, { posSoldOutMenus: next });
+      cfg.posSoldOutMenus = next;
+      console.log(`[토스] 포스 품절 → 고도리 ${storeId}: 품절 ${next.length}개 (바뀐 메뉴 ${Object.keys(changes).length}개)`);
+    } catch (e) {
+      console.error('[토스] 포스 품절 확인 실패', storeId, e && e.message ? e.message : e);
+    }
+  }
+
   async function pluginPoll(body, ctx) {
     const auth = await pluginAuth(body);
     ctx.rate(`toss-plugin-poll:${auth.merchantId}:${auth.serial}`, 60, 60 * 1000, '포스 플러그인 주문 확인');
+    await saveNotes(auth.merchantId, body.notes);
     const link = await pluginStore(auth.merchantId);
     if (!link) return { orders: [], pollMs: PLUGIN_IDLE_MS, idle: true };
     if (link.cfg.via !== 'plugin') return { orders: [], pollMs: PLUGIN_IDLE_MS, idle: true, ...setsFor(link.cfg, body) };
     const { storeId, cfg } = link;
+    await syncPosSoldOut(storeId, cfg);
     const nowMs = now();
     const nowIso = new Date(nowMs).toISOString();
     const waiting = (await data.listPluginOrders(storeId))
@@ -275,16 +349,20 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       try {
         if (!catalogById) catalogById = new Map((await catalogOf(cfg)).map((i) => [String(i.id), i]));
         const { body: built, warnings } = buildTossOrder({ storeId, orderId: o.id, order, menuMap: cfg.menuMap || {}, catalogById, nowIso });
+        // 113차: 연결 안 된 메뉴 → 관리자가 정한 '고도리 기타' 포스 상품 줄 + 메모(원래 이름·옵션·값). 포스는 그 상품 값으로 계산
+        const etc = cfg.etcItemId ? catalogById.get(String(cfg.etcItemId)) : null;
+        const lines = etc ? built.order.lineItems.map((li) => etcLine(li, etc, warnings)) : built.order.lineItems;
         // 포스 플러그인은 포스 상품 ID 없는 줄(연결 안 된 메뉴·옵션 이름이 달라 이름만 보내는 줄)을 받지 않음 (SDK가 item.id 숫자를 요구)
-        const unmapped = built.order.lineItems.filter((li) => li.targetType !== 'ITEM').map((li) => (li.item && li.item.title) || '?');
+        const unmapped = lines.filter((li) => li.targetType !== 'ITEM').map((li) => (li.item && li.item.title) || '?');
         if (unmapped.length) {
           throw new TossError(400, 'NOT_MAPPED', `포스 상품과 연결되지 않은 메뉴가 있어요: ${unmapped.join(', ')}`
-            + `${warnings.length ? ` (${warnings.join(' / ')})` : ''} — 관리자 웹 토스 POS 설정 '메뉴 연결'에서 연결한 뒤 다시 보내 주세요.`);
+            + `${warnings.length ? ` (${warnings.join(' / ')})` : ''} — 관리자 웹 토스 POS 설정 '메뉴 연결'에서 연결한 뒤 다시 보내 주세요.`
+            + `${cfg.etcItemId && !etc ? ' (연결 안 된 메뉴를 받을 포스 상품이 포스에 없어요)' : ''}`);
         }
         out.push({
           orderId: o.id, orderKey: built.order.orderKey, room: roomOf(order), memo: built.order.memo,
           price: built.order.chargePrice ? built.order.chargePrice.totalAmount : null,
-          lineItems: pluginLineItems(built.order.lineItems, catalogById), warnings,
+          lineItems: pluginLineItems(lines, catalogById), warnings,
         });
       } catch (e) {
         const known = e instanceof TossError || (e && e.status && e.code);
@@ -315,9 +393,11 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     if (body.ok === true) {
       const posOrderId = cleanText(body.posOrderId, 40);
       if (!posOrderId) throw httpError(400, 'NO_POS_ORDER', '포스 주문 ID가 없어요.');
+      // 113차: 이 주문이 만든 포스 줄 ID (포스에서 그 줄을 지웠는지 알아보려고)
+      const lineIds = (Array.isArray(body.lineIds) ? body.lineIds : []).slice(0, 100).map((x) => cleanText(x, 60)).filter(Boolean);
       const patch = {
         state: 'sent', mode: 'plugin', posOrderId, sentAt: nowIso, tableId: cleanNum(body.tableId), tableTitle: cleanText(body.tableTitle, 40),
-        appended: body.appended === true, warnings, claimedAtMs: undefined,
+        appended: body.appended === true, warnings, claimedAtMs: undefined, ...(lineIds.length ? { lineIds } : {}),
       };
       await data.setOrderToss(link.storeId, orderId, patch, { countAttempt: true });
       await trackOpen(link.storeId, order, orderId);
@@ -341,23 +421,99 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     ctx.rate(`toss-plugin-event:${auth.merchantId}`, 120, 60 * 1000, '포스 플러그인 신호');
     const link = await pluginStore(auth.merchantId);
     if (!link) return { ok: true, matched: 0 };
+    const nowIso = new Date(now()).toISOString();
+    const kind = cleanText(body.kind, 10) || 'state';
+    if (kind === 'move' || kind === 'merge') return pluginMoveEvent(link.storeId, kind, body, nowIso);
     const posOrderId = cleanText(body.posOrderId, 40);
     if (!posOrderId) throw httpError(400, 'NO_POS_ORDER', '포스 주문 ID가 없어요.');
     const orderState = cleanText(body.orderState, 20);
-    const unpaid = Number(body.unpaid) || 0;
+    const unpaid = Math.max(0, Number(body.unpaid) || 0);
+    const paid = Math.max(0, Number(body.paid) || 0);
+    // 113차: 아직 열린 포스 주문 — 일부 결제(나눠 내기)·고도리 줄만 지움
+    if (orderState === 'OPENED' || orderState === 'REQUESTED') {
+      const list = await data.findOrdersByPosOrder(link.storeId, posOrderId);
+      if (!list.length) return { ok: true, matched: 0 };
+      const present = Array.isArray(body.lineIds) ? new Set(body.lineIds.map((x) => String(x))) : null;
+      let cancelled = 0;
+      let partial = 0;
+      for (const o of list) {
+        const t = o.tossPos || {};
+        if (!present || !Array.isArray(t.lineIds) || !t.lineIds.length || TERMINAL.has(t.posState)) continue;
+        const left = t.lineIds.filter((id) => present.has(String(id)));
+        if (!left.length) {
+          await applyOrderEvent(link.storeId, o.id, o, 'CANCELLED', nowIso, '포스에서 이 주문 줄을 모두 지웠어요.');
+          cancelled++;
+        } else if (left.length < t.lineIds.length && t.linesLeft !== left.length) {
+          await data.setOrderToss(link.storeId, o.id, { linesLeft: left.length });
+          partial++;
+        }
+      }
+      // 일부 결제: 결제된 돈이 있고 남은 돈도 있으면 그 방에 표시 (다 내면 COMPLETED로 와서 정산 때 지움)
+      let rooms = 0;
+      if (paid > 0 && unpaid > 0) {
+        for (const r of [...new Set(list.map((o) => roomOf(o)).filter((x) => x != null))]) {
+          await data.setRoomPayment(link.storeId, r, { paid, unpaid, posOrderId, at: nowIso });
+          rooms++;
+        }
+      }
+      if (cancelled || partial || rooms) {
+        console.log(`[토스 플러그인] 포스 주문 ${posOrderId} 열림 — 고도리 주문 취소 ${cancelled} · 일부 줄 지움 ${partial}`
+          + `${rooms ? ` · 일부 결제 ${paid}원(남은 ${unpaid}원)` : ''}`);
+      }
+      return { ok: true, matched: list.length, cancelled, partial, partialPaid: rooms > 0 };
+    }
     // 완료인데 남은 금액이 있으면(결제 없이 테이블만 비움 등) 결제로 보지 않음
     const state = orderState === 'CANCELLED' ? 'CANCELLED' : orderState === 'COMPLETED' ? (unpaid > 0 ? 'CANCELLED' : 'COMPLETED') : null;
     if (!state) return { ok: true, matched: 0 };
-    const nowIso = new Date(now()).toISOString();
     const list = await data.findOrdersByPosOrder(link.storeId, posOrderId);
     let settled = false;
     for (const o of list) {
-      if ((o.tossPos || {}).posState === state) continue;
+      const t = o.tossPos || {};
+      if (t.posState === state) continue;
+      if (t.posState === 'CANCELLED' && t.posReason) continue; // 113차: 포스에서 줄을 지워 이미 취소한 주문
       const r = await applyOrderEvent(link.storeId, o.id, o, state, nowIso);
       settled = settled || r.settled === true;
     }
     console.log(`[토스 플러그인] 포스 주문 ${posOrderId} ${orderState}(남은 ${unpaid}원) → 고도리 주문 ${list.length}건 ${state}${settled ? ' · 방 정산' : ''}`);
     return { ok: true, matched: list.length, settled };
+  }
+
+  // 113차: 포스에서 테이블 옮기기·합치기 — 고도리 주문의 테이블(·합치면 포스 주문 번호)을 따라 바꿈. 방 번호·정산은 그대로
+  //   합치면 줄 ID가 바뀔 수 있어서 줄 추적(lineIds)은 그만둠
+  async function pluginMoveEvent(storeId, kind, body, nowIso) {
+    const from = cleanText(kind === 'merge' ? body.fromPosOrderId : body.posOrderId, 40);
+    const to = cleanText(body.toPosOrderId, 40);
+    if (!from || (kind === 'merge' && !to)) throw httpError(400, 'NO_POS_ORDER', '포스 주문 ID가 없어요.');
+    const list = await data.findOrdersByPosOrder(storeId, from);
+    const table = { tableId: cleanNum(body.toTableId), tableTitle: cleanText(body.toTableTitle, 40) };
+    // 114차: 옮겨 갈 방 — 합석이면 합친 포스 주문에 이미 있는 고도리 주문의 방, 없으면(또는 자리이동) 테이블 이름의 방 번호
+    let toRoom = null;
+    if (kind === 'merge') {
+      const there = (await data.findOrdersByPosOrder(storeId, to)).map((o) => roomOf(o)).filter((r) => r != null);
+      if (there.length) toRoom = there[0];
+    }
+    if (toRoom == null) toRoom = roomFromTableTitle(table.tableTitle);
+    for (const o of list) {
+      await data.setOrderToss(storeId, o.id, kind === 'merge'
+        ? { ...table, posOrderId: to, mergedFrom: from, mergedAt: nowIso, lineIds: undefined, linesLeft: undefined }
+        : { ...table, movedAt: nowIso });
+    }
+    // 114차 2: 토스처럼 — 옮긴 테이블의 방 정보를 통째로(결제 대기·주문 내역·그 방 주문·확인 안 한 호출) 새 방으로
+    const fromRooms = new Set();
+    for (const o of list) {
+      const r = roomOf(o);
+      if (r == null || toRoom == null || r === toRoom) continue;
+      fromRooms.add(r);
+    }
+    const movedRooms = [];
+    for (const fromRoom of fromRooms) {
+      const r = await data.moveWholeRoom(storeId, fromRoom, toRoom, nowIso);
+      movedRooms.push({ from: fromRoom, orders: r.orders, calls: r.calls, emptied: true });
+    }
+    console.log(`[토스 플러그인] 포스 ${kind === 'merge' ? `주문 합치기 ${from} → ${to}` : `테이블 옮기기 ${from}`}`
+      + ` → ${table.tableTitle || table.tableId || '?'}${toRoom != null ? `(${toRoom}번 방)` : ''} · 고도리 주문 ${list.length}건`
+      + `${movedRooms.length ? ` · 방 옮김 ${movedRooms.map((m) => `${m.from}→${toRoom}(주문 ${m.orders}건${m.calls ? `·호출 ${m.calls}건` : ''})`).join(', ')}` : ''}`);
+    return { ok: true, matched: list.length, toRoom, movedRooms };
   }
 
   // ── 웹훅 ──
@@ -409,6 +565,34 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
   // 96차: 포스 플러그인 신호 — 크기를 줄여서 저장만 함
   const cleanText = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, max);
   const cleanNum = (v) => (Number.isSafeInteger(Number(v)) ? Number(v) : null);
+  // 114차 2: 단체손님 묶음 → 방 번호 묶음. 테이블 2개 이상 묶였고 방 번호를 아는 테이블이 있을 때만
+  //   private/tossPos.roomGroups = [{room, id, rooms}] (배열 — merge로 저장해도 지난 값이 안 섞이게), 바뀐 방만 roomStatus.group 씀
+  async function syncRoomGroups(storeId, cfg, tables) {
+    const byGroup = new Map();
+    for (const t of tables) if (t.groupId != null) byGroup.set(t.groupId, [...(byGroup.get(t.groupId) || []), t]);
+    const next = [];
+    for (const [id, ts] of byGroup) {
+      if (ts.length < 2) continue;
+      const rooms = [...new Set(ts.map((t) => roomFromTableTitle(t.title)).filter((r) => r != null))].sort((a, b) => a - b);
+      for (const room of rooms) next.push({ room, id, rooms });
+    }
+    next.sort((a, b) => a.room - b.room);
+    const prev = Array.isArray(cfg.roomGroups) ? cfg.roomGroups : [];
+    const key = (g) => `${g.room}:${g.id}:${(g.rooms || []).join(',')}`;
+    if (prev.map(key).join('|') === next.map(key).join('|')) return false;
+    const changes = {};
+    for (const g of prev) changes[g.room] = null;
+    for (const g of next) changes[g.room] = { id: g.id, rooms: g.rooms };
+    for (const g of prev) {
+      const n = next.find((x) => x.room === g.room);
+      if (n && key(n) === key(g)) delete changes[g.room];
+    }
+    await data.setRoomGroups(storeId, changes);
+    await data.patchConfig(storeId, { roomGroups: next });
+    cfg.roomGroups = next;
+    return true;
+  }
+
   async function pluginHello(body, ctx) {
     const list = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
     const stage = cleanText(body.stage, 20) || 'hello';
@@ -426,7 +610,11 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     const halls = list(body.halls, 50).map((h) => ({ id: cleanNum(h && h.id), title: cleanText(h && h.title, 40) }));
     const tables = list(body.tables, 300).map((t) => ({
       id: cleanNum(t && t.id), hallId: cleanNum(t && t.hallId), title: cleanText(t && t.title, 40), hasOrder: !!(t && t.hasOrder),
+      ...(t && cleanNum(t.groupId) != null ? { groupId: cleanNum(t.groupId) } : {}), // 114차: 단체손님(테이블 묶기)
     }));
+    // 114차: 묶인 테이블 — 기록에만 ('단체손님 묶음 7: 기본홀01, 기본홀02')
+    const groups = new Map();
+    for (const t of tables) if (t.groupId != null) groups.set(t.groupId, [...(groups.get(t.groupId) || []), t.title]);
     const info = {
       merchantName: cleanText(body.merchantName, 60),
       serial: cleanText(body.serial, 40),
@@ -438,6 +626,14 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     await data.savePluginHello(merchantId, info);
     const link = await pluginStore(merchantId, { fresh: true });
     const linkedStore = link ? link.storeId : null;
+    // 114차 2: 단체손님 — 묶인 테이블의 방들을 roomStatus/{방}.group에 (방 현황판이 같은 색 테두리로 표시만)
+    if (link && !info.tableError && tables.length) {
+      try {
+        await syncRoomGroups(link.storeId, link.cfg, tables);
+      } catch (e) {
+        console.log(`[토스 플러그인] 단체손님 표시 저장 실패: ${e && e.message}`);
+      }
+    }
     // 100차: 기기 등록 — 처음 보는 포스(또는 승인 전에 열쇠를 잃은 포스)에 새 열쇠를 줌. 운영자가 승인해야 주문을 받음
     let deviceToken;
     let approved = false;
@@ -464,6 +660,7 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       + ` 홀 ${halls.length} · 테이블 ${tables.length}${info.tableError ? ` · 테이블 오류: ${info.tableError}` : ''}`
       + ` · 기기 ${approved ? '승인됨' : deviceToken ? '새 열쇠(승인 전)' : deviceProblem ? '열쇠 안 맞음' : '승인 전'}`
       + ` · 보내기 ${link && link.cfg.via === 'plugin' ? '플러그인' : '안 함'}`
+      + `${groups.size ? ` · 단체손님 묶음 ${[...groups].map(([g, ts]) => `${g}: ${ts.join(', ')}`).join(' / ')}` : ''}`
       + `${errors.length ? ` · 오류: ${errors.join(' | ')}` : ''}${reason ? ` (${reason})` : ''}`);
     return {
       ok: true, linkedStore, at: new Date(now()).toISOString(), approved, ...(deviceToken ? { deviceToken } : {}),
@@ -507,6 +704,8 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
         printOrderSheet: cfg.printOrderSheet === true,
         menuMap: cfg.menuMap || {},
         setMap: cfg.setMap || {},
+        etcItemId: cfg.etcItemId || null, // 113차
+        posSoldOutMenus: Array.isArray(cfg.posSoldOutMenus) ? cfg.posSoldOutMenus : [], // 113차
         failed,
       };
     }
@@ -531,6 +730,15 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       }
       await data.setMenuMap(user.store, clean);
       return { ok: true, menuMap: ((await data.getConfig(user.store)) || {}).menuMap || {} };
+    }
+    // 113차: 연결 안 된 메뉴를 받을 포스 상품
+    if (path === '/api/toss/etc-item' && req.method === 'POST') {
+      await linkedConfig(user.store);
+      const v = body.itemId == null || body.itemId === '' ? null : String(body.itemId);
+      if (v != null && !/^\d{1,19}$/.test(v)) throw httpError(400, 'INVALID_ITEM', '포스 상품 ID가 올바르지 않아요.');
+      await data.patchConfig(user.store, { etcItemId: v });
+      linkCache.clear();
+      return { ok: true, etcItemId: v };
     }
     if (path === '/api/toss/set-map' && req.method === 'POST') {
       await linkedConfig(user.store);

@@ -20,6 +20,7 @@
 //          → 그 방 패드가 로그인 때 고른 언어로 돌아감 (order_ready_overlay.dart)
 //        cycle 항목 { id, at(ISO), price, items[], lines[{ menuId, name, quantity, options[이름] }], state: 'open'|'paid'|'cancelled' }
 //          포스로 들어간 주문을 넣고, 완료 웹훅이면 paid·취소면 cancelled로 표시. 정산 끝(settledAt)이면 비움
+//        113차 posPayment: { paid, unpaid, posOrderId, at } — 포스에서 일부만 결제됨(나눠 내기 등). 정산 끝이면 null
 
 const SENDING_TIMEOUT_MS = 60 * 1000; // 'sending'으로 남은 채 1분이 지나면 다시 보낼 수 있음
 const CLAIM_TIMEOUT_MS = 90 * 1000; // 100차: 포스 플러그인이 가져간 뒤 1분 30초 답이 없으면 다른 포스(또는 다시)가 가져갈 수 있음
@@ -167,6 +168,95 @@ function createFirestoreTossData(db) {
       const snap = await store(storeId).collection('orders').where('tossPos.posOrderId', '==', String(posOrderId)).limit(50).get();
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     },
+    // 113차: 포스에서 일부만 결제된 방 (패드 '주문 내역'·관리자 방 현황판에 보임) — null이면 지움
+    async setRoomPayment(storeId, room, payment) {
+      await roomRef(storeId, room).set({ posPayment: payment, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    },
+    // 114차: 자리이동·합석 — 두 방 문서를 한 번에 + 주문 문서의 방 번호(room '#N')도 바꿈
+    async moveRoomOrders(storeId, fromRoom, toRoom, orderIds, atIso) {
+      return db.runTransaction(async (tx) => {
+        const fRef = roomRef(storeId, fromRoom);
+        const tRef = roomRef(storeId, toRoom);
+        const [f, t] = await Promise.all([tx.get(fRef), tx.get(tRef)]);
+        const r = moveRoom(f.exists ? f.data() : {}, t.exists ? t.data() : {}, orderIds, atIso, toRoom);
+        tx.set(fRef, { ...r.fromUpdate, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        tx.set(tRef, { ...r.toUpdate, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        for (const id of orderIds) {
+          tx.update(orderRef(storeId, id), { room: `#${Number(toRoom)}`, 'tossPos.movedFromRoom': Number(fromRoom), 'tossPos.movedRoomAt': atIso });
+        }
+        return { emptied: r.emptied, moved: r.moved };
+      });
+    },
+    // 114차 2: 방 전체 옮기기 — 결제 대기·주문 내역 + 그 방 주문(주문 내역에 있는 것 + 아직 손님에게 안 간 것)
+    //   + 확인 안 한 직원 호출까지 새 방으로 (방 현황판·관리자 패드 주문현황·패드 주문 내역이 모두 새 방으로)
+    async moveWholeRoom(storeId, fromRoom, toRoom, atIso) {
+      const col = store(storeId).collection('orders');
+      const callsCol = store(storeId).collection('staff_calls');
+      return db.runTransaction(async (tx) => {
+        const fRef = roomRef(storeId, fromRoom);
+        const tRef = roomRef(storeId, toRoom);
+        const [f, t, active, calls] = await Promise.all([
+          tx.get(fRef), tx.get(tRef),
+          tx.get(col.where('room', '==', `#${Number(fromRoom)}`).where('status', 'in', ['pending', 'preparing', 'ready'])),
+          tx.get(callsCol.where('isAcknowledged', '==', false)),
+        ]);
+        const fd = f.exists ? f.data() : {};
+        const r = moveRoom(fd, t.exists ? t.data() : {}, null, atIso, toRoom);
+        const ids = new Set(active.docs.map((d) => d.id));
+        for (const id of Array.isArray(fd.open) ? fd.open : []) ids.add(String(id));
+        for (const e of Array.isArray(fd.cycle) ? fd.cycle : []) if (e && e.id != null) ids.add(String(e.id));
+        const refs = [...ids].map((id) => col.doc(id));
+        const docs = refs.length ? await tx.getAll(...refs) : [];
+        tx.set(fRef, { ...r.fromUpdate, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        tx.set(tRef, { ...r.toUpdate, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        let orders = 0;
+        for (const d of docs) {
+          if (!d.exists) continue;
+          tx.update(d.ref, { room: `#${Number(toRoom)}`, 'tossPos.movedFromRoom': Number(fromRoom), 'tossPos.movedRoomAt': atIso });
+          orders++;
+        }
+        let callsMoved = 0;
+        for (const c of calls.docs) {
+          if (Number(c.data().roomNumber) !== Number(fromRoom)) continue;
+          tx.update(c.ref, { roomNumber: Number(toRoom) });
+          callsMoved++;
+        }
+        return { emptied: true, moved: r.moved, orders, calls: callsMoved };
+      });
+    },
+    // 114차 2: 단체손님 표시 — {방: {id, rooms} | null}
+    async setRoomGroups(storeId, changes) {
+      const keys = Object.keys(changes);
+      if (!keys.length) return;
+      const batch = db.batch();
+      for (const r of keys) batch.set(roomRef(storeId, r), { group: changes[r], updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      await batch.commit();
+    },
+    // 113차: 포스 품절 따라가기 — menus/{id}.posSoldOut (손으로 켠 isSoldOut과 따로). 지운 메뉴는 건너뜀
+    async setMenusPosSoldOut(storeId, changes) {
+      const ids = Object.keys(changes);
+      if (!ids.length) return 0;
+      const refs = ids.map((id) => store(storeId).collection('menus').doc(id));
+      const docs = await db.getAll(...refs);
+      const batch = db.batch();
+      let n = 0;
+      docs.forEach((d, i) => {
+        if (!d.exists) return;
+        batch.update(refs[i], { posSoldOut: changes[ids[i]] === true });
+        n++;
+      });
+      if (n) await batch.commit();
+      return n;
+    },
+    // 113차: 포스 플러그인이 보낸 알림(세트 구성품 줄이 남음 등) — _tossPlugin/{가맹점}.notes 최근 20개
+    async addPluginNotes(merchantId, notes) {
+      const ref = db.collection('_tossPlugin').doc(String(merchantId));
+      await db.runTransaction(async (tx) => {
+        const d = await tx.get(ref);
+        const cur = d.exists && Array.isArray(d.data().notes) ? d.data().notes : [];
+        tx.set(ref, { notes: [...cur, ...notes].slice(-20) }, { merge: true });
+      });
+    },
     // 102차: 운영자 '방 결제 대기' — 방마다 결제 대기 주문 수
     async listRooms(storeId) {
       const snap = await store(storeId).collection('roomStatus').get();
@@ -259,6 +349,32 @@ function openRoom(cur, orderId, entry) {
 
 // 방 결제 대기 목록에서 주문 하나를 뺌 — 목록이 비고 그사이 결제 완료(paid)가 한 번이라도 있었으면 정산 끝
 // 84차: cycle에서 그 주문을 결제됨(paid)/취소(cancelled)로 표시, 정산 끝이면 cycle 비움
+// 114차: 포스 자리이동·합석 — 주문을 다른 방으로 옮김 (결제 대기 open·주문 내역 cycle·일부 결제 posPayment)
+//   옮긴 뒤 원래 방에 결제 대기가 하나도 안 남으면 그 방은 비움 + settledAt(=그 방 패드가 처음 화면·기본 언어로) + movedTo
+//   114차 2: ids가 null이면 방 전체(결제 대기·주문 내역 모두) — 토스처럼 자리를 옮기면 그 방 정보가 다 넘어감
+function moveRoom(from, to, ids, atIso, toRoom) {
+  const fOpen = Array.isArray(from.open) ? from.open.map(String) : [];
+  const fCycle = Array.isArray(from.cycle) ? from.cycle : [];
+  const idset = new Set(ids == null ? [...fOpen, ...fCycle.filter((e) => e && e.id != null).map((e) => String(e.id))] : ids.map(String));
+  const tOpen = Array.isArray(to.open) ? to.open.map(String) : [];
+  const tCycle = Array.isArray(to.cycle) ? to.cycle : [];
+  const moving = fOpen.filter((id) => idset.has(id));
+  const movingCycle = fCycle.filter((e) => e && idset.has(String(e.id)));
+  const restOpen = fOpen.filter((id) => !idset.has(id));
+  const toUpdate = {
+    open: [...tOpen, ...moving.filter((id) => !tOpen.includes(id))],
+    cycle: [...tCycle, ...movingCycle.filter((e) => !tCycle.some((x) => x && String(x.id) === String(e.id)))].slice(-CYCLE_MAX),
+    paidInCycle: to.paidInCycle === true || (from.paidInCycle === true && moving.length > 0),
+  };
+  if (from.posPayment && !to.posPayment) toUpdate.posPayment = from.posPayment;
+  if (ids == null && to.movedTo != null) toUpdate.movedTo = null; // 다시 손님이 들어온 방
+  const emptied = restOpen.length === 0;
+  const fromUpdate = emptied
+    ? { open: [], cycle: [], paidInCycle: false, posPayment: null, settledAt: atIso, movedTo: toRoom == null ? null : Number(toRoom), movedAt: atIso }
+    : { open: restOpen, cycle: fCycle.filter((e) => !(e && idset.has(String(e.id)))) };
+  return { fromUpdate, toUpdate, emptied, moved: moving.length + movingCycle.length };
+}
+
 function closeRoom(cur, orderId, paid, atIso) {
   const open = Array.isArray(cur.open) ? cur.open.map(String) : [];
   if (!open.includes(String(orderId))) return { settled: false, open: open.length, update: null };
@@ -267,6 +383,8 @@ function closeRoom(cur, orderId, paid, atIso) {
   const settled = rest.length === 0 && paidInCycle;
   const update = { open: rest, paidInCycle: settled ? false : paidInCycle };
   if (settled) update.settledAt = atIso;
+  if (settled) update.posPayment = null; // 113차: 일부 결제 표시도 지움
+  if (settled) update.movedTo = null; // 114차: '…번 방으로 옮김' 표시도
   if (settled) {
     update.cycle = [];
   } else if (Array.isArray(cur.cycle)) {
@@ -406,6 +524,68 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
         .filter(([k, v]) => k.startsWith(`${s}/`) && v.tossPos && String(v.tossPos.posOrderId) === String(posOrderId))
         .map(([k, v]) => ({ id: k.split('/')[1], ...JSON.parse(JSON.stringify(v)) }));
     },
+    async setRoomPayment(s, r, payment) {
+      const k = `${s}/${r}`;
+      rooms.set(k, { ...(rooms.get(k) || { open: [] }), posPayment: payment == null ? null : { ...payment } });
+    },
+    async moveRoomOrders(s, fromRoom, toRoom, orderIds, atIso) {
+      const fk = `${s}/${fromRoom}`;
+      const tk = `${s}/${toRoom}`;
+      const f = rooms.get(fk) || { open: [] };
+      const t = rooms.get(tk) || { open: [] };
+      const r = moveRoom(f, t, orderIds, atIso, toRoom);
+      rooms.set(fk, { ...f, ...JSON.parse(JSON.stringify(r.fromUpdate)) });
+      rooms.set(tk, { ...t, ...JSON.parse(JSON.stringify(r.toUpdate)) });
+      for (const id of orderIds) {
+        const o = ordersMap.get(`${s}/${id}`);
+        if (!o) continue;
+        o.room = `#${Number(toRoom)}`;
+        o.tossPos = { ...(o.tossPos || {}), movedFromRoom: Number(fromRoom), movedRoomAt: atIso };
+      }
+      return { emptied: r.emptied, moved: r.moved };
+    },
+    async moveWholeRoom(s, fromRoom, toRoom, atIso) {
+      const fk = `${s}/${fromRoom}`;
+      const tk = `${s}/${toRoom}`;
+      const f = rooms.get(fk) || { open: [] };
+      const t = rooms.get(tk) || { open: [] };
+      const r = moveRoom(f, t, null, atIso, toRoom);
+      const ids = new Set([...(f.open || []).map(String), ...(f.cycle || []).filter((e) => e && e.id != null).map((e) => String(e.id))]);
+      for (const [k, o] of ordersMap.entries()) {
+        if (k.startsWith(`${s}/`) && o.room === `#${Number(fromRoom)}` && ['pending', 'preparing', 'ready'].includes(o.status)) ids.add(k.split('/')[1]);
+      }
+      rooms.set(fk, { ...f, ...JSON.parse(JSON.stringify(r.fromUpdate)) });
+      rooms.set(tk, { ...t, ...JSON.parse(JSON.stringify(r.toUpdate)) });
+      let orders = 0;
+      for (const id of ids) {
+        const o = ordersMap.get(`${s}/${id}`);
+        if (!o) continue;
+        o.room = `#${Number(toRoom)}`;
+        o.tossPos = { ...(o.tossPos || {}), movedFromRoom: Number(fromRoom), movedRoomAt: atIso };
+        orders++;
+      }
+      return { emptied: true, moved: r.moved, orders, calls: 0 };
+    },
+    async setRoomGroups(s, changes) {
+      for (const r of Object.keys(changes)) {
+        const k = `${s}/${r}`;
+        rooms.set(k, { ...(rooms.get(k) || { open: [] }), group: changes[r] == null ? null : JSON.parse(JSON.stringify(changes[r])) });
+      }
+    },
+    async setMenusPosSoldOut(s, changes) {
+      let n = 0;
+      for (const m of menus[s] || []) {
+        if (Object.prototype.hasOwnProperty.call(changes, m.id)) {
+          m.posSoldOut = changes[m.id] === true;
+          n++;
+        }
+      }
+      return n;
+    },
+    async addPluginNotes(mid, notes) {
+      const cur = plugins.get(String(mid)) || {};
+      plugins.set(String(mid), { ...cur, notes: [...(cur.notes || []), ...JSON.parse(JSON.stringify(notes))].slice(-20) });
+    },
     async addFakeOrder(mid, order) {
       const list = sandbox.get(String(mid)) || [];
       if (list.some((o) => o.orderKey === order.orderKey)) throw dupKeyError();
@@ -434,4 +614,4 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
   };
 }
 
-module.exports = { createFirestoreTossData, createMemoryTossData, SENDING_TIMEOUT_MS, CLAIM_TIMEOUT_MS, cycleEntry, CYCLE_MAX };
+module.exports = { createFirestoreTossData, createMemoryTossData, SENDING_TIMEOUT_MS, CLAIM_TIMEOUT_MS, cycleEntry, CYCLE_MAX, moveRoom };
