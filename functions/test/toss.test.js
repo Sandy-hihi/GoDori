@@ -918,6 +918,13 @@ test('117차: 포스 계산서 — 테이블별 합계를 방 번호로 (포스�
   ] })).body;
   assert.equal(r2.rooms, 1);
   assert.equal(data.rooms.get('platform6/2').posBill.unpaid, 3500);
+  // 123차: 손님이 옮겨 간 방(movedTo)에 포스로만 새 주문 → '옮김' 표시 지움
+  data.rooms.set('platform6/1', { ...data.rooms.get('platform6/1'), movedTo: 2 });
+  await ev({ kind: 'bills', bills: [
+    { tableId: 1, tableTitle: '기본홀01', posOrderId: '11', total: 6000, paid: 0, unpaid: 6000 },
+    { tableId: 2, tableTitle: '기본홀02', posOrderId: '20', total: 7500, paid: 4000, unpaid: 3500 },
+  ] });
+  assert.equal(data.rooms.get('platform6/1').movedTo, null);
   // 1번 결제 끝(테이블 비움) → 지움
   await ev({ kind: 'bills', bills: [{ tableId: 2, tableTitle: '기본홀02', posOrderId: '20', total: 7500, paid: 4000, unpaid: 3500 }] });
   assert.equal(data.rooms.get('platform6/1').posBill, null);

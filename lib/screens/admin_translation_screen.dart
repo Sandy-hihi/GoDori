@@ -26,19 +26,20 @@ class AdminTranslationScreen extends StatefulWidget {
 class TrRow {
   final String src;
   final Set<String> kinds = {}; // menu · option · category · notice
+  final Set<String> menuCats = {}; // 124차: 이 글이 쓰인 메뉴의 카테고리 (왼쪽 목록 '메뉴 카테고리')
   final List<String> where = [];
   final Map<String, String> auto = {}; // 지금 문서에 들어 있는 번역 (처음 찾은 곳)
   TrRow(this.src);
 }
 
 const _langLabels = {'en': 'English', 'zh': '中文(简体)', 'ja': '日本語'};
+// 124차: 왼쪽 세로 목록(보드게임 관리 장르 목록처럼) — 종류 + 직접 고친 것 + 메뉴 카테고리('cat:<이름>')
 const _kindLabels = {
   'all': '전체',
   'menu': '메뉴 이름',
   'option': '옵션',
   'category': '카테고리',
   'notice': '공지·이벤트',
-  'fixed': '직접 고친 것',
 };
 
 class _AdminTranslationScreenState extends State<AdminTranslationScreen> {
@@ -47,6 +48,7 @@ class _AdminTranslationScreenState extends State<AdminTranslationScreen> {
   List<TrRow> _rows = [];
   Map<String, Map<String, String>> _ovr = {};
   String _kind = 'all';
+  List<String> _catOrder = []; // 메뉴 카테고리 (카테고리 목록 순서, 목록에 없는 건 뒤에)
   final _search = TextEditingController();
 
   @override
@@ -80,12 +82,13 @@ class _AdminTranslationScreenState extends State<AdminTranslationScreen> {
       final itemDocs = [('공지', (await noticeF).data()), ('이벤트', (await eventF).data())];
       final ovr = await ovrF;
       final rows = <String, TrRow>{};
-      void add(String text, String kind, String where, dynamic translations, String field) {
+      void add(String text, String kind, String where, dynamic translations, String field, [String menuCat = '']) {
         final src = text.trim();
         final key = TranslationOverrides.keyOf(src);
         if (key.isEmpty) return;
         final row = rows.putIfAbsent(key, () => TrRow(src));
         row.kinds.add(kind);
+        if (menuCat.trim().isNotEmpty) row.menuCats.add(menuCat.trim());
         if (!row.where.contains(where)) row.where.add(where);
         if (translations is Map) {
           for (final c in TranslationOverrides.langs) {
@@ -98,13 +101,14 @@ class _AdminTranslationScreenState extends State<AdminTranslationScreen> {
 
       for (final d in menuDocs) {
         final m = d.data();
-        add('${m['name'] ?? ''}', 'menu', '메뉴 · ${m['category'] ?? ''}', m['translations'], 'name');
+        final mc = '${m['category'] ?? ''}';
+        add('${m['name'] ?? ''}', 'menu', '메뉴 · $mc', m['translations'], 'name', mc);
         for (final g in (m['optionGroups'] as List? ?? const [])) {
           if (g is! Map) continue;
-          add('${g['groupName'] ?? ''}', 'option', '옵션 그룹', g['translations'], 'groupName');
+          add('${g['groupName'] ?? ''}', 'option', '옵션 그룹', g['translations'], 'groupName', mc);
           for (final o in (g['options'] as List? ?? const [])) {
             if (o is! Map) continue;
-            add('${o['name'] ?? ''}', 'option', '옵션 · ${g['groupName'] ?? ''}', o['translations'], 'name');
+            add('${o['name'] ?? ''}', 'option', '옵션 · ${g['groupName'] ?? ''}', o['translations'], 'name', mc);
           }
         }
       }
@@ -148,9 +152,17 @@ class _AdminTranslationScreenState extends State<AdminTranslationScreen> {
           return c != 0 ? c : a.src.compareTo(b.src);
         });
       if (!mounted) return;
+      final listed = [for (final c in (cat?['list'] as List? ?? const [])) '$c'.trim()];
+      final used = {for (final r in list) ...r.menuCats};
+      final catOrder = [
+        for (final c in listed) if (used.contains(c)) c,
+        ...(used.where((c) => !listed.contains(c)).toList()..sort()),
+      ];
       setState(() {
         _rows = list;
         _ovr = ovr;
+        _catOrder = catOrder;
+        if (_kind.startsWith('cat:') && !catOrder.contains(_kind.substring(4))) _kind = 'all';
         _loading = false;
       });
     } catch (e) {
@@ -163,12 +175,22 @@ class _AdminTranslationScreenState extends State<AdminTranslationScreen> {
     }
   }
 
+  bool _inKind(TrRow r, String kind) {
+    if (kind == 'all') return true;
+    if (kind == 'fixed') return _ovr.containsKey(TranslationOverrides.keyOf(r.src));
+    if (kind.startsWith('cat:')) return r.menuCats.contains(kind.substring(4));
+    return r.kinds.contains(kind);
+  }
+
+  int _countOf(String kind) => _rows.where((r) => _inKind(r, kind)).length;
+
+  String _kindLabel(String kind) => kind.startsWith('cat:') ? kind.substring(4) : (kind == 'fixed' ? '✎ 직접 고친 것' : _kindLabels[kind] ?? kind);
+
   List<TrRow> get _visible {
     final q = _search.text.trim().toLowerCase();
     return _rows.where((r) {
       final key = TranslationOverrides.keyOf(r.src);
-      if (_kind == 'fixed' && !_ovr.containsKey(key)) return false;
-      if (_kind != 'all' && _kind != 'fixed' && !r.kinds.contains(_kind)) return false;
+      if (!_inKind(r, _kind)) return false;
       if (q.isEmpty) return true;
       if (r.src.toLowerCase().contains(q)) return true;
       final o = _ovr[key] ?? const {};
@@ -221,41 +243,160 @@ class _AdminTranslationScreenState extends State<AdminTranslationScreen> {
                     style: TextStyle(color: Colors.black54, height: 1.5),
                   ),
                   const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      for (final e in _kindLabels.entries)
-                        ChoiceChip(
-                          label: Text(e.key == 'fixed' ? '${e.value} ${_ovr.length}' : e.value),
-                          selected: _kind == e.key,
-                          selectedColor: kAdminAccent,
-                          labelStyle: TextStyle(
-                              color: _kind == e.key ? Colors.white : Colors.black87, fontWeight: FontWeight.w600),
-                          showCheckmark: false,
-                          onSelected: (_) => setState(() => _kind = e.key),
-                        ),
-                      SizedBox(
-                        width: 240,
-                        child: TextField(
-                          controller: _search,
-                          decoration: InputDecoration(
-                            isDense: true,
-                            hintText: '찾기 (원문·번역)',
-                            prefixIcon: const Icon(Icons.search),
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  // 124차: 왼쪽 세로 목록 + 오른쪽 글 목록 카드 (보드게임 관리와 같은 배치). 좁은 화면은 드롭다운
+                  Expanded(
+                    child: MediaQuery.sizeOf(context).width < 900
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _kindDropdown(),
+                              const SizedBox(height: 12),
+                              Expanded(child: _listCard(narrow)),
+                            ],
+                          )
+                        : Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _kindPanel(),
+                              const SizedBox(width: 16),
+                              Expanded(child: _listCard(narrow)),
+                            ],
                           ),
-                        ),
-                      ),
-                    ],
                   ),
-                  const SizedBox(height: 16),
-                  Expanded(child: _list(narrow)),
                 ],
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<String> get _kinds => [..._kindLabels.keys, 'fixed', for (final c in _catOrder) 'cat:$c'];
+
+  Widget _kindTile(String kind) {
+    final on = _kind == kind;
+    final n = _countOf(kind);
+    return Material(
+      color: on ? kAdminAccent : Colors.transparent,
+      child: InkWell(
+        onTap: () => setState(() => _kind = kind),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+          child: Row(children: [
+            Expanded(
+              child: Text(
+                _kindLabel(kind),
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: on ? Colors.white : Colors.black87,
+                  fontWeight: on ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text('$n', style: TextStyle(fontSize: 13, color: on ? Colors.white70 : (n == 0 ? Colors.black26 : Colors.black45))),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _kindPanel() {
+    return Container(
+      width: 210,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          for (final k in _kindLabels.keys) _kindTile(k),
+          const Divider(height: 17),
+          _kindTile('fixed'),
+          if (_catOrder.isNotEmpty) ...[
+            const Divider(height: 17),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 4, 16, 6),
+              child: Text('메뉴 카테고리', style: TextStyle(fontSize: 12, color: Colors.black45, fontWeight: FontWeight.w600)),
+            ),
+            for (final c in _catOrder) _kindTile('cat:$c'),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _kindDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          isExpanded: true,
+          value: _kinds.contains(_kind) ? _kind : 'all',
+          items: [
+            for (final k in _kinds)
+              DropdownMenuItem(
+                value: k,
+                child: Text('${k.startsWith('cat:') ? '메뉴 · ' : ''}${_kindLabel(k)}  ${_countOf(k)}'),
+              ),
+          ],
+          onChanged: (v) => setState(() => _kind = v ?? 'all'),
+        ),
+      ),
+    );
+  }
+
+  /// 오른쪽 카드: 제목(글 N개) + 찾기 + 목록
+  Widget _listCard(bool narrow) {
+    final shown = _loading || _error != null ? 0 : _visible.length;
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 16, 14),
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              runSpacing: 8,
+              children: [
+                Text('${_kindLabel(_kind)} · 글 $shown개', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                SizedBox(
+                  width: 260,
+                  child: TextField(
+                    controller: _search,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: '찾기 (원문·번역)',
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: _list(narrow),
             ),
           ),
         ],

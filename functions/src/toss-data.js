@@ -229,7 +229,10 @@ function createFirestoreTossData(db) {
     // 117차: 포스 계산서 표시 — {방: {total, paid, unpaid, tables, at} | null}
     async setRoomBills(storeId, changes) {
       const batch = db.batch();
-      for (const r of Object.keys(changes)) batch.set(roomRef(storeId, r), { posBill: changes[r], updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      // 123차: 포스 계산서가 생기면(새 손님 — 포스에서만 주문해도) '…번 방으로 옮김' 지움
+      for (const r of Object.keys(changes)) {
+        batch.set(roomRef(storeId, r), { posBill: changes[r], ...(changes[r] ? { movedTo: null } : {}), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      }
       await batch.commit();
     },
     // 114차 2: 단체손님 표시 — {방: {id, rooms} | null}
@@ -390,6 +393,7 @@ function cycleEntry(orderId, order, atIso) {
 function openRoom(cur, orderId, entry, { revive = false } = {}) {
   const open = Array.isArray(cur.open) ? cur.open.map(String) : [];
   const update = { open: open.includes(String(orderId)) ? open : [...open, String(orderId)] };
+  if (cur.movedTo != null) update.movedTo = null; // 123차: 새 손님 주문 → '…번 방으로 옮김' 지움
   if (entry) {
     const cycle = Array.isArray(cur.cycle) ? cur.cycle : [];
     if (!cycle.some((e) => e && String(e.id) === String(orderId))) update.cycle = [...cycle, entry].slice(-CYCLE_MAX);
@@ -419,7 +423,7 @@ function moveRoom(from, to, ids, atIso, toRoom, { resetFrom = false } = {}) {
     paidInCycle: to.paidInCycle === true || (from.paidInCycle === true && moving.length > 0),
   };
   if (from.posPayment && !to.posPayment) toUpdate.posPayment = from.posPayment;
-  if (ids == null && to.movedTo != null) toUpdate.movedTo = null; // 다시 손님이 들어온 방
+  if (to.movedTo != null) toUpdate.movedTo = null; // 다시 손님이 들어온 방 (123차: 주문을 골라 옮길 때도)
   const emptied = restOpen.length === 0;
   const fromUpdate = emptied
     ? { open: [], cycle: [], paidInCycle: false, posPayment: null, settledAt: atIso, movedTo: toRoom == null ? null : Number(toRoom), movedAt: atIso }
@@ -643,7 +647,9 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
     async setRoomBills(s, changes) {
       for (const r of Object.keys(changes)) {
         const k = `${s}/${r}`;
-        rooms.set(k, { ...(rooms.get(k) || { open: [] }), posBill: changes[r] == null ? null : JSON.parse(JSON.stringify(changes[r])) });
+        rooms.set(k, {
+          ...(rooms.get(k) || { open: [] }), posBill: changes[r] == null ? null : JSON.parse(JSON.stringify(changes[r])), ...(changes[r] ? { movedTo: null } : {}),
+        });
       }
     },
     async setRoomGroups(s, changes) {
