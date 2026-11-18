@@ -424,6 +424,7 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     const nowIso = new Date(now()).toISOString();
     const kind = cleanText(body.kind, 10) || 'state';
     if (kind === 'move' || kind === 'merge') return pluginMoveEvent(link.storeId, kind, body, nowIso);
+    if (kind === 'bills') return syncRoomBills(link.storeId, link.cfg, body.bills, nowIso); // 117차
     const posOrderId = cleanText(body.posOrderId, 40);
     if (!posOrderId) throw httpError(400, 'NO_POS_ORDER', '포스 주문 ID가 없어요.');
     const orderState = cleanText(body.orderState, 20);
@@ -609,6 +610,39 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     await data.patchConfig(storeId, { roomGroups: next });
     cfg.roomGroups = next;
     return true;
+  }
+
+  // 117차: 포스 계산서 — 테이블마다 열린 포스 주문 합계·결제 전 금액(직원이 포스에서 직접 넣은 메뉴 포함) → 방 번호별로 합쳐
+  //   roomStatus/{방}.posBill {total, paid, unpaid, tables, at} (바뀐 방만, 없어지면 null). 지난 값은 private/tossPos.roomBills(배열)
+  async function syncRoomBills(storeId, cfg, raw, nowIso) {
+    const list = (Array.isArray(raw) ? raw : []).slice(0, 100);
+    const byRoom = new Map();
+    for (const b of list) {
+      const room = roomFromTableTitle(cleanText(b && b.tableTitle, 40));
+      if (room == null) continue;
+      const cur = byRoom.get(room) || { room, total: 0, paid: 0, unpaid: 0, tables: [] };
+      cur.total += Math.max(0, Math.round(Number(b.total) || 0));
+      cur.paid += Math.max(0, Math.round(Number(b.paid) || 0));
+      cur.unpaid += Math.max(0, Math.round(Number(b.unpaid) || 0));
+      cur.tables.push(cleanText(b.tableTitle, 40));
+      byRoom.set(room, cur);
+    }
+    const next = [...byRoom.values()].filter((b) => b.total > 0 || b.unpaid > 0).sort((a, b) => a.room - b.room);
+    const prev = Array.isArray(cfg.roomBills) ? cfg.roomBills : [];
+    const key = (b) => `${b.room}:${b.total}:${b.paid}:${b.unpaid}:${(b.tables || []).join(',')}`;
+    const changes = {};
+    for (const b of prev) if (!next.some((x) => x.room === b.room)) changes[b.room] = null;
+    for (const b of next) {
+      const p = prev.find((x) => x.room === b.room);
+      if (!p || key(p) !== key(b)) changes[b.room] = { total: b.total, paid: b.paid, unpaid: b.unpaid, tables: b.tables, at: nowIso };
+    }
+    const rooms = Object.keys(changes);
+    if (rooms.length) {
+      await data.setRoomBills(storeId, changes);
+      await data.patchConfig(storeId, { roomBills: next });
+      cfg.roomBills = next;
+    }
+    return { ok: true, rooms: rooms.length };
   }
 
   async function pluginHello(body, ctx) {

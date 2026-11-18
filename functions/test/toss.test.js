@@ -854,3 +854,25 @@ test('115차: 1번·2번 손님 자리 맞교환 — 각자 주문이 서로 바
   assert.equal((await data.getOrder('platform6', 'a')).status, 'completed');
   assert.ok(data.rooms.get('platform6/2').settledAt);
 });
+
+test('117차: 포스 계산서 — 테이블별 합계를 방 번호로 (포스에서 직접 넣은 메뉴 포함), 바뀐 방만 · 없어지면 지움', async () => {
+  const { data, ev } = await pluginSetup({ orders: {} });
+  const r1 = (await ev({ kind: 'bills', bills: [
+    { tableId: 1, tableTitle: '기본홀01', posOrderId: '10', total: 5500, paid: 0, unpaid: 5500 },
+    { tableId: 2, tableTitle: '기본홀02', posOrderId: '20', total: 7500, paid: 0, unpaid: 7500 },
+    { tableId: 99, tableTitle: '카운터', posOrderId: '30', total: 3000, paid: 0, unpaid: 3000 },
+  ] })).body;
+  assert.equal(r1.rooms, 2);
+  assert.equal(data.rooms.get('platform6/2').posBill.total, 7500);
+  assert.deepEqual(data.rooms.get('platform6/1').posBill.tables, ['기본홀01']);
+  // 2번만 바뀜(일부 결제) → 1번은 그대로
+  const r2 = (await ev({ kind: 'bills', bills: [
+    { tableId: 1, tableTitle: '기본홀01', posOrderId: '10', total: 5500, paid: 0, unpaid: 5500 },
+    { tableId: 2, tableTitle: '기본홀02', posOrderId: '20', total: 7500, paid: 4000, unpaid: 3500 },
+  ] })).body;
+  assert.equal(r2.rooms, 1);
+  assert.equal(data.rooms.get('platform6/2').posBill.unpaid, 3500);
+  // 1번 결제 끝(테이블 비움) → 지움
+  await ev({ kind: 'bills', bills: [{ tableId: 2, tableTitle: '기본홀02', posOrderId: '20', total: 7500, paid: 4000, unpaid: 3500 }] });
+  assert.equal(data.rooms.get('platform6/1').posBill, null);
+});

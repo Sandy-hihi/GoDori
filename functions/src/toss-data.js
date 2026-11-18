@@ -226,6 +226,12 @@ function createFirestoreTossData(db) {
         return { emptied: r.emptied, moved: r.moved, orders: moving.length, calls: callsMoved };
       });
     },
+    // 117차: 포스 계산서 표시 — {방: {total, paid, unpaid, tables, at} | null}
+    async setRoomBills(storeId, changes) {
+      const batch = db.batch();
+      for (const r of Object.keys(changes)) batch.set(roomRef(storeId, r), { posBill: changes[r], updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      await batch.commit();
+    },
     // 114차 2: 단체손님 표시 — {방: {id, rooms} | null}
     async setRoomGroups(storeId, changes) {
       const keys = Object.keys(changes);
@@ -615,6 +621,12 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
         o.tossPos = { ...(o.tossPos || {}), movedFromRoom: Number(fromRoom), movedRoomAt: atIso };
       }
       return { emptied: r.emptied, moved: r.moved, orders: moving.length, calls: 0 };
+    },
+    async setRoomBills(s, changes) {
+      for (const r of Object.keys(changes)) {
+        const k = `${s}/${r}`;
+        rooms.set(k, { ...(rooms.get(k) || { open: [] }), posBill: changes[r] == null ? null : JSON.parse(JSON.stringify(changes[r])) });
+      }
     },
     async setRoomGroups(s, changes) {
       for (const r of Object.keys(changes)) {

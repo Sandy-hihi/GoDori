@@ -282,6 +282,11 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
                 _line(Icons.payments_outlined,
                     e.unpaid > 0 ? '결제 전 ${_won(e.unpaid)} / 합계 ${_won(e.total)}' : '합계 ${_won(e.total)} · 결제됨',
                     color: e.unpaid > 0 ? _orange : Colors.black54, weight: e.unpaid > 0 ? FontWeight.bold : FontWeight.normal),
+              // 117차: 포스 계산서(직원이 포스에서 직접 넣은 메뉴 포함)
+              if (e.posBill != null)
+                _line(Icons.receipt_long_outlined,
+                    '포스 계산서 ${_won(e.posBill!.total)}${e.posExtra > 0 ? ' · 포스 추가 ${_won(e.posExtra)}' : ''}',
+                    color: e.posBill!.unpaid > 0 ? _orange : Colors.black54, weight: FontWeight.w600),
               const Spacer(),
               if (e.firstAt != null && !empty)
                 Text('첫 주문 ${_hm(e.firstAt!)} · ${roomElapsedLabel(e.firstAt!, now)}',
@@ -326,6 +331,15 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
                   title('확인 안 한 직원 호출'),
                   for (final c in e.calls)
                     Text('• ${c.at == null ? '' : '${_hm(c.at!)}  '}${c.label}', style: const TextStyle(color: Colors.redAccent)),
+                ],
+                // 117차
+                if (e.posBill != null) ...[
+                  title('포스 계산서'),
+                  Text('합계 ${_won(e.posBill!.total)} · 결제 전 ${_won(e.posBill!.unpaid)}'
+                      '${e.posBill!.paid > 0 ? ' · 결제됨 ${_won(e.posBill!.paid)}' : ''}'),
+                  if (e.posExtra > 0)
+                    Text('패드 주문보다 ${_won(e.posExtra)} 많아요 — 직원이 포스에서 직접 넣은 메뉴',
+                        style: const TextStyle(color: Colors.black54, fontSize: 13)),
                 ],
                 title('진행 중 주문'),
                 if (e.orders.isEmpty)

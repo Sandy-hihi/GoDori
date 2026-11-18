@@ -99,4 +99,20 @@ void main() {
     expect(parseGroupColor(null), isNull);
     expect(roomGroupOf({'group': {'id': 1, 'rooms': [2, 3], 'color': '#112233'}})!.color, 0xFF112233);
   });
+  test('117차: 포스 계산서 — 포스에서만 넣은 주문도 결제 대기, 포스 추가 금액', () {
+    final board = buildRoomBoard(roomCount: 2, roomStatus: {
+      '1': {'open': [], 'cycle': [], 'posBill': {'total': 5500, 'paid': 0, 'unpaid': 5500}},
+      '2': {
+        'open': ['a'],
+        'cycle': [
+          {'id': 'a', 'price': '3500', 'state': 'open'},
+        ],
+        'posBill': {'total': 7500, 'paid': 0, 'unpaid': 7500},
+      },
+    });
+    expect(board[0].state, RoomBoardState.awaitingPay);
+    expect(board[0].posExtra, 5500);
+    expect(board[1].total, 3500);
+    expect(board[1].posExtra, 4000);
+  });
 }

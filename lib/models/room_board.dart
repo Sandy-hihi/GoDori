@@ -63,6 +63,7 @@ class RoomBoardEntry {
   final bool beyondCount; // 방 개수를 줄여서 범위 밖인데 기록이 남은 방
   final ({int paid, int unpaid})? posPayment; // 113차: 포스에서 일부만 결제됨
   final int? movedTo; // 114차: 포스 자리이동·합석으로 손님이 옮겨 간 방 (원래 방이 비었을 때)
+  final ({int total, int paid, int unpaid})? posBill; // 117차: 포스 계산서(직원이 포스에서 넣은 메뉴 포함 — 플러그인이 테이블에서 읽음)
   final ({int id, List<int> rooms, int? color})? group; // 114차 2: 포스 단체손님으로 묶인 방들 (표시만) · 115차 color = 토스 묶음 색(0xAARRGGBB)
 
   const RoomBoardEntry({
@@ -80,7 +81,16 @@ class RoomBoardEntry {
     this.posPayment,
     this.movedTo,
     this.group,
+    this.posBill,
   });
+
+  /// 117차: 포스 계산서가 고도리 주문 합계보다 많으면 그 차이 = 직원이 포스에서 직접 넣은 메뉴(대략)
+  int get posExtra {
+    final b = posBill;
+    if (b == null) return 0;
+    final d = b.total - total;
+    return d > 0 ? d : 0;
+  }
 
   /// 114차: 이번 손님 주문이 모두 취소됨 (합계 0원인데 '결제됨'으로 보이지 않게)
   bool get allCancelled => cycle.isNotEmpty && cycle.every((e) => e.cancelled);
@@ -165,9 +175,11 @@ List<RoomBoardEntry> buildRoomBoard({
     final openCount = s?['open'] is List ? (s!['open'] as List).length : 0;
     final roomOrders = ordersBy[n] ?? const <RoomBoardOrder>[];
     final roomCalls = callsBy[n] ?? const <RoomBoardCall>[];
-    final state = openCount > 0
+    final bill = roomPosBillOf(s);
+    // 117차: 포스 계산서에 결제 전 금액이 있으면(포스에서만 넣은 주문이어도) 결제 대기
+    final state = openCount > 0 || (bill != null && bill.unpaid > 0)
         ? RoomBoardState.awaitingPay
-        : (cycle.isNotEmpty || roomOrders.isNotEmpty || roomCalls.isNotEmpty)
+        : (cycle.isNotEmpty || roomOrders.isNotEmpty || roomCalls.isNotEmpty || bill != null)
             ? RoomBoardState.inUse
             : RoomBoardState.empty;
     DateTime? first;
@@ -189,9 +201,18 @@ List<RoomBoardEntry> buildRoomBoard({
       posPayment: roomPosPayment(s),
       movedTo: s?['movedTo'] is num ? (s!['movedTo'] as num).toInt() : null,
       group: roomGroupOf(s),
+      posBill: bill,
     ));
   }
   return out;
+}
+
+/// 117차: roomStatus.posBill {total, paid, unpaid} (서버가 포스 플러그인 계산서에서 씀)
+({int total, int paid, int unpaid})? roomPosBillOf(Map<String, dynamic>? s) {
+  final b = s?['posBill'];
+  if (b is! Map) return null;
+  int n(dynamic v) => v is num ? v.toInt() : 0;
+  return (total: n(b['total']), paid: n(b['paid']), unpaid: n(b['unpaid']));
 }
 
 /// 114차 2: roomStatus.group {id, rooms} (서버가 포스 단체손님 묶음에서 씀)
