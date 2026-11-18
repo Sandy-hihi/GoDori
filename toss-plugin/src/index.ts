@@ -33,10 +33,12 @@
 //     · 세트를 뺐는데 구성품 줄이 남으면 알림(poll notes → 운영자 페이지 '포스 플러그인' 창) — SDK에 줄 지우기가 없어 직원이 지워야 함
 //   114차 0.4.1: 단체손님(테이블 묶기 — PluginTable.group {id, tableIds}) 알아보기용 — 신호(hello) 테이블에 groupId,
 //     테이블이 바뀌면(table 'update'·'add'·'clear') 5초 뒤 신호 한 번 더 → 서버 기록에 묶인 테이블이 찍힘 (처리 방법은 시험 뒤에 정함)
+//   115차 0.4.2: 단체손님을 풀어도 묶음이 남던 것 — group.tableIds에 자기 테이블이 있고 2개 이상일 때만 묶음으로 봄,
+//     테이블 이벤트를 놓쳐도 1분마다 묶음을 다시 읽어(포스 안이라 무료) 바뀌었을 때만 신호. 토스 묶음 색(group.color)도 보냄
 import { posPluginSdk } from "@tossplace/pos-plugin-sdk";
 
 const SERVER = "https://godori-pad.web.app";
-const VERSION = "0.4.1";
+const VERSION = "0.4.2";
 const HELLO_EVERY_MS = 10 * 60 * 1000;
 const WAIT_MS = 30 * 1000; // 승인 전·플러그인으로 안 보내는 매장
 const K_TOKEN = "godori.token";
@@ -178,6 +180,25 @@ async function readTables(): Promise<{ tables: Obj[]; error: string }> {
   }
 }
 
+// 115차: 단체손님 묶음 — 풀린 뒤에도 group이 남아 있을 수 있어서 tableIds로 한 번 더 확인
+function groupOf(x: Obj): { groupId: number; groupColor: string } | null {
+  const g = x && x.group;
+  if (!g || g.id == null) return null;
+  if (Array.isArray(g.tableIds)) {
+    const ids = g.tableIds.map((v: unknown) => Number(v));
+    if (ids.length < 2 || !ids.includes(Number(x.id))) return null;
+  }
+  return { groupId: Number(g.id), groupColor: String(g.color ?? "").slice(0, 20) };
+}
+function groupSigOf(tables: Obj[]): string {
+  return tables
+    .map((t) => ({ t, g: groupOf(t) }))
+    .filter((x) => x.g)
+    .map((x) => `${x.g!.groupId}:${x.t.id}:${x.g!.groupColor}`)
+    .sort()
+    .join(",");
+}
+
 async function hello(reason: string) {
   const errors: string[] = [];
   try {
@@ -193,8 +214,9 @@ async function hello(reason: string) {
     if (t.error) tableError = [tableError, `tables: ${t.error}`].filter(Boolean).join(" / ");
     const tables = t.tables.map((x) => ({
       id: Number(x.id), hallId: Number(x.hallId), title: String(x.title ?? ""), hasOrder: !!x.order,
-      ...(x.group && x.group.id != null ? { groupId: Number(x.group.id) } : {}), // 114차: 단체손님
+      ...(groupOf(x) || {}), // 114차: 단체손님 (115차: 풀린 묶음은 뺌·색)
     }));
+    if (!t.error) lastGroupSig = groupSigOf(t.tables);
     const { code, json } = await post("hello", {
       stage: "hello", reason, ...who(), merchantName: state.merchantName, halls, tables, tableError, errors,
     });
@@ -553,12 +575,9 @@ function tableChanged() {
   if (tableTimer) return;
   tableTimer = setTimeout(async () => {
     tableTimer = null;
-    const { tables } = await readTables();
-    const sig = tables
-      .filter((t) => t.group && t.group.id != null)
-      .map((t) => `${t.group.id}:${t.id}`)
-      .sort()
-      .join(",");
+    const { tables, error } = await readTables();
+    if (error) return;
+    const sig = groupSigOf(tables);
     if (sig === lastGroupSig) return;
     lastGroupSig = sig;
     hello("table");
@@ -619,6 +638,7 @@ async function main() {
   setInterval(() => {
     if (state.approved) recheck().catch(() => undefined);
   }, RECHECK_MS);
+  setInterval(() => tableChanged(), 60 * 1000); // 115차: 테이블 이벤트를 놓쳐도 묶음을 1분마다 다시 봄
   setTimeout(() => {
     scanOpenOrders();
     recheck().catch(() => undefined);

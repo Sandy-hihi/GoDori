@@ -63,7 +63,7 @@ class RoomBoardEntry {
   final bool beyondCount; // 방 개수를 줄여서 범위 밖인데 기록이 남은 방
   final ({int paid, int unpaid})? posPayment; // 113차: 포스에서 일부만 결제됨
   final int? movedTo; // 114차: 포스 자리이동·합석으로 손님이 옮겨 간 방 (원래 방이 비었을 때)
-  final ({int id, List<int> rooms})? group; // 114차 2: 포스 단체손님으로 묶인 방들 (표시만)
+  final ({int id, List<int> rooms, int? color})? group; // 114차 2: 포스 단체손님으로 묶인 방들 (표시만) · 115차 color = 토스 묶음 색(0xAARRGGBB)
 
   const RoomBoardEntry({
     required this.room,
@@ -195,13 +195,22 @@ List<RoomBoardEntry> buildRoomBoard({
 }
 
 /// 114차 2: roomStatus.group {id, rooms} (서버가 포스 단체손님 묶음에서 씀)
-({int id, List<int> rooms})? roomGroupOf(Map<String, dynamic>? s) {
+({int id, List<int> rooms, int? color})? roomGroupOf(Map<String, dynamic>? s) {
   final g = s?['group'];
   if (g is! Map || g['id'] is! num) return null;
   final rooms = g['rooms'] is List
       ? [for (final r in g['rooms'] as List) if (r is num) r.toInt()]
       : <int>[];
-  return (id: (g['id'] as num).toInt(), rooms: rooms);
+  return (id: (g['id'] as num).toInt(), rooms: rooms, color: parseGroupColor(g['color']));
+}
+
+/// 115차: 토스 묶음 색 '#RRGGBB'·'RRGGBB'·'#AARRGGBB' → 0xFFRRGGBB (모르는 모양이면 null → 고도리 색)
+int? parseGroupColor(dynamic v) {
+  final m = RegExp(r'^#?([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$').firstMatch((v ?? '').toString().trim());
+  if (m == null) return null;
+  final hex = m.group(1)!;
+  final n = int.parse(hex, radix: 16);
+  return hex.length == 6 ? 0xFF000000 | n : n;
 }
 
 /// 114차 2: 묶음마다 색 번호 — 가장 작은 방 번호 순서대로 0, 1, 2 …

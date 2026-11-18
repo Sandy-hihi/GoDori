@@ -91,4 +91,12 @@ void main() {
     expect(board[1].group!.rooms, [2, 3]);
     expect(roomGroupColorIndex(board), {9: 0, 4: 1});
   });
+  test('115차: 토스 묶음 색', () {
+    expect(parseGroupColor('#E05297'), 0xFFE05297);
+    expect(parseGroupColor('e05297'), 0xFFE05297);
+    expect(parseGroupColor('#80E05297'), 0x80E05297);
+    expect(parseGroupColor('pink'), isNull);
+    expect(parseGroupColor(null), isNull);
+    expect(roomGroupOf({'group': {'id': 1, 'rooms': [2, 3], 'color': '#112233'}})!.color, 0xFF112233);
+  });
 }

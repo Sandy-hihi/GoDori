@@ -436,17 +436,33 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       const present = Array.isArray(body.lineIds) ? new Set(body.lineIds.map((x) => String(x))) : null;
       let cancelled = 0;
       let partial = 0;
-      for (const o of list) {
+      // 115차: 줄이 '지워졌는지'는 포스 주문 줄 수가 줄었을 때만 봄 — 합석하면 포스가 줄 ID를 새로 만들어서
+      //   예전 줄 ID가 다 안 보여도 줄 수는 늘어남(→ 취소로 잘못 보던 것: 합석하면 금액이 꼬임). 그때는 줄 추적만 그만둠
+      const live = list.filter((o) => !TERMINAL.has((o.tossPos || {}).posState));
+      const known = new Set(live.flatMap((o) => (Array.isArray((o.tossPos || {}).lineIds) ? o.tossPos.lineIds.map(String) : [])));
+      const counts = live.map((o) => (o.tossPos || {}).posLineCount).filter((n) => Number.isInteger(n));
+      const prevCount = counts.length ? Math.max(...counts) : known.size;
+      const shrank = present != null && present.size < prevCount;
+      for (const o of live) {
         const t = o.tossPos || {};
-        if (!present || !Array.isArray(t.lineIds) || !t.lineIds.length || TERMINAL.has(t.posState)) continue;
-        const left = t.lineIds.filter((id) => present.has(String(id)));
-        if (!left.length) {
-          await applyOrderEvent(link.storeId, o.id, o, 'CANCELLED', nowIso, '포스에서 이 주문 줄을 모두 지웠어요.');
-          cancelled++;
-        } else if (left.length < t.lineIds.length && t.linesLeft !== left.length) {
-          await data.setOrderToss(link.storeId, o.id, { linesLeft: left.length });
-          partial++;
+        if (!present) continue;
+        const patch = {};
+        if (t.posLineCount !== present.size) patch.posLineCount = present.size;
+        if (Array.isArray(t.lineIds) && t.lineIds.length) {
+          const left = t.lineIds.filter((id) => present.has(String(id)));
+          if (left.length < t.lineIds.length && !shrank) {
+            patch.lineIds = undefined;
+            patch.linesLeft = undefined;
+          } else if (!left.length) {
+            await applyOrderEvent(link.storeId, o.id, o, 'CANCELLED', nowIso, '포스에서 이 주문 줄을 모두 지웠어요.');
+            cancelled++;
+            continue;
+          } else if (left.length < t.lineIds.length && t.linesLeft !== left.length) {
+            patch.linesLeft = left.length;
+            partial++;
+          }
         }
+        if (Object.keys(patch).length) await data.setOrderToss(link.storeId, o.id, patch);
       }
       // 일부 결제: 결제된 돈이 있고 남은 돈도 있으면 그 방에 표시 (다 내면 COMPLETED로 와서 정산 때 지움)
       let rooms = 0;
@@ -495,10 +511,11 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     if (toRoom == null) toRoom = roomFromTableTitle(table.tableTitle);
     for (const o of list) {
       await data.setOrderToss(storeId, o.id, kind === 'merge'
-        ? { ...table, posOrderId: to, mergedFrom: from, mergedAt: nowIso, lineIds: undefined, linesLeft: undefined }
+        ? { ...table, posOrderId: to, mergedFrom: from, mergedAt: nowIso, lineIds: undefined, linesLeft: undefined, posLineCount: undefined }
         : { ...table, movedAt: nowIso });
     }
-    // 114차 2: 토스처럼 — 옮긴 테이블의 방 정보를 통째로(결제 대기·주문 내역·그 방 주문·확인 안 한 호출) 새 방으로
+    // 114차 2: 토스처럼 — 옮긴 테이블의 방 정보를 새 방으로(결제 대기·주문 내역·그 방 주문, 방이 비면 확인 안 한 호출도)
+    // 115차: 옮기는 건 이 포스 주문의 고도리 주문 + 포스로 안 간 그 방 주문만 — 다른 포스 주문(맞교환한 손님)은 그대로
     const fromRooms = new Set();
     for (const o of list) {
       const r = roomOf(o);
@@ -507,12 +524,12 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     }
     const movedRooms = [];
     for (const fromRoom of fromRooms) {
-      const r = await data.moveWholeRoom(storeId, fromRoom, toRoom, nowIso);
-      movedRooms.push({ from: fromRoom, orders: r.orders, calls: r.calls, emptied: true });
+      const r = await data.moveWholeRoom(storeId, fromRoom, toRoom, nowIso, list.map((o) => o.id));
+      movedRooms.push({ from: fromRoom, orders: r.orders, calls: r.calls, emptied: r.emptied });
     }
     console.log(`[토스 플러그인] 포스 ${kind === 'merge' ? `주문 합치기 ${from} → ${to}` : `테이블 옮기기 ${from}`}`
       + ` → ${table.tableTitle || table.tableId || '?'}${toRoom != null ? `(${toRoom}번 방)` : ''} · 고도리 주문 ${list.length}건`
-      + `${movedRooms.length ? ` · 방 옮김 ${movedRooms.map((m) => `${m.from}→${toRoom}(주문 ${m.orders}건${m.calls ? `·호출 ${m.calls}건` : ''})`).join(', ')}` : ''}`);
+      + `${movedRooms.length ? ` · 방 옮김 ${movedRooms.map((m) => `${m.from}→${toRoom}(주문 ${m.orders}건${m.calls ? `·호출 ${m.calls}건` : ''}${m.emptied ? '' : ' · 원래 방에 다른 손님 남음'})`).join(', ')}` : ''}`);
     return { ok: true, matched: list.length, toRoom, movedRooms };
   }
 
@@ -574,15 +591,16 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     for (const [id, ts] of byGroup) {
       if (ts.length < 2) continue;
       const rooms = [...new Set(ts.map((t) => roomFromTableTitle(t.title)).filter((r) => r != null))].sort((a, b) => a - b);
-      for (const room of rooms) next.push({ room, id, rooms });
+      const color = (ts.find((t) => t.groupColor) || {}).groupColor || '';
+      for (const room of rooms) next.push({ room, id, rooms, ...(color ? { color } : {}) });
     }
     next.sort((a, b) => a.room - b.room);
     const prev = Array.isArray(cfg.roomGroups) ? cfg.roomGroups : [];
-    const key = (g) => `${g.room}:${g.id}:${(g.rooms || []).join(',')}`;
+    const key = (g) => `${g.room}:${g.id}:${(g.rooms || []).join(',')}:${g.color || ''}`;
     if (prev.map(key).join('|') === next.map(key).join('|')) return false;
     const changes = {};
     for (const g of prev) changes[g.room] = null;
-    for (const g of next) changes[g.room] = { id: g.id, rooms: g.rooms };
+    for (const g of next) changes[g.room] = { id: g.id, rooms: g.rooms, ...(g.color ? { color: g.color } : {}) };
     for (const g of prev) {
       const n = next.find((x) => x.room === g.room);
       if (n && key(n) === key(g)) delete changes[g.room];
@@ -611,6 +629,7 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
     const tables = list(body.tables, 300).map((t) => ({
       id: cleanNum(t && t.id), hallId: cleanNum(t && t.hallId), title: cleanText(t && t.title, 40), hasOrder: !!(t && t.hasOrder),
       ...(t && cleanNum(t.groupId) != null ? { groupId: cleanNum(t.groupId) } : {}), // 114차: 단체손님(테이블 묶기)
+      ...(t && t.groupColor ? { groupColor: cleanText(t.groupColor, 20) } : {}), // 115차: 토스 묶음 색
     }));
     // 114차: 묶인 테이블 — 기록에만 ('단체손님 묶음 7: 기본홀01, 기본홀02')
     const groups = new Map();
@@ -732,6 +751,14 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       return { ok: true, menuMap: ((await data.getConfig(user.store)) || {}).menuMap || {} };
     }
     // 113차: 연결 안 된 메뉴를 받을 포스 상품
+    // 115차: 관리자 방 현황판 '결제 대기 비우기' (운영자 /api/ops/toss/room-clear와 같음 — 정산 표시 없이, 패드는 그대로)
+    if (path === '/api/toss/room-clear' && req.method === 'POST') {
+      const room = Number(body.room);
+      if (!Number.isInteger(room) || room < 1 || room > 999) throw httpError(400, 'INVALID_ROOM', '방 번호를 확인해 주세요.');
+      const r = await data.clearRoom(user.store, room);
+      console.log(`[토스] 관리자 방 결제 대기 비움 ${user.store} ${room}번 방 — 주문 ${r.open.length}건(${r.open.join(', ')})`);
+      return { ok: true, cleared: r.open.length };
+    }
     if (path === '/api/toss/etc-item' && req.method === 'POST') {
       await linkedConfig(user.store);
       const v = body.itemId == null || body.itemId === '' ? null : String(body.itemId);

@@ -180,6 +180,12 @@ class TossPosService {
   }
 
   /// 113차: 포스 상품과 연결 안 된 메뉴를 받을 포스 상품('고도리 기타' 0원 권장). null이면 지움(그 메뉴는 포스 실패)
+  /// 115차: 방 현황판 '결제 대기 비우기' — 그 방 결제 대기·주문 내역 비움(정산 표시 없이, 패드는 그대로). 비운 주문 수
+  static Future<int> clearRoom(int room) async {
+    final r = await _call('POST', '/api/toss/room-clear', body: {'room': room});
+    return (r['cleared'] as num?)?.toInt() ?? 0;
+  }
+
   static Future<String?> saveEtcItem(String? itemId) async {
     final r = await _call('POST', '/api/toss/etc-item', body: {'itemId': itemId});
     final v = r['etcItemId'];

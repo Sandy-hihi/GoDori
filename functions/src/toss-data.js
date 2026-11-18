@@ -189,39 +189,41 @@ function createFirestoreTossData(db) {
     },
     // 114차 2: 방 전체 옮기기 — 결제 대기·주문 내역 + 그 방 주문(주문 내역에 있는 것 + 아직 손님에게 안 간 것)
     //   + 확인 안 한 직원 호출까지 새 방으로 (방 현황판·관리자 패드 주문현황·패드 주문 내역이 모두 새 방으로)
-    async moveWholeRoom(storeId, fromRoom, toRoom, atIso) {
+    async moveWholeRoom(storeId, fromRoom, toRoom, atIso, moveIds) {
       const col = store(storeId).collection('orders');
       const callsCol = store(storeId).collection('staff_calls');
+      const roomTag = `#${Number(fromRoom)}`;
       return db.runTransaction(async (tx) => {
         const fRef = roomRef(storeId, fromRoom);
         const tRef = roomRef(storeId, toRoom);
         const [f, t, active, calls] = await Promise.all([
           tx.get(fRef), tx.get(tRef),
-          tx.get(col.where('room', '==', `#${Number(fromRoom)}`).where('status', 'in', ['pending', 'preparing', 'ready'])),
+          tx.get(col.where('room', '==', roomTag).where('status', 'in', ['pending', 'preparing', 'ready'])),
           tx.get(callsCol.where('isAcknowledged', '==', false)),
         ]);
         const fd = f.exists ? f.data() : {};
-        const r = moveRoom(fd, t.exists ? t.data() : {}, null, atIso, toRoom);
-        const ids = new Set(active.docs.map((d) => d.id));
-        for (const id of Array.isArray(fd.open) ? fd.open : []) ids.add(String(id));
-        for (const e of Array.isArray(fd.cycle) ? fd.cycle : []) if (e && e.id != null) ids.add(String(e.id));
-        const refs = [...ids].map((id) => col.doc(id));
+        const want = new Set((moveIds || []).map(String));
+        const cand = new Set([...want, ...active.docs.map((d) => d.id)]);
+        for (const id of Array.isArray(fd.open) ? fd.open : []) cand.add(String(id));
+        for (const e of Array.isArray(fd.cycle) ? fd.cycle : []) if (e && e.id != null) cand.add(String(e.id));
+        const refs = [...cand].map((id) => col.doc(id));
         const docs = refs.length ? await tx.getAll(...refs) : [];
+        const moving = pickMovable(docs.filter((d) => d.exists).map((d) => ({ id: d.id, ...d.data() })), roomTag, want);
+        const r = moveRoom(fd, t.exists ? t.data() : {}, [...new Set([...moving, ...want])], atIso, toRoom, { resetFrom: true });
         tx.set(fRef, { ...r.fromUpdate, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         tx.set(tRef, { ...r.toUpdate, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-        let orders = 0;
-        for (const d of docs) {
-          if (!d.exists) continue;
-          tx.update(d.ref, { room: `#${Number(toRoom)}`, 'tossPos.movedFromRoom': Number(fromRoom), 'tossPos.movedRoomAt': atIso });
-          orders++;
+        for (const id of moving) {
+          tx.update(col.doc(id), { room: `#${Number(toRoom)}`, 'tossPos.movedFromRoom': Number(fromRoom), 'tossPos.movedRoomAt': atIso });
         }
         let callsMoved = 0;
-        for (const c of calls.docs) {
-          if (Number(c.data().roomNumber) !== Number(fromRoom)) continue;
-          tx.update(c.ref, { roomNumber: Number(toRoom) });
-          callsMoved++;
+        if (r.emptied) {
+          for (const c of calls.docs) {
+            if (Number(c.data().roomNumber) !== Number(fromRoom)) continue;
+            tx.update(c.ref, { roomNumber: Number(toRoom) });
+            callsMoved++;
+          }
         }
-        return { emptied: true, moved: r.moved, orders, calls: callsMoved };
+        return { emptied: r.emptied, moved: r.moved, orders: moving.length, calls: callsMoved };
       });
     },
     // 114차 2: 단체손님 표시 — {방: {id, rooms} | null}
@@ -267,7 +269,7 @@ function createFirestoreTossData(db) {
       const ref = roomRef(storeId, room);
       const d = await ref.get();
       const before = d.exists ? d.data() : {};
-      await ref.set({ open: [], paidInCycle: false, cycle: [], updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      await ref.set({ open: [], paidInCycle: false, cycle: [], posPayment: null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       return { open: Array.isArray(before.open) ? before.open.map(String) : [] };
     },
     async addFakeOrder(merchantId, order) {
@@ -352,7 +354,8 @@ function openRoom(cur, orderId, entry) {
 // 114차: 포스 자리이동·합석 — 주문을 다른 방으로 옮김 (결제 대기 open·주문 내역 cycle·일부 결제 posPayment)
 //   옮긴 뒤 원래 방에 결제 대기가 하나도 안 남으면 그 방은 비움 + settledAt(=그 방 패드가 처음 화면·기본 언어로) + movedTo
 //   114차 2: ids가 null이면 방 전체(결제 대기·주문 내역 모두) — 토스처럼 자리를 옮기면 그 방 정보가 다 넘어감
-function moveRoom(from, to, ids, atIso, toRoom) {
+//   115차 resetFrom: 원래 방에 다른 손님(다른 포스 주문)이 남아도 그 방 패드는 처음 화면으로(settledAt) — 맞교환
+function moveRoom(from, to, ids, atIso, toRoom, { resetFrom = false } = {}) {
   const fOpen = Array.isArray(from.open) ? from.open.map(String) : [];
   const fCycle = Array.isArray(from.cycle) ? from.cycle : [];
   const idset = new Set(ids == null ? [...fOpen, ...fCycle.filter((e) => e && e.id != null).map((e) => String(e.id))] : ids.map(String));
@@ -371,8 +374,20 @@ function moveRoom(from, to, ids, atIso, toRoom) {
   const emptied = restOpen.length === 0;
   const fromUpdate = emptied
     ? { open: [], cycle: [], paidInCycle: false, posPayment: null, settledAt: atIso, movedTo: toRoom == null ? null : Number(toRoom), movedAt: atIso }
-    : { open: restOpen, cycle: fCycle.filter((e) => !(e && idset.has(String(e.id)))) };
+    : { open: restOpen, cycle: fCycle.filter((e) => !(e && idset.has(String(e.id)))), ...(resetFrom ? { settledAt: atIso } : {}) };
   return { fromUpdate, toUpdate, emptied, moved: moving.length + movingCycle.length };
+}
+
+// 115차: 방 옮기기 때 같이 옮길 주문 — 원래 방(room '#N')에 있고, 이 포스 주문의 고도리 주문(want)이거나 포스로 안 간 주문
+//   (다른 포스 주문에 들어간 주문 = 그 방에 남은/맞교환한 다른 손님 → 그대로). 포스로 안 간 주문은 진행 중인 것만
+function pickMovable(orders, roomTag, want) {
+  const out = [];
+  for (const o of orders) {
+    if (String(o.room || '') !== roomTag) continue;
+    const pos = o.tossPos && o.tossPos.posOrderId;
+    if (want.has(String(o.id)) || (!pos && ['pending', 'preparing', 'ready'].includes(o.status))) out.push(String(o.id));
+  }
+  return out;
 }
 
 function closeRoom(cur, orderId, paid, atIso) {
@@ -516,7 +531,7 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
     async clearRoom(s, r) {
       const k = `${s}/${r}`;
       const cur = rooms.get(k) || {};
-      rooms.set(k, { ...cur, open: [], paidInCycle: false, cycle: [] });
+      rooms.set(k, { ...cur, open: [], paidInCycle: false, cycle: [], posPayment: null });
       return { open: Array.isArray(cur.open) ? cur.open.map(String) : [] };
     },
     async findOrdersByPosOrder(s, posOrderId) {
@@ -544,27 +559,24 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
       }
       return { emptied: r.emptied, moved: r.moved };
     },
-    async moveWholeRoom(s, fromRoom, toRoom, atIso) {
+    async moveWholeRoom(s, fromRoom, toRoom, atIso, moveIds) {
       const fk = `${s}/${fromRoom}`;
       const tk = `${s}/${toRoom}`;
       const f = rooms.get(fk) || { open: [] };
       const t = rooms.get(tk) || { open: [] };
-      const r = moveRoom(f, t, null, atIso, toRoom);
-      const ids = new Set([...(f.open || []).map(String), ...(f.cycle || []).filter((e) => e && e.id != null).map((e) => String(e.id))]);
-      for (const [k, o] of ordersMap.entries()) {
-        if (k.startsWith(`${s}/`) && o.room === `#${Number(fromRoom)}` && ['pending', 'preparing', 'ready'].includes(o.status)) ids.add(k.split('/')[1]);
-      }
+      const roomTag = `#${Number(fromRoom)}`;
+      const want = new Set((moveIds || []).map(String));
+      const all = [...ordersMap.entries()].filter(([k]) => k.startsWith(`${s}/`)).map(([k, o]) => ({ id: k.split('/')[1], ...o }));
+      const moving = pickMovable(all, roomTag, want);
+      const r = moveRoom(f, t, [...new Set([...moving, ...want])], atIso, toRoom, { resetFrom: true });
       rooms.set(fk, { ...f, ...JSON.parse(JSON.stringify(r.fromUpdate)) });
       rooms.set(tk, { ...t, ...JSON.parse(JSON.stringify(r.toUpdate)) });
-      let orders = 0;
-      for (const id of ids) {
+      for (const id of moving) {
         const o = ordersMap.get(`${s}/${id}`);
-        if (!o) continue;
         o.room = `#${Number(toRoom)}`;
         o.tossPos = { ...(o.tossPos || {}), movedFromRoom: Number(fromRoom), movedRoomAt: atIso };
-        orders++;
       }
-      return { emptied: true, moved: r.moved, orders, calls: 0 };
+      return { emptied: r.emptied, moved: r.moved, orders: moving.length, calls: 0 };
     },
     async setRoomGroups(s, changes) {
       for (const r of Object.keys(changes)) {

@@ -795,6 +795,10 @@ test('114차 2: 단체손님 — 묶인 테이블의 방들을 roomStatus.group�
   const T = (id, title, groupId) => ({ id, hallId: 1, title, ...(groupId != null ? { groupId } : {}) });
   await hello([T(1, '기본홀01'), T(2, '기본홀02', 9), T(3, '기본홀03', 9), T(4, '카운터', 8), T(5, '기본홀05', 8)]);
   assert.deepEqual(data.rooms.get('platform6/2').group, { id: 9, rooms: [2, 3] });
+  // 115차: 토스 묶음 색도 같이 (바뀌면 다시 씀)
+  await hello([T(1, '기본홀01'), { ...T(2, '기본홀02', 9), groupColor: '#E05297' }, { ...T(3, '기본홀03', 9), groupColor: '#E05297' }, T(4, '카운터', 8), T(5, '기본홀05', 8)]);
+  assert.deepEqual(data.rooms.get('platform6/3').group, { id: 9, rooms: [2, 3], color: '#E05297' });
+  await hello([T(1, '기본홀01'), T(2, '기본홀02', 9), T(3, '기본홀03', 9), T(4, '카운터', 8), T(5, '기본홀05', 8)]);
   assert.deepEqual(data.rooms.get('platform6/3').group, { id: 9, rooms: [2, 3] });
   // 카운터 + 5번: 방 번호를 아는 건 5번뿐이어도 묶음 표시
   assert.deepEqual(data.rooms.get('platform6/5').group, { id: 8, rooms: [5] });
@@ -803,4 +807,47 @@ test('114차 2: 단체손님 — 묶인 테이블의 방들을 roomStatus.group�
   await hello([T(1, '기본홀01'), T(2, '기본홀02'), T(3, '기본홀03'), T(4, '카운터'), T(5, '기본홀05')]);
   assert.equal(data.rooms.get('platform6/2').group, null);
   assert.equal(data.rooms.get('platform6/5').group, null);
+});
+
+test('115차: 합석해서 포스가 줄 ID를 새로 만들어도 취소로 보지 않음(금액 그대로) · 줄 수가 줄면 예전처럼 취소', async () => {
+  const PO = { ...ORDER, lines: ORDER.lines.slice(0, 1), price: '3500' };
+  const { call, data, poll, ack, ev } = await pluginSetup({ orders: { a: { ...PO, room: '#1' }, b: { ...PO, room: '#2' } } });
+  for (const id of ['a', 'b']) await call('POST', '/api/toss/send-order', { token: 'admin', body: { orderId: id } });
+  await poll();
+  await ack({ orderId: 'a', ok: true, posOrderId: '10', tableTitle: '기본홀01', lineIds: ['L1'] });
+  await ack({ orderId: 'b', ok: true, posOrderId: '20', tableTitle: '기본홀02', lineIds: ['L2'] });
+  await ev({ posOrderId: '10', orderState: 'OPENED', paid: 0, unpaid: 3500, lineIds: ['L1'] });
+  await ev({ posOrderId: '20', orderState: 'OPENED', paid: 0, unpaid: 3500, lineIds: ['L2'] });
+  // 1번을 2번에 합석 → 포스가 합친 주문 줄을 새 ID로
+  await ev({ kind: 'merge', fromPosOrderId: '10', toPosOrderId: '20', toTableId: 2, toTableTitle: '기본홀02' });
+  const r = (await ev({ posOrderId: '20', orderState: 'OPENED', paid: 0, unpaid: 7000, lineIds: ['N1', 'N2'] })).body;
+  assert.equal(r.cancelled, 0);
+  assert.deepEqual(data.rooms.get('platform6/2').open.sort(), ['a', 'b']);
+  assert.equal((await data.getOrder('platform6', 'b')).tossPos.lineIds, undefined); // 줄 추적은 그만둠
+  assert.notEqual((await data.getOrder('platform6', 'a')).tossPos.posState, 'CANCELLED');
+  const done = (await ev({ posOrderId: '20', orderState: 'COMPLETED', unpaid: 0 })).body;
+  assert.equal(done.settled, true);
+});
+
+test('115차: 1번·2번 손님 자리 맞교환 — 각자 주문이 서로 바뀐 방으로, 두 방 패드 모두 처음 화면 · 관리자 결제 대기 비우기', async () => {
+  const PO = { ...ORDER, lines: ORDER.lines.slice(0, 1), price: '3500' };
+  const { call, data, poll, ack, ev } = await pluginSetup({ orders: { a: { ...PO, room: '#1' }, b: { ...PO, room: '#2' } } });
+  for (const id of ['a', 'b']) await call('POST', '/api/toss/send-order', { token: 'admin', body: { orderId: id } });
+  await poll();
+  await ack({ orderId: 'a', ok: true, posOrderId: '10', tableTitle: '기본홀01' });
+  await ack({ orderId: 'b', ok: true, posOrderId: '20', tableTitle: '기본홀02' });
+  const m1 = (await ev({ kind: 'move', posOrderId: '10', toTableId: 2, toTableTitle: '기본홀02' })).body;
+  assert.deepEqual(m1.movedRooms, [{ from: 1, orders: 1, calls: 0, emptied: true }]);
+  const m2 = (await ev({ kind: 'move', posOrderId: '20', toTableId: 1, toTableTitle: '기본홀01' })).body;
+  assert.deepEqual(m2.movedRooms, [{ from: 2, orders: 1, calls: 0, emptied: false }]);
+  assert.equal((await data.getOrder('platform6', 'a')).room, '#2');
+  assert.equal((await data.getOrder('platform6', 'b')).room, '#1');
+  assert.deepEqual(data.rooms.get('platform6/1').open, ['b']);
+  assert.deepEqual(data.rooms.get('platform6/2').open, ['a']);
+  assert.ok(data.rooms.get('platform6/1').settledAt && data.rooms.get('platform6/2').settledAt); // 두 패드 처음 화면
+  // 관리자 방 현황판 '결제 대기 비우기'
+  assert.equal((await call('POST', '/api/toss/room-clear', { token: 'pad3', body: { room: 2 } })).status, 403);
+  const c = await call('POST', '/api/toss/room-clear', { token: 'admin', body: { room: 2 } });
+  assert.equal(c.body.cleared, 1);
+  assert.deepEqual(data.rooms.get('platform6/2').open, []);
 });

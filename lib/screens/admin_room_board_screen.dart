@@ -6,7 +6,9 @@ import 'package:boardpad/models/room_board.dart';
 import 'package:boardpad/services/room_settings_service.dart';
 import 'package:boardpad/services/store_features.dart';
 import 'package:boardpad/services/store_scope.dart';
+import 'package:boardpad/services/toss_pos_service.dart';
 import 'package:boardpad/services/usage_meter.dart';
+import 'package:boardpad/widgets/admin_busy_dialog.dart';
 import 'package:boardpad/widgets/admin_colors.dart';
 import 'package:boardpad/widgets/admin_dialog_width.dart';
 import 'package:boardpad/widgets/admin_sidebar.dart';
@@ -378,7 +380,28 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
             ),
           ),
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기'))],
+        actions: [
+          // 115차: 운영자 페이지에만 있던 '방 결제 대기 비우기'를 관리자도 — 포스에서 이미 끝난 주문이 남아 정산이 안 될 때
+          if (e.openCount > 0 || e.cycle.isNotEmpty)
+            TextButton(
+              onPressed: () async {
+                final ok = await showBusyConfirm(
+                  ctx,
+                  title: '${e.room}번 방 결제 대기 비우기',
+                  message: '이 방의 결제 대기와 주문 내역을 비워요.\n'
+                      '포스에서 이미 결제했거나 지운 주문이 남아 정산이 안 될 때 쓰세요.\n'
+                      '포스 주문과 손님 패드 화면은 바뀌지 않아요.',
+                  confirmLabel: '비우기',
+                  errorText: '비우지 못했어요',
+                  action: () => TossPosService.clearRoom(e.room),
+                );
+                if (ok && ctx.mounted) Navigator.pop(ctx);
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+              child: const Text('결제 대기 비우기'),
+            ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기')),
+        ],
       ),
     );
   }
@@ -393,7 +416,11 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
     final shown = _filter == null ? board : board.where((e) => e.state == _filter).toList();
     final groupIndex = roomGroupColorIndex(board);
     Color? groupColor(RoomBoardEntry e) =>
-        e.group == null ? null : _groupColors[groupIndex[e.group!.id]! % _groupColors.length];
+        e.group == null
+            ? null
+            : e.group!.color != null
+                ? Color(e.group!.color!) // 115차: 토스에서 고른 묶음 색 그대로
+                : _groupColors[groupIndex[e.group!.id]! % _groupColors.length];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
