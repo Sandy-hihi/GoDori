@@ -1534,5 +1534,40 @@ const guestMessages = <String, List<String>> {
     "The store password was changed, so this pad was signed out. Please sign in again.",
     "门店密码已更改，平板已退出登录。请重新登录。",
     "店舗のパスワードが変更されたためログアウトしました。もう一度ログインしてください。"
+  ],
+  "주사위 개수": [
+    "Number of dice",
+    "骰子数量",
+    "サイコロの数"
+  ],
+  "팀이 나뉘었어요! 다시 하려면 화면을 눌러 주세요": [
+    "Teams are set! Tap the screen to try again",
+    "分组完成！再来一次请点击屏幕",
+    "チームが決まりました！もう一度やるには画面をタップしてください"
+  ],
+  "팀이 나뉘었어요!": [
+    "Teams are set!",
+    "分组完成！",
+    "チームが決まりました！"
+  ],
+  "팀 수보다 많은 손가락이 필요해요": [
+    "Need at least as many fingers as teams",
+    "手指数量需不少于队伍数",
+    "チーム数以上の指が必要です"
+  ],
+  "그대로 기다려 주세요": [
+    "Hold still…",
+    "请保持不动…",
+    "そのまま待ってください…"
+  ],
+  "모두 손가락을 화면에 꾹 대 주세요": [
+    "Everyone, press and hold a finger on the screen",
+    "请大家把手指按住屏幕",
+    "みんなで画面に指を押し当ててください"
+  ],
+  "2초 동안 그대로 있으면 같은 팀끼리 같은 색으로 나뉘어요": [
+    "Hold for 2 seconds and teammates get the same color",
+    "保持2秒，同队的手指会变成相同颜色",
+    "2秒そのままにすると同じチーム同士が同じ色になります"
   ]
 };

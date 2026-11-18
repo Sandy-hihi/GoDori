@@ -2,6 +2,8 @@ import 'package:boardpad/l10n/guest_language.dart';
 import 'package:flutter/material.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
+import 'package:boardpad/widgets/tools/dice_roller.dart';
+import 'package:boardpad/widgets/tools/finger_team_picker.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
@@ -16,15 +18,11 @@ class GameToolsScreen extends StatefulWidget {
 
 class _GameToolsScreenState extends State<GameToolsScreen> {
 
+  // 126차: 손가락 팀 나누기(최대 6팀)에서 바로 구분되게 — 주황·파랑·초록·보라·분홍·청록 (예전엔 주황이 두 개)
   static const List<Color> _teamColors = [
-    kOrange, Colors.blueAccent, Colors.orangeAccent,
-    Colors.purpleAccent, Colors.redAccent, Colors.teal,
-    Colors.pinkAccent, Colors.indigo, Colors.amber, Colors.cyan,
+    kOrange, Color(0xFF2F6FED), Color(0xFF2E9E5B),
+    Color(0xFF8E44D9), Color(0xFFE0457B), Color(0xFF14A3A3),
   ];
-
-  // ── 주사위 ──────────────────────────────────────────
-  int diceNumber = 1;
-  void _rollDice() => setState(() => diceNumber = Random().nextInt(6) + 1);
 
   // ── 타이머 공통 ──────────────────────────────────────
   bool _isCountdownMode = true; // true: 카운트다운 / false: 스탑워치
@@ -194,6 +192,8 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
             child: ColoredBox(
               color: Colors.white,
               child: TabBarView(
+                // 126차: 옆으로 밀어서 탭 바꾸기 끔 — 팀 나누기에서 손가락을 대고 움직여도 탭이 안 넘어가게 (탭은 위 버튼으로)
+                physics: const NeverScrollableScrollPhysics(),
                 children: [
                   _buildTimerTab(),
                   _buildDiceTab(),
@@ -380,33 +380,8 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
   Widget _buildStopwatch() => const _StopwatchTab();
 
   // ── 주사위 탭 ────────────────────────────────────────
-  Widget _buildDiceTab() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 200, height: 200,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(32),
-              border: Border.all(color: Colors.black12, width: 4),
-            ),
-            child: Center(child: GuestText('$diceNumber', style: const TextStyle(fontSize: 100, fontWeight: FontWeight.bold))),
-          ),
-          const SizedBox(height: 48),
-          ElevatedButton(
-            onPressed: _rollDice,
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
-              backgroundColor: kOrange,
-            ),
-            child: const GuestText('주사위 굴리기', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
+  // 126차: 굴러가는 주사위(1~3개) — lib/widgets/tools/dice_roller.dart
+  Widget _buildDiceTab() => const DiceRoller();
 
   // ── 팀 나누기 / 선 뽑기 탭 ──────────────────────────
   bool _isTeamMode = true; // true: 팀 나누기 / false: 선 뽑기
@@ -417,10 +392,6 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
   final ScrollController _playerScrollController = ScrollController();
   Timer? _playerScrollbarTimer;
   bool _showPlayerScrollbar = false;
-
-  // 팀 나누기
-  int _teamCount = 2;
-  List<List<String>> _teamResult = [];
 
   // 선 뽑기
   List<String> _drawOrder = [];
@@ -449,15 +420,6 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
       final text = _nameControllers[i].text.trim();
       return text.isEmpty ? '${i + 1}번' : text;
     });
-  }
-
-  void _divideTeams() {
-    final players = List<String>.from(_getPlayerNames())..shuffle(Random());
-    final result = List.generate(_teamCount, (_) => <String>[]);
-    for (int i = 0; i < players.length; i++) {
-      result[i % _teamCount].add(players[i]);
-    }
-    setState(() => _teamResult = result);
   }
 
   void _initDraw() {
@@ -494,7 +456,8 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
         ),
         const Divider(height: 1),
         Expanded(
-          child: _isTeamMode ? _buildTeamDivide() : _buildDraw(),
+          // 126차: 팀 나누기 = 손가락을 꾹 대면 같은 팀끼리 같은 색 원 (lib/widgets/tools/finger_team_picker.dart)
+          child: _isTeamMode ? FingerTeamPicker(colors: _teamColors) : _buildDraw(),
         ),
       ],
     );
@@ -505,7 +468,6 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
     return GestureDetector(
       onTap: () => setState(() {
         _isTeamMode = isTeam;
-        _teamResult = [];
         _drawOrder = [];
         _remainingPool = [];
         _drawFinished = false;
@@ -528,8 +490,8 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
     );
   }
 
-  // ── 팀 나누기 화면 ───────────────────────────────────
-  Widget _buildPlayerNameList({bool clearTeamResult = false}) {
+  // ── 이름 입력 목록 (선 뽑기) ─────────────────────────
+  Widget _buildPlayerNameList() {
     return Scrollbar(
       controller: _playerScrollController,
       thumbVisibility: _showPlayerScrollbar,
@@ -556,130 +518,9 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
               prefixIconConstraints: const BoxConstraints(
                 minWidth: 40, minHeight: 40, maxWidth: 40, maxHeight: 40),
             ),
-            onChanged: clearTeamResult
-                ? (_) => setState(() => _teamResult = [])
-                : null,
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildTeamDivide() {
-    return Row(
-      children: [
-        // 왼쪽: 설정 패널
-        Container(
-          width: 320,
-          color: Colors.white,
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const GuestText('인원 설정', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              _buildCountRow('총 인원', _playerCount, 2, 20, (v) => setState(() { _playerCount = v; _syncControllers(v); _teamResult = []; })),
-              const SizedBox(height: 8),
-              _buildCountRow('팀 수', _teamCount, 2, 10, (v) => setState(() { _teamCount = v; _teamResult = []; })),
-              const SizedBox(height: 20),
-              const GuestText('이름 입력 (선택)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const GuestText('비워두면 번호로 자동 부여', style: TextStyle(fontSize: 12, color: Colors.grey)),
-              const SizedBox(height: 8),
-              Expanded(
-                child: _buildPlayerNameList(clearTeamResult: true),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _teamCount > _playerCount ? null : _divideTeams,
-                  icon: const Icon(Icons.shuffle),
-                  label: const GuestText('랜덤 팀 배분', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kOrange,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                ),
-              ),
-              if (_teamCount > _playerCount)
-                const Padding(
-                  padding: EdgeInsets.only(top: 8),
-                  child: GuestText('⚠ 팀 수가 인원보다 많습니다', style: TextStyle(color: Colors.red, fontSize: 12)),
-                ),
-            ],
-          ),
-        ),
-        const VerticalDivider(width: 1),
-        // 오른쪽: 결과
-        Expanded(
-          child: _teamResult.isEmpty
-              ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.groups, size: 80, color: Colors.grey),
-                      SizedBox(height: 16),
-                      GuestText('인원과 팀 수를 설정하고 랜덤 팀 배분을 눌러주세요',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 20, color: Colors.grey)),
-                    ],
-                  ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: GridView.builder(
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: _teamResult.length <= 3 ? _teamResult.length : 3,
-                      crossAxisSpacing: 16,
-                      mainAxisSpacing: 16,
-                      childAspectRatio: 0.9,
-                    ),
-                    itemCount: _teamResult.length,
-                    itemBuilder: (context, i) {
-                      return Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: _teamColors[i % _teamColors.length], width: 2),
-                          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 8)],
-                        ),
-                        child: Column(
-                          children: [
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              decoration: BoxDecoration(
-                                color: _teamColors[i % _teamColors.length],
-                                borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-                              ),
-                              child: GuestText('${i + 1}팀', textAlign: TextAlign.center,
-                                  style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                            ),
-                            Expanded(
-                              child: ListView.builder(
-                                padding: const EdgeInsets.all(12),
-                                itemCount: _teamResult[i].length,
-                                itemBuilder: (context, j) => Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 4),
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.person, color: _teamColors[i % _teamColors.length], size: 18),
-                                      const SizedBox(width: 8),
-                                      GuestText(_teamResult[i][j], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-        ),
-      ],
     );
   }
 
