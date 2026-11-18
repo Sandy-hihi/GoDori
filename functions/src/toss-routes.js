@@ -527,7 +527,7 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       const r = await data.moveWholeRoom(storeId, fromRoom, toRoom, nowIso, list.map((o) => o.id));
       movedRooms.push({ from: fromRoom, orders: r.orders, calls: r.calls, emptied: r.emptied });
     }
-    console.log(`[토스 플러그인] 포스 ${kind === 'merge' ? `주문 합치기 ${from} → ${to}` : `테이블 옮기기 ${from}`}`
+    console.log(`[토스 플러그인] 포스 ${kind === 'merge' ? `주문 합치기${body.guessed === true ? '(추정 — 합석 신호 없이)' : ''} ${from} → ${to}` : `테이블 옮기기 ${from}`}`
       + ` → ${table.tableTitle || table.tableId || '?'}${toRoom != null ? `(${toRoom}번 방)` : ''} · 고도리 주문 ${list.length}건`
       + `${movedRooms.length ? ` · 방 옮김 ${movedRooms.map((m) => `${m.from}→${toRoom}(주문 ${m.orders}건${m.calls ? `·호출 ${m.calls}건` : ''}${m.emptied ? '' : ' · 원래 방에 다른 손님 남음'})`).join(', ')}` : ''}`);
     return { ok: true, matched: list.length, toRoom, movedRooms };
@@ -751,13 +751,14 @@ function createTossRoutes({ data, stores, live = null, webhookSecret = '', now =
       return { ok: true, menuMap: ((await data.getConfig(user.store)) || {}).menuMap || {} };
     }
     // 113차: 연결 안 된 메뉴를 받을 포스 상품
-    // 115차: 관리자 방 현황판 '결제 대기 비우기' (운영자 /api/ops/toss/room-clear와 같음 — 정산 표시 없이, 패드는 그대로)
+    // 115차: 관리자 방 현황판 비우기 → 116차 '방 비우기': 결제 대기·주문 내역 + 진행 중 주문은 완료로 + 호출 확인 + 그 방 패드 처음 화면
+    //   (운영자 /api/ops/toss/room-clear는 예전대로 결제 대기만 — 패드 그대로)
     if (path === '/api/toss/room-clear' && req.method === 'POST') {
       const room = Number(body.room);
       if (!Number.isInteger(room) || room < 1 || room > 999) throw httpError(400, 'INVALID_ROOM', '방 번호를 확인해 주세요.');
-      const r = await data.clearRoom(user.store, room);
-      console.log(`[토스] 관리자 방 결제 대기 비움 ${user.store} ${room}번 방 — 주문 ${r.open.length}건(${r.open.join(', ')})`);
-      return { ok: true, cleared: r.open.length };
+      const r = await data.resetRoom(user.store, room, new Date(now()).toISOString());
+      console.log(`[토스] 관리자 방 비우기 ${user.store} ${room}번 방 — 결제 대기 ${r.open.length}건(${r.open.join(', ')}) · 진행 중 주문 완료 ${r.orders}건 · 호출 확인 ${r.calls}건`);
+      return { ok: true, cleared: r.open.length, orders: r.orders, calls: r.calls };
     }
     if (path === '/api/toss/etc-item' && req.method === 'POST') {
       await linkedConfig(user.store);

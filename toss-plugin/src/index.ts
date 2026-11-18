@@ -35,10 +35,14 @@
 //     테이블이 바뀌면(table 'update'·'add'·'clear') 5초 뒤 신호 한 번 더 → 서버 기록에 묶인 테이블이 찍힘 (처리 방법은 시험 뒤에 정함)
 //   115차 0.4.2: 단체손님을 풀어도 묶음이 남던 것 — group.tableIds에 자기 테이블이 있고 2개 이상일 때만 묶음으로 봄,
 //     테이블 이벤트를 놓쳐도 1분마다 묶음을 다시 읽어(포스 안이라 무료) 바뀌었을 때만 신호. 토스 묶음 색(group.color)도 보냄
+//   117차 0.4.4: 포스 계산서 금액 — 테이블마다 열린 주문의 합계·결제 전 금액이 바뀌면 서버에 (event kind 'bills')
+//     → 관리자 방 현황판에 '포스 계산서 N원 (포스에서 추가 M원)'. 직원이 포스에서 직접 넣은 메뉴도 금액엔 들어감
+//   116차 0.4.3: 합석 신호(table 'merge')가 안 와도 — 고도리 포스 주문이 취소되면 다른 테이블 주문 중 그만큼 줄이 늘고
+//     같은 상품이 든 주문이 딱 하나면 그 주문으로 합쳐진 것으로 봄(테이블 화면의 주문 줄 수를 시각과 함께 기억)
 import { posPluginSdk } from "@tossplace/pos-plugin-sdk";
 
 const SERVER = "https://godori-pad.web.app";
-const VERSION = "0.4.2";
+const VERSION = "0.4.4";
 const HELLO_EVERY_MS = 10 * 60 * 1000;
 const WAIT_MS = 30 * 1000; // 승인 전·플러그인으로 안 보내는 매장
 const K_TOKEN = "godori.token";
@@ -171,9 +175,31 @@ async function identify(errors: string[]) {
   if (!state.token) state.token = (await posPluginSdk.storage.get(K_TOKEN).catch(() => undefined)) || "";
 }
 
+// 116차: 테이블 화면 주문 줄 수 기록 {포스 주문 ID: [{at, count}]} — 합석 추정용(최근 6개)
+const lineSnap = new Map<string, { at: number; count: number }[]>();
+function snapTables(tables: Obj[]) {
+  const at = Date.now();
+  for (const t of tables) {
+    const o = t && (t.order as Obj | undefined);
+    if (!o || o.id == null) continue;
+    const id = String(o.id);
+    const count = asList(o.lineItems).length;
+    const list = lineSnap.get(id) || [];
+    if (list.length && list[list.length - 1].count === count) continue;
+    lineSnap.set(id, [...list, { at, count }].slice(-6));
+  }
+  if (lineSnap.size > 300) for (const k of [...lineSnap.keys()].slice(0, lineSnap.size - 300)) lineSnap.delete(k);
+}
+function countBefore(id: string, t: number): number | null {
+  const list = (lineSnap.get(id) || []).filter((x) => x.at < t);
+  return list.length ? list[list.length - 1].count : null;
+}
+
 async function readTables(): Promise<{ tables: Obj[]; error: string }> {
   try {
-    return { tables: asList(await posPluginSdk.table.getTables()), error: "" };
+    const tables = asList(await posPluginSdk.table.getTables());
+    snapTables(tables);
+    return { tables, error: "" };
   } catch (e) {
     // 테이블 API는 '음식점 → 후불형 매장'에서만 켜짐
     return { tables: [], error: errText(e) };
@@ -489,6 +515,7 @@ const lastSig = new Map<string, string>();
 const merged = new Set<string>(); // 113차: 다른 주문에 합쳐져 없어진 포스 주문
 async function report(posOrderId: string, why: string) {
   const id = String(posOrderId);
+  const startedAt = Date.now();
   try {
     const mine = await loadJson<string[]>(K_MINE, []);
     if (!mine.includes(id) || merged.has(id)) return; // 고도리 주문이 안 들어간(또는 합쳐진) 포스 주문
@@ -498,6 +525,7 @@ async function report(posOrderId: string, why: string) {
     if (st === "CANCELLED") {
       await sleep(4000); // 합치기면 'merge' 신호가 곧 옴 — 그때는 취소로 보내지 않음
       if (merged.has(id)) return;
+      if (await guessMerge(id, order, startedAt)) return; // 116차: 신호가 안 와도 합석이면
     }
     const pp = (order.paymentPrice || {}) as Obj;
     const paid = num(pp.paymentPaidValue);
@@ -530,6 +558,49 @@ async function recheck() {
   }
 }
 
+// 116차: 취소된 고도리 포스 주문이 다른 테이블 주문에 합쳐졌는지 추정 — 취소 알기 전 줄 수보다 그 주문 줄 수만큼 이상 늘었고
+//   (주문 줄이 남아 있으면) 같은 상품이 다 들어 있는 열린 주문이 딱 하나일 때만
+function itemKey(l: Obj): string {
+  return String((l.item && l.item.id) ?? (l.item && l.item.title) ?? "");
+}
+function containsItems(lines: Obj[], mine: Obj[]): boolean {
+  const have = new Map<string, number>();
+  for (const l of lines) have.set(itemKey(l), (have.get(itemKey(l)) || 0) + (Number(l.quantity && l.quantity.value) || 1));
+  const need = new Map<string, number>();
+  for (const l of mine) need.set(itemKey(l), (need.get(itemKey(l)) || 0) + (Number(l.quantity && l.quantity.value) || 1));
+  for (const [k, n] of need) if ((have.get(k) || 0) < n) return false;
+  return true;
+}
+async function guessMerge(id: string, order: Obj, before: number): Promise<boolean> {
+  try {
+    const myLines = asList(order.lineItems);
+    const myCount = countBefore(id, before) ?? myLines.length;
+    if (!myCount) return false;
+    const { tables, error } = await readTables();
+    if (error) return false;
+    const cands: { orderId: string; tableId: number }[] = [];
+    for (const t of tables) {
+      const o = t.order as Obj | undefined;
+      if (!o || o.id == null || String(o.id) === id) continue;
+      const was = countBefore(String(o.id), before);
+      if (was == null) continue;
+      const lines = asList(o.lineItems);
+      if (lines.length - was < myCount) continue;
+      if (myLines.length && !containsItems(lines, myLines)) continue;
+      cands.push({ orderId: String(o.id), tableId: Number(t.id) });
+    }
+    if (cands.length !== 1) {
+      if (cands.length > 1) console.log("[고도리] 합석 추정 후보가 여러 개라 취소로 봄", id, cands);
+      return false;
+    }
+    await onMerge({ from: { order: { id } }, to: { order: { id: cands[0].orderId }, table: { id: cands[0].tableId } } }, true);
+    return merged.has(id);
+  } catch (e) {
+    console.log("[고도리] 합석 추정 실패", id, errText(e));
+    return false;
+  }
+}
+
 // 113차: 테이블 옮기기·합치기
 async function tableTitleOf(tableId: unknown): Promise<string> {
   const { tables } = await readTables();
@@ -547,7 +618,7 @@ async function onMove(p: Obj) {
     console.log("[고도리] 테이블 옮기기 알리기 실패", errText(e));
   }
 }
-async function onMerge(p: Obj) {
+async function onMerge(p: Obj, guessed = false) {
   try {
     const from = String((p && p.from && p.from.order && p.from.order.id) || "");
     const to = String((p && p.to && p.to.order && p.to.order.id) || "");
@@ -559,6 +630,7 @@ async function onMerge(p: Obj) {
     const toTableId = p.to && p.to.table ? p.to.table.id : null;
     await post("event", {
       ...who(), kind: "merge", fromPosOrderId: from, toPosOrderId: to, toTableId, toTableTitle: await tableTitleOf(toTableId),
+      ...(guessed ? { guessed: true } : {}),
     });
     lastSig.delete(to);
     report(to, "merge");
@@ -577,11 +649,39 @@ function tableChanged() {
     tableTimer = null;
     const { tables, error } = await readTables();
     if (error) return;
+    await sendBills(tables); // 117차
     const sig = groupSigOf(tables);
     if (sig === lastGroupSig) return;
     lastGroupSig = sig;
     hello("table");
   }, 5000);
+}
+
+// 117차: 테이블마다 열린 포스 주문 계산서(합계·결제 전) — 바뀌었을 때만 서버에 (승인된 기기만)
+let lastBillSig: string | null = null;
+async function sendBills(tables: Obj[]) {
+  if (!state.approved) return;
+  const bills = tables
+    .filter((t) => t.order && t.order.id != null && ["OPENED", "REQUESTED", undefined].includes(t.order.orderState))
+    .map((t) => {
+      const o = t.order as Obj;
+      const pp = (o.paymentPrice || {}) as Obj;
+      const cp = (o.chargePrice || {}) as Obj;
+      const paid = num(pp.paymentPaidValue);
+      const unpaid = num(pp.paymentUnpaidValue);
+      const total = num(cp.chargePriceValue) || paid + unpaid;
+      return { tableId: Number(t.id), tableTitle: String(t.title ?? ""), posOrderId: String(o.id), total, paid, unpaid, lines: asList(o.lineItems).length };
+    })
+    .sort((a, b) => a.tableId - b.tableId)
+    .slice(0, 100);
+  const sig = bills.map((b) => `${b.tableId}:${b.posOrderId}:${b.total}:${b.paid}:${b.unpaid}`).join("|");
+  if (sig === lastBillSig) return;
+  try {
+    const { code } = await post("event", { ...who(), kind: "bills", bills });
+    if (code === 200) lastBillSig = sig;
+  } catch (e) {
+    console.log("[고도리] 계산서 알리기 실패", errText(e));
+  }
 }
 
 // 113차: 오늘(최근 24시간) 열린 포스 주문을 훑어 세트 구성품 덧붙이기 — 포스가 꺼져 있던 동안 들어온 세트 주문
@@ -611,13 +711,23 @@ async function main() {
     console.log("[고도리] 오류 리스너 못 붙임", errText(e));
   }
   try {
-    posPluginSdk.order.on("complete", (id) => report(String(id), "complete"));
+    posPluginSdk.order.on("complete", (id) => {
+      report(String(id), "complete");
+      tableChanged(); // 117차: 계산서 금액
+    });
     posPluginSdk.order.on("update", (id) => {
       report(String(id), "update");
+      tableChanged(); // 117차: 포스에서 메뉴를 더 넣으면 계산서 금액
       kickSetParts(String(id)); // 103차: 직원이 포스에서 세트를 더 넣었을 때도
     });
-    posPluginSdk.order.on("add", (id) => kickSetParts(String(id)));
-    posPluginSdk.payment.on("paid", (_paymentId, orderId) => report(String(orderId), "paid"));
+    posPluginSdk.order.on("add", (id) => {
+      kickSetParts(String(id));
+      tableChanged();
+    });
+    posPluginSdk.payment.on("paid", (_paymentId, orderId) => {
+      report(String(orderId), "paid");
+      tableChanged();
+    });
     posPluginSdk.payment.on("cancel", (_paymentId, orderId) => report(String(orderId), "pay-cancel")); // 113차: 결제 취소도
   } catch (e) {
     post("hello", { stage: "error", reason: "events", errors: [`on: ${errText(e)}`] }).catch(() => undefined);

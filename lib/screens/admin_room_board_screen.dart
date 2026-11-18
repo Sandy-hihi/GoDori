@@ -381,16 +381,23 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
           ),
         ),
         actions: [
-          // 115차: 운영자 페이지에만 있던 '방 결제 대기 비우기'를 관리자도 — 포스에서 이미 끝난 주문이 남아 정산이 안 될 때
-          if (e.openCount > 0 || e.cycle.isNotEmpty)
+          // 115차: 운영자 페이지에만 있던 '방 결제 대기 비우기'를 관리자도 → 116차 '방 비우기'(손님이 나간 방 정리)
+          //   결제 대기·주문 내역 + 진행 중 주문은 완료로 + 확인 안 한 호출은 확인으로 + 그 방 패드 처음 화면
+          if (e.state != RoomBoardState.empty)
             TextButton(
               onPressed: () async {
+                final parts = [
+                  if (e.openCount > 0) '결제 대기 ${e.openCount}건',
+                  if (e.orders.isNotEmpty) '진행 중 주문 ${e.orders.length}건 → 완료',
+                  if (e.calls.isNotEmpty) '직원 호출 ${e.calls.length}건 → 확인',
+                ];
                 final ok = await showBusyConfirm(
                   ctx,
-                  title: '${e.room}번 방 결제 대기 비우기',
-                  message: '이 방의 결제 대기와 주문 내역을 비워요.\n'
-                      '포스에서 이미 결제했거나 지운 주문이 남아 정산이 안 될 때 쓰세요.\n'
-                      '포스 주문과 손님 패드 화면은 바뀌지 않아요.',
+                  title: '${e.room}번 방 비우기',
+                  message: '손님이 나간 방을 정리해요.\n'
+                      '${parts.isEmpty ? '' : '${parts.join(' · ')}\n'}'
+                      '주문 내역을 비우고, 그 방 손님 패드는 처음 화면(기본 언어)으로 돌아가요.\n'
+                      '포스 주문은 바뀌지 않아요.',
                   confirmLabel: '비우기',
                   errorText: '비우지 못했어요',
                   action: () => TossPosService.clearRoom(e.room),
@@ -398,7 +405,7 @@ class _AdminRoomBoardScreenState extends State<AdminRoomBoardScreen> {
                 if (ok && ctx.mounted) Navigator.pop(ctx);
               },
               style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
-              child: const Text('결제 대기 비우기'),
+              child: const Text('방 비우기'),
             ),
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기')),
         ],

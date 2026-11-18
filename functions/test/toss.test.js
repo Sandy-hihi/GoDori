@@ -849,5 +849,8 @@ test('115차: 1번·2번 손님 자리 맞교환 — 각자 주문이 서로 바
   assert.equal((await call('POST', '/api/toss/room-clear', { token: 'pad3', body: { room: 2 } })).status, 403);
   const c = await call('POST', '/api/toss/room-clear', { token: 'admin', body: { room: 2 } });
   assert.equal(c.body.cleared, 1);
+  assert.equal(c.body.orders, 1); // 116차: 진행 중 주문(a)도 완료로
   assert.deepEqual(data.rooms.get('platform6/2').open, []);
+  assert.equal((await data.getOrder('platform6', 'a')).status, 'completed');
+  assert.ok(data.rooms.get('platform6/2').settledAt);
 });

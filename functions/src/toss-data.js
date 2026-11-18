@@ -198,12 +198,12 @@ function createFirestoreTossData(db) {
         const tRef = roomRef(storeId, toRoom);
         const [f, t, active, calls] = await Promise.all([
           tx.get(fRef), tx.get(tRef),
-          tx.get(col.where('room', '==', roomTag).where('status', 'in', ['pending', 'preparing', 'ready'])),
+          tx.get(col.where('status', 'in', ['pending', 'preparing', 'ready'])), // 진행 중 주문만(적음) — 방은 아래에서 거름(색인 없이)
           tx.get(callsCol.where('isAcknowledged', '==', false)),
         ]);
         const fd = f.exists ? f.data() : {};
         const want = new Set((moveIds || []).map(String));
-        const cand = new Set([...want, ...active.docs.map((d) => d.id)]);
+        const cand = new Set([...want, ...active.docs.filter((d) => d.data().room === roomTag).map((d) => d.id)]);
         for (const id of Array.isArray(fd.open) ? fd.open : []) cand.add(String(id));
         for (const e of Array.isArray(fd.cycle) ? fd.cycle : []) if (e && e.id != null) cand.add(String(e.id));
         const refs = [...cand].map((id) => col.doc(id));
@@ -271,6 +271,31 @@ function createFirestoreTossData(db) {
       const before = d.exists ? d.data() : {};
       await ref.set({ open: [], paidInCycle: false, cycle: [], posPayment: null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       return { open: Array.isArray(before.open) ? before.open.map(String) : [] };
+    },
+    // 116차: 관리자 방 현황판 '방 비우기' — 결제 대기·주문 내역 비움 + 그 방 진행 중 주문은 완료로 + 확인 안 한 호출은 확인으로
+    //   + settledAt(그 방 패드가 처음 화면·기본 언어로)
+    async resetRoom(storeId, room, atIso) {
+      const ref = roomRef(storeId, room);
+      const [d, orders, calls] = await Promise.all([
+        ref.get(),
+        store(storeId).collection('orders').where('status', 'in', ['pending', 'preparing', 'ready']).get(), // 방은 아래에서 거름(색인 없이)
+        store(storeId).collection('staff_calls').where('isAcknowledged', '==', false).get(),
+      ]);
+      const before = d.exists ? d.data() : {};
+      const batch = db.batch();
+      batch.set(ref, {
+        open: [], cycle: [], paidInCycle: false, posPayment: null, movedTo: null, settledAt: atIso, updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      const mine = orders.docs.filter((o) => o.data().room === `#${Number(room)}`);
+      for (const o of mine) batch.update(o.ref, { status: 'completed', clearedByRoomResetAt: atIso });
+      let callCount = 0;
+      for (const c of calls.docs) {
+        if (Number(c.data().roomNumber) !== Number(room)) continue;
+        batch.update(c.ref, { isAcknowledged: true });
+        callCount++;
+      }
+      await batch.commit();
+      return { open: Array.isArray(before.open) ? before.open.map(String) : [], orders: mine.length, calls: callCount };
     },
     async addFakeOrder(merchantId, order) {
       const ref = db.collection('_tossSandbox').doc(String(merchantId)).collection('orders').doc(String(order.id));
@@ -527,6 +552,19 @@ function createMemoryTossData({ menus = {}, orders = {} } = {}) {
     async listRooms(s) {
       return [...rooms.entries()].filter(([k]) => k.startsWith(`${s}/`))
         .map(([k, v]) => ({ room: k.split('/')[1], ...JSON.parse(JSON.stringify(v)) }));
+    },
+    async resetRoom(s, r, atIso) {
+      const k = `${s}/${r}`;
+      const cur = rooms.get(k) || {};
+      rooms.set(k, { ...cur, open: [], cycle: [], paidInCycle: false, posPayment: null, movedTo: null, settledAt: atIso });
+      let n = 0;
+      for (const [key, o] of ordersMap.entries()) {
+        if (key.startsWith(`${s}/`) && o.room === `#${Number(r)}` && ['pending', 'preparing', 'ready'].includes(o.status)) {
+          o.status = 'completed';
+          n++;
+        }
+      }
+      return { open: Array.isArray(cur.open) ? cur.open.map(String) : [], orders: n, calls: 0 };
     },
     async clearRoom(s, r) {
       const k = `${s}/${r}`;
