@@ -62,9 +62,14 @@ class WifiWidget extends StatelessWidget {
       security: _open ? 'nopass' : 'WPA',
       hidden: options['hidden'] == true,
     );
-    if (slim) return _slimLine();
-    if (wide) return _wide(data);
-    return _qrView ? _qrOnly(data) : _textOnly();
+    final Widget card = slim ? _slimLine() : (wide ? _wide(data) : (_qrView ? _qrOnly(data) : _textOnly()));
+    if (preview) return card;
+    // 136차: 누르면 QR·이름·비밀번호를 크게 보여 주는 창
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => showWifiDetails(context, ssid: _ssid, password: _password, open: _open, qrData: data),
+      child: card,
+    );
   }
 
   // 0.5칸: 📶 이름 | 비밀번호 ●●● (길면 작아짐)
@@ -223,4 +228,111 @@ String wifiQrData({required String ssid, String password = '', String security =
   if (hidden) b.write('H:true;');
   b.write(';');
   return b.toString();
+}
+
+/// 136차: 와이파이 위젯을 누르면 뜨는 창 — QR·와이파이 이름·비밀번호를 크게
+Future<void> showWifiDetails(
+  BuildContext context, {
+  required String ssid,
+  required String password,
+  required bool open,
+  required String qrData,
+}) {
+  const accent = Color(0xFFB5751E);
+  const sub = Color(0xFF8A7F70);
+  Widget big(String text, double size) => FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: Text(text,
+            maxLines: 1,
+            style: TextStyle(fontSize: size, fontWeight: FontWeight.w800, color: kInk, letterSpacing: 0.3)),
+      );
+  return showDialog<void>(
+    context: context,
+    barrierColor: Colors.black.withValues(alpha: 0.45),
+    builder: (ctx) => Dialog(
+      backgroundColor: kBg,
+      surfaceTintColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(28, 22, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: const BoxDecoration(color: Color(0xFFFFF1DC), shape: BoxShape.circle),
+                  child: const Icon(Icons.wifi, color: accent),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: GuestText('와이파이', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: kInk)),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  tooltip: guestTr(ctx, '닫기'),
+                  icon: const Icon(Icons.close_rounded, color: sub),
+                ),
+              ]),
+              const SizedBox(height: 18),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 260,
+                    height: 260,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+                    child: QrImageView(
+                      data: qrData,
+                      padding: EdgeInsets.zero,
+                      backgroundColor: Colors.white,
+                      eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: kInk),
+                      dataModuleStyle:
+                          const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: kInk),
+                    ),
+                  ),
+                  const SizedBox(width: 28),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const GuestText('와이파이 이름', style: TextStyle(fontSize: 15, color: sub)),
+                        const SizedBox(height: 4),
+                        big(ssid, 34),
+                        const SizedBox(height: 22),
+                        const GuestText('비밀번호', style: TextStyle(fontSize: 15, color: sub)),
+                        const SizedBox(height: 4),
+                        if (open)
+                          const GuestText('비밀번호 없음',
+                              style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, color: sub))
+                        else
+                          big(password, 34),
+                        const SizedBox(height: 24),
+                        Row(children: [
+                          const Icon(Icons.qr_code_2, color: accent, size: 20),
+                          const SizedBox(width: 6),
+                          const Flexible(
+                            child: GuestText('카메라로 찍으면 바로 연결돼요',
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: accent)),
+                          ),
+                        ]),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }

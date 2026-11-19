@@ -1770,7 +1770,8 @@ class _WidgetPickerDialog extends StatelessWidget {
   Widget _tile(BuildContext context, WidgetSpec spec) {
     final a = area;
     final fit = a == null ? null : HomeLayout.fitSize(spec, a.w, a.h);
-    // 빈칸에서 열었는데 안 들어가는 위젯 / 위젯 추가에서 어디에도 안 들어가는 위젯 → 흐리게 + 이유
+    // 빈칸에서 열었는데 안 들어가는 위젯 / 위젯 추가에서 어디에도 안 들어가는 위젯 → 이유 문구(주황) + 금지 아이콘
+    // 136차: 글자를 흐리게 하면 잘 안 보여서 흐리게 하지 않음 (사용자)
     final blocked = a != null ? fit == null : noRoom.contains(spec.type);
     final sizes = spec.sizes.map((s) => s.label).join(', ');
     final String sub;
@@ -1788,18 +1789,16 @@ class _WidgetPickerDialog extends StatelessWidget {
         : parkedTypes.contains(spec.type)
             ? '보관함에 있음'
             : null;
-    return Opacity(
-      opacity: blocked ? 0.45 : 1,
-      child: ListTile(
-        leading: Icon(spec.icon, color: _adminNavy),
-        title: Text(spec.name),
-        subtitle: Text(sub, style: TextStyle(color: blocked ? const Color(0xFFB4532A) : null)),
-        trailing: status != null
-            ? Text(status, style: const TextStyle(color: Colors.black45, fontSize: 12))
-            : Icon(blocked ? Icons.block : Icons.add_circle_outline),
-        // 빈칸에서 연 창은 안 들어가는 위젯을 못 누름, 위젯 추가 창은 눌러도 이유를 알려 줌
-        onTap: a != null && blocked ? null : () => Navigator.pop(context, spec),
-      ),
+    return ListTile(
+      leading: Icon(spec.icon, color: _adminNavy),
+      title: Text(spec.name),
+      subtitle: Text(sub, style: TextStyle(color: blocked ? const Color(0xFFB4532A) : null)),
+      trailing: status != null
+          ? Text(status, style: const TextStyle(color: Colors.black54, fontSize: 12))
+          : Icon(blocked ? Icons.block : Icons.add_circle_outline,
+              color: blocked ? const Color(0xFFB4532A) : null),
+      // 빈칸에서 연 창은 안 들어가는 위젯을 못 누름, 위젯 추가 창은 눌러도 이유를 알려 줌
+      onTap: a != null && blocked ? null : () => Navigator.pop(context, spec),
     );
   }
 }
