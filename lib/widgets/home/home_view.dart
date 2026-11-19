@@ -21,6 +21,9 @@ class HomeView extends StatelessWidget {
   final String? highlightId; // 관리자 미리보기에서 선택한 위젯 강조
   final bool highlightSidebar;
 
+  /// 관리자 홈 꾸미기 미리보기면 true — 비어 있는 와이파이 위젯도 안내 카드로 보임(손님 화면에선 숨김, 133차)
+  final bool preview;
+
   /// 그리는 크기. 관리자 미리보기는 기준 크기(1280×800) 그대로,
   /// 손님 화면은 기기 비율에 맞춘 크기(HomeLayout.designSizeFor)를 넘겨 꽉 차게 그림
   final Size size;
@@ -31,6 +34,7 @@ class HomeView extends StatelessWidget {
     this.roomNumber,
     this.highlightId,
     this.highlightSidebar = false,
+    this.preview = false,
     this.size = const Size(HomeLayout.designWidth, HomeLayout.designHeight),
   });
 
@@ -126,7 +130,7 @@ class HomeView extends StatelessWidget {
                       key: ValueKey(
                         '${item.id}-${item.type}-${item.w}x${item.h}',
                       ),
-                      child: buildGridWidget(context, item, roomNumber),
+                      child: buildGridWidget(context, item, roomNumber, preview: preview),
                     ),
                     if (item.id == highlightId)
                       IgnorePointer(child: _highlightBox()),

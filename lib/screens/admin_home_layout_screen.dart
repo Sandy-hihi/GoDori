@@ -208,7 +208,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                                   borderRadius: BorderRadius.circular(8),
                                   // 미리보기는 눌러지지 않게
                                   child: IgnorePointer(
-                                    child: FittedBox(child: HomeView(layout: p.layout, roomNumber: 1)),
+                                    child: FittedBox(child: HomeView(layout: p.layout, roomNumber: 1, preview: true)),
                                   ),
                                 ),
                               ),
@@ -695,6 +695,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                       layout: _layout!,
                       roomNumber: 7,
                       highlightSidebar: _tab == 1,
+                      preview: true,
                     ),
                   ),
                   if (_tab == 0)
@@ -918,8 +919,9 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
         children: [
           SegmentedButton<int>(
             segments: const [
-              ButtonSegment(value: 0, label: Text('격자 위젯'), icon: Icon(Icons.grid_view)),
+              // 왼쪽 영역 버튼을 왼쪽에 (미리보기 화면 배치와 같은 방향)
               ButtonSegment(value: 1, label: Text('왼쪽 영역'), icon: Icon(Icons.view_sidebar_outlined)),
+              ButtonSegment(value: 0, label: Text('격자 위젯'), icon: Icon(Icons.grid_view)),
             ],
             selected: {_tab},
             onSelectionChanged: (s) => setState(() => _tab = s.first),
@@ -1303,10 +1305,54 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
           Widget body;
           switch (type) {
             case 'wifi':
-              body = Column(mainAxisSize: MainAxisSize.min, children: [
-                TextField(controller: c1, decoration: const InputDecoration(labelText: '와이파이 이름')),
+              // 133차: 격자 위젯은 접속 QR(패드가 이름·비밀번호로 만듦) + 1×1 보기 고르기
+              final open = o['security'] == 'nopass';
+              final qrView = o['view'] == 'qr';
+              body = Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                TextField(controller: c1, decoration: const InputDecoration(labelText: '와이파이 이름 (대소문자·띄어쓰기까지 똑같이)')),
                 const SizedBox(height: 12),
-                TextField(controller: c2, decoration: const InputDecoration(labelText: '비밀번호')),
+                TextField(
+                  controller: c2,
+                  enabled: !open,
+                  onChanged: (_) => setDlg(() {}),
+                  decoration: InputDecoration(labelText: open ? '비밀번호 없음' : '비밀번호'),
+                ),
+                if (!sidebar) ...[
+                  const SizedBox(height: 10),
+                  CheckboxListTile(
+                    value: open,
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: const Text('비밀번호 없는 와이파이'),
+                    onChanged: (v) => setDlg(() => o['security'] = v == true ? 'nopass' : 'WPA'),
+                  ),
+                  CheckboxListTile(
+                    value: o['hidden'] == true,
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: const Text('숨긴 네트워크 (와이파이 목록에 안 보임)'),
+                    onChanged: (v) => setDlg(() => o['hidden'] = v == true),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('1×1 크기일 때 보여줄 것', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'qr', label: Text('접속 QR'), icon: Icon(Icons.qr_code_2)),
+                      ButtonSegment(value: 'text', label: Text('이름·비밀번호'), icon: Icon(Icons.wifi)),
+                    ],
+                    selected: {qrView ? 'qr' : 'text'},
+                    onSelectionChanged: (s) => setDlg(() => o['view'] = s.first),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '2×1 크기는 QR과 이름·비밀번호를 같이 보여줘요. QR은 손님이 휴대폰 카메라로 찍으면 바로 연결돼요.'
+                    '${!qrView && !open && c2.text.trim().length > 14 ? '\n비밀번호가 길어서 1×1 글자 칸에선 작게 보여요 — 접속 QR이나 2×1을 추천해요.' : ''}',
+                    style: const TextStyle(fontSize: 12, color: Colors.black54, height: 1.4),
+                  ),
+                ],
               ]);
               break;
             case 'qr':
@@ -1487,7 +1533,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                   switch (type) {
                     case 'wifi':
                       o['ssid'] = c1.text.trim();
-                      o['password'] = c2.text.trim();
+                      o['password'] = o['security'] == 'nopass' ? '' : c2.text.trim();
                       break;
                     case 'qr':
                       o['url'] = c1.text.trim();

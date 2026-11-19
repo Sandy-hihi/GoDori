@@ -1634,5 +1634,15 @@ const guestMessages = <String, List<String>> {
     "Slowest",
     "最慢",
     "最遅"
+  ],
+  "카메라로 찍으면 바로 연결돼요": [
+    "Scan with your camera to connect",
+    "用手机相机扫码即可连接",
+    "スマホのカメラで読み取るとすぐ接続できます"
+  ],
+  "비밀번호 없음": [
+    "No password",
+    "无需密码",
+    "パスワードなし"
   ]
 };

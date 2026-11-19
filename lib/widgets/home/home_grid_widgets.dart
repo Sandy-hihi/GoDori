@@ -19,10 +19,12 @@ import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/home_common.dart';
 import 'ai_recommend_dialog.dart';
 import 'home_theme.dart';
+import 'wifi_widget.dart';
 import 'package:boardpad/services/store_scope.dart';
 
 /// 격자 위젯 하나 그리기
-Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
+/// preview: 관리자 홈 꾸미기 미리보기 (손님 화면이면 false — 비어 있는 위젯은 숨기는 등, 133차)
+Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber, {bool preview = false}) {
   final o = item.options;
   switch (item.type) {
     case 'gameList':
@@ -234,28 +236,8 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber) {
         onTap: () => openHomeTarget(context, 'notice', roomNumber),
       );
     case 'wifi':
-      return HomeCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Icon(Icons.wifi, color: Color(0xFFB5751E), size: 28),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                GuestText(_optStr(o, 'ssid') ?? '와이파이 이름',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: kInk)),
-                GuestText(_optStr(o, 'password') ?? '비밀번호를 입력해 주세요',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13, color: Color(0xFF6F665B))),
-              ],
-            ),
-          ],
-        ),
-      );
+      // 133차: 1×1 QR·글자 중 하나 / 2×1 QR + 이름·비밀번호 (wifi_widget.dart)
+      return WifiWidget(options: o, wide: item.w >= 2, preview: preview);
     case 'qr':
       return HomeCard(
         padding: const EdgeInsets.all(14),

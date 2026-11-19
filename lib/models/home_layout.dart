@@ -93,7 +93,8 @@ const List<WidgetSpec> widgetCatalog = [
   WidgetSpec('fee', '요금 안내', '요금표 (직접 입력)', Icons.payments_outlined, WidgetCategory.info, [WidgetSize(2, 2)],
       hasOptions: true),
   WidgetSpec('info', '이용안내', '이용안내 화면 바로가기', Icons.article_outlined, WidgetCategory.info, [WidgetSize(1, 2)]),
-  WidgetSpec('wifi', '와이파이', '와이파이 이름·비밀번호', Icons.wifi, WidgetCategory.info, [WidgetSize(1, 2)],
+  // 133차: 1×1(QR 또는 글자) · 2×1(QR + 이름·비밀번호)
+  WidgetSpec('wifi', '와이파이', '접속 QR·이름·비밀번호', Icons.wifi, WidgetCategory.info, [WidgetSize(1, 2), WidgetSize(2, 2)],
       hasOptions: true),
   WidgetSpec('qr', '인스타·리뷰 QR', '링크를 QR로 보여주기', Icons.qr_code_2, WidgetCategory.info, [WidgetSize(1, 2)],
       hasOptions: true),
