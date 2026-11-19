@@ -62,6 +62,17 @@ class WifiWidget extends StatelessWidget {
       security: _open ? 'nopass' : 'WPA',
       hidden: options['hidden'] == true,
     );
+    // 137차: 1×0.5 = 흰 알약 '와이파이' 버튼 — 누르면 큰 창 (미리보기에선 안 열림)
+    if (slim && !wide) {
+      return HomePillButton(
+        icon: Icons.wifi,
+        iconColor: _accent,
+        label: '와이파이',
+        onTap: preview
+            ? () {}
+            : () => showWifiDetails(context, ssid: _ssid, password: _password, open: _open, qrData: data),
+      );
+    }
     final Widget card = slim ? _slimLine() : (wide ? _wide(data) : (_qrView ? _qrOnly(data) : _textOnly()));
     if (preview) return card;
     // 136차: 누르면 QR·이름·비밀번호를 크게 보여 주는 창

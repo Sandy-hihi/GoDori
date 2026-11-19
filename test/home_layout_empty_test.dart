@@ -31,6 +31,7 @@ void main() {
     expect(HomeLayout.fitSize(wifi, 3, 1), const WidgetSize(3, 1));
     expect(HomeLayout.fitSize(wifi, 2, 1), const WidgetSize(2, 1));
     expect(HomeLayout.fitSize(wifi, 1, 2), const WidgetSize(1, 2));
+    expect(HomeLayout.fitSize(wifi, 1, 1), const WidgetSize(1, 1)); // 137차 1×0.5 버튼
     expect(HomeLayout.fitSize(specOf('dice')!, 3, 1), isNull);
     final layout = photoLayout();
     expect(layout.findSpot(3, 1), (x: 1, y: 7));

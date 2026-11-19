@@ -111,8 +111,9 @@ const List<WidgetSpec> widgetCatalog = [
       Icons.storefront_outlined, WidgetCategory.info, [WidgetSize(2, 2), WidgetSize(2, 3), WidgetSize(1, 2)],
       hasOptions: true),
   // 133차: 1×1(QR 또는 글자) · 2×1(QR + 이름·비밀번호) · 135차: 3×0.5·2×0.5(이름·비밀번호 한 줄)
+  // 137차: 1×0.5(와이파이 버튼 — 누르면 큰 창)
   WidgetSpec('wifi', '와이파이', '접속 QR·이름·비밀번호', Icons.wifi, WidgetCategory.info,
-      [WidgetSize(1, 2), WidgetSize(2, 2), WidgetSize(3, 1), WidgetSize(2, 1)],
+      [WidgetSize(1, 2), WidgetSize(2, 2), WidgetSize(3, 1), WidgetSize(2, 1), WidgetSize(1, 1)],
       hasOptions: true),
   WidgetSpec('qr', '인스타·리뷰 QR', '링크를 QR로 보여주기', Icons.qr_code_2, WidgetCategory.info, [WidgetSize(1, 2)],
       hasOptions: true),

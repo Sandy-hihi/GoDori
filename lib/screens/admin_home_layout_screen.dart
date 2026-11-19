@@ -1401,7 +1401,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '2×1 크기는 QR과 이름·비밀번호를 같이, 얇은 크기(2×0.5·3×0.5)는 이름·비밀번호를 한 줄로 보여줘요. QR은 손님이 휴대폰 카메라로 찍으면 바로 연결돼요.'
+                    '2×1 크기는 QR과 이름·비밀번호를 같이, 얇은 크기(2×0.5·3×0.5)는 이름·비밀번호를 한 줄로, 1×0.5는 \'와이파이\' 버튼만 보여줘요(누르면 QR·이름·비밀번호 큰 창). QR은 손님이 휴대폰 카메라로 찍으면 바로 연결돼요.'
                     '${!qrView && !open && c2.text.trim().length > 14 ? '\n비밀번호가 길어서 1×1 글자 칸에선 작게 보여요 — 접속 QR이나 2×1을 추천해요.' : ''}',
                     style: const TextStyle(fontSize: 12, color: Colors.black54, height: 1.4),
                   ),
