@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'admin_store_settings_screen.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'package:boardpad/models/home_extra.dart' show StoreHours;
 import 'package:boardpad/models/home_layout.dart';
 import 'package:boardpad/services/home_layout_service.dart';
 import 'package:boardpad/utils/image_helper.dart';
@@ -287,27 +288,67 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
       builder: (ctx) => _WidgetPickerDialog(
         placedTypes: layout.widgets.map((e) => e.type).toSet(),
         parkedTypes: layout.parked.map((e) => e.type).toSet(),
+        noRoom: {
+          for (final s in widgetCatalog)
+            if (!s.sizes.any((z) => layout.findSpot(z.w, z.h) != null)) s.type,
+        },
       ),
     );
     if (spec == null) return;
     for (final size in spec.sizes) {
       final spot = layout.findSpot(size.w, size.h);
       if (spot != null) {
-        final item = GridItem(
-          id: 'w${DateTime.now().millisecondsSinceEpoch}',
-          type: spec.type,
-          x: spot.x,
-          y: spot.y,
-          w: size.w,
-          h: size.h,
-        );
-        _update(layout.copyWith(widgets: [...layout.widgets, item]));
-        setState(() => _selectedId = item.id);
-        if (spec.hasOptions) await _editGridOptions(item);
+        await _placeNew(spec, spot.x, spot.y, size);
         return;
       }
     }
-    _snack('빈자리가 없어요. 다른 위젯을 보관함으로 끌어 놓거나 작게 줄인 뒤 다시 넣어 주세요.');
+    _warn(_noRoomMessage(spec, layout));
+  }
+
+  /// 135차: 미리보기 빈칸(＋)을 눌러 그 자리에 넣기 — 들어가는 위젯만 고를 수 있음
+  Future<void> _addWidgetAt(({int x, int y, int w, int h}) area) async {
+    final layout = _layout!;
+    final spec = await showDialog<WidgetSpec>(
+      context: context,
+      builder: (ctx) => _WidgetPickerDialog(
+        placedTypes: layout.widgets.map((e) => e.type).toSet(),
+        parkedTypes: layout.parked.map((e) => e.type).toSet(),
+        area: area,
+      ),
+    );
+    if (spec == null || !mounted) return;
+    final size = HomeLayout.fitSize(spec, area.w, area.h);
+    if (size == null) {
+      _warn(_noRoomMessage(spec, layout));
+      return;
+    }
+    await _placeNew(spec, area.x, area.y, size);
+  }
+
+  Future<void> _placeNew(WidgetSpec spec, int x, int y, WidgetSize size) async {
+    final layout = _layout!;
+    final item = GridItem(
+      id: 'w${DateTime.now().millisecondsSinceEpoch}',
+      type: spec.type,
+      x: x,
+      y: y,
+      w: size.w,
+      h: size.h,
+    );
+    _update(layout.copyWith(widgets: [...layout.widgets, item]));
+    setState(() => _selectedId = item.id);
+    if (spec.hasOptions) await _editGridOptions(item);
+  }
+
+  /// 135차: 자리가 없을 때 — 필요한 크기와 지금 빈자리를 같이 알려 줌
+  String _noRoomMessage(WidgetSpec spec, HomeLayout layout) {
+    final need = spec.sizes.map((s) => s.label).join(' · ');
+    final areas = layout.emptyAreas()..sort((a, b) => (b.w * b.h).compareTo(a.w * a.h));
+    final free = areas.isEmpty
+        ? '지금 빈자리가 없어요.'
+        : '지금 빈자리는 ${areas.take(3).map((a) => WidgetSize(a.w, a.h).label).join(', ')}${areas.length > 3 ? ' 등' : ''}이에요.';
+    return '${spec.name}은(는) $need 크기만 쓸 수 있어요. $free '
+        '다른 위젯을 작게 줄이거나 보관함으로 옮긴 뒤 넣어 주세요.';
   }
 
   /// 다른 위젯 위에 놓아서 자리 바꾸기
@@ -383,7 +424,11 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
         return;
       }
     }
-    _warn('빈자리가 없어요. 다른 위젯을 보관함으로 옮긴 뒤 다시 넣어 주세요.');
+    if (spec != null) {
+      _warn(_noRoomMessage(spec, layout));
+    } else {
+      _warn('빈자리가 없어요. 다른 위젯을 보관함으로 옮긴 뒤 다시 넣어 주세요.');
+    }
   }
 
   void _deleteParked(GridItem item) {
@@ -712,6 +757,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                         onPark: _park,
                         onUnpark: _unpark,
                         onMoveDragChanged: _onMoveDragChanged,
+                        onAddAt: _addWidgetAt,
                       ),
                     ),
                 ],
@@ -729,7 +775,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
       _tab == 0
           ? below
               ? '위젯을 끌어서 옮기고, 다른 위젯 위에 놓으면 자리가 바뀌어요. 미리보기가 작을 때는 아래 목록의 크기·열·행으로 바꾸면 편해요. 미리보기는 7번 룸 기준이에요.'
-              : '위젯을 끌어서 옮기고, 다른 위젯 위에 놓으면 자리가 바뀌어요. 선택한 위젯의 오른쪽 아래 손잡이로 크기를 바꿔요. 미리보기는 7번 룸 기준이에요.'
+              : '빈칸의 ＋를 누르면 그 자리에 들어가는 위젯을 골라 넣어요. 위젯을 끌어서 옮기고, 다른 위젯 위에 놓으면 자리가 바뀌어요. 선택한 위젯의 오른쪽 아래 손잡이로 크기를 바꿔요. 미리보기는 7번 룸 기준이에요.'
           : '왼쪽 영역은 ${below ? '아래' : '오른쪽'} 목록에서 순서를 바꾸고, 로고 설정에서 사진과 매장 이름을 바꿔요.',
       style: TextStyle(color: Colors.black.withValues(alpha: 0.5), fontSize: 13),
     );
@@ -1264,6 +1310,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
     final o = Map<String, dynamic>.from(current);
     final c1 = TextEditingController();
     final c2 = TextEditingController();
+    final c3 = TextEditingController(); // 134차: 영업시간 라스트 오더
     final title = sidebar ? (sidebarSpecOf(type)?.name ?? type) : (specOf(type)?.name ?? type);
 
     switch (type) {
@@ -1296,7 +1343,13 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
         final rows = o['rows'] is List ? o['rows'] as List : const [];
         c1.text = rows.whereType<Map>().map((r) => '${r['label'] ?? ''} | ${r['value'] ?? ''}').join('\n');
         break;
+      case 'storeHours':
+        c1.text = (o['open'] ?? '').toString();
+        c2.text = (o['close'] ?? '').toString();
+        c3.text = (o['lastOrder'] ?? '').toString();
+        break;
     }
+    String? hoursError;
 
     return showDialog<Map<String, dynamic>>(
       context: context,
@@ -1348,7 +1401,7 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '2×1 크기는 QR과 이름·비밀번호를 같이 보여줘요. QR은 손님이 휴대폰 카메라로 찍으면 바로 연결돼요.'
+                    '2×1 크기는 QR과 이름·비밀번호를 같이, 얇은 크기(2×0.5·3×0.5)는 이름·비밀번호를 한 줄로 보여줘요. QR은 손님이 휴대폰 카메라로 찍으면 바로 연결돼요.'
                     '${!qrView && !open && c2.text.trim().length > 14 ? '\n비밀번호가 길어서 1×1 글자 칸에선 작게 보여요 — 접속 QR이나 2×1을 추천해요.' : ''}',
                     style: const TextStyle(fontSize: 12, color: Colors.black54, height: 1.4),
                   ),
@@ -1408,6 +1461,81 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                     hintText: '시간제 | 1시간 2,400원\n추가 10분 | 400원\n무제한 | 8,000원',
                   ),
                 ),
+              ]);
+              break;
+            case 'storeHours':
+              // 134차: 영업시간·라스트 오더·휴무일 (전화번호는 매장 설정 '매장 전화번호')
+              final closed = (o['closedDays'] is List)
+                  ? (o['closedDays'] as List).map((e) => e is num ? e.toInt() : int.tryParse('$e') ?? 0).toSet()
+                  : <int>{};
+              body = Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Expanded(
+                    child: TextField(
+                      controller: c1,
+                      decoration: const InputDecoration(labelText: '여는 시각', hintText: '12:00'),
+                    ),
+                  ),
+                  const Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text('~')),
+                  Expanded(
+                    child: TextField(
+                      controller: c2,
+                      decoration: const InputDecoration(labelText: '닫는 시각', hintText: '24:00'),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: c3,
+                  decoration: const InputDecoration(labelText: '라스트 오더 (선택)', hintText: '23:00'),
+                ),
+                const SizedBox(height: 16),
+                const Text('휴무일', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                  for (var d = 1; d <= 7; d++)
+                    FilterChip(
+                      label: Text(StoreHours.dayShort[d - 1]),
+                      selected: closed.contains(d),
+                      onSelected: (v) => setDlg(() {
+                        if (v) {
+                          closed.add(d);
+                        } else {
+                          closed.remove(d);
+                        }
+                        o['closedDays'] = closed.toList()..sort();
+                      }),
+                    ),
+                ]),
+                const SizedBox(height: 10),
+                Text(
+                  '시각은 24시간제 "HH:MM"으로 적어 주세요. 닫는 시각이 여는 시각보다 이르면 다음 날 새벽까지로 봐요(예: 18:00 ~ 02:00). '
+                  '휴무일을 고르지 않으면 \'연중무휴\'로 보여요.\n전화번호는 매장 설정 > 매장 전화번호에서 바꿔요.',
+                  style: const TextStyle(fontSize: 12, color: Colors.black54, height: 1.4),
+                ),
+                if (hoursError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(hoursError!, style: const TextStyle(fontSize: 12.5, color: Colors.red)),
+                ],
+              ]);
+              break;
+            case 'fingerTools':
+              // 134차: 2×1 크기에서만 '둘 다'가 나란히 — 1×1은 팀 나누기(둘 다일 때)
+              body = Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('보여줄 것', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'both', label: Text('둘 다')),
+                    ButtonSegment(value: 'team', label: Text('팀 나누기')),
+                    ButtonSegment(value: 'pick', label: Text('선 뽑기')),
+                  ],
+                  selected: {(o['mode'] ?? 'both').toString()},
+                  onSelectionChanged: (s) => setDlg(() => o['mode'] = s.first),
+                ),
+                const SizedBox(height: 8),
+                const Text('\'둘 다\'는 2×1·2×0.5 크기에서 나란히 보여요. 1×1 크기면 팀 나누기만 보여요.',
+                    style: TextStyle(fontSize: 12, color: Colors.black54, height: 1.4)),
               ]);
               break;
             case 'links':
@@ -1556,6 +1684,23 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
                     case 'timer':
                       o['minutes'] = (int.tryParse(c1.text.trim()) ?? 5).clamp(1, 99);
                       break;
+                    case 'storeHours':
+                      final open = c1.text.trim(), close = c2.text.trim(), last = c3.text.trim();
+                      final bad = <String>[
+                        if (open.isNotEmpty && StoreHours.parseTime(open) == null) '여는 시각',
+                        if (close.isNotEmpty && StoreHours.parseTime(close) == null) '닫는 시각',
+                        if (last.isNotEmpty && StoreHours.parseTime(last) == null) '라스트 오더',
+                        if ((open.isEmpty) != (close.isEmpty)) '여는·닫는 시각 둘 다',
+                      ];
+                      if (bad.isNotEmpty) {
+                        setDlg(() => hoursError = '${bad.join(', ')}을(를) 12:00처럼 다시 적어 주세요.');
+                        return;
+                      }
+                      String norm(String s) => s.isEmpty ? '' : StoreHours.timeText(StoreHours.parseTime(s)!);
+                      o['open'] = norm(open);
+                      o['close'] = norm(close);
+                      o['lastOrder'] = norm(last);
+                      break;
                     case 'fee':
                       o['rows'] = c1.text
                           .split('\n')
@@ -1582,12 +1727,25 @@ class _AdminHomeLayoutScreenState extends State<AdminHomeLayoutScreen> {
 class _WidgetPickerDialog extends StatelessWidget {
   final Set<String> placedTypes;
   final Set<String> parkedTypes;
-  const _WidgetPickerDialog({required this.placedTypes, this.parkedTypes = const {}});
+
+  /// 135차: 빈칸을 눌러 열었으면 그 자리 — 들어가는 위젯만 고를 수 있음
+  final ({int x, int y, int w, int h})? area;
+
+  /// 135차: (위젯 추가 버튼) 지금 어디에도 안 들어가는 위젯
+  final Set<String> noRoom;
+  const _WidgetPickerDialog({
+    required this.placedTypes,
+    this.parkedTypes = const {},
+    this.area,
+    this.noRoom = const {},
+  });
 
   @override
   Widget build(BuildContext context) {
+    final a = area;
     return AlertDialog(
-      title: const Text('위젯 추가', style: TextStyle(fontWeight: FontWeight.bold)),
+      title: Text(a == null ? '위젯 추가' : '이 자리(${WidgetSize(a.w, a.h).label})에 위젯 넣기',
+          style: const TextStyle(fontWeight: FontWeight.bold)),
       content: SizedBox(
         width: adminDialogWidth(context, 560),
         // 낮은 화면(폰 가로 등)에서는 제목·버튼 자리를 빼고 남는 만큼만
@@ -1600,22 +1758,48 @@ class _WidgetPickerDialog extends StatelessWidget {
                 child: Text(widgetCategoryNames[cat]!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               ),
               for (final spec in widgetCatalog.where((s) => s.category == cat && specOf(s.type) != null))
-                ListTile(
-                  leading: Icon(spec.icon, color: _adminNavy),
-                  title: Text(spec.name),
-                  subtitle: Text('${spec.description} · ${spec.sizes.map((s) => s.label).join(', ')}'),
-                  trailing: placedTypes.contains(spec.type)
-                      ? const Text('배치됨', style: TextStyle(color: Colors.black45, fontSize: 12))
-                      : parkedTypes.contains(spec.type)
-                          ? const Text('보관함에 있음', style: TextStyle(color: Colors.black45, fontSize: 12))
-                          : const Icon(Icons.add_circle_outline),
-                  onTap: () => Navigator.pop(context, spec),
-                ),
+                _tile(context, spec),
             ],
           ],
         ),
       ),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('닫기'))],
+    );
+  }
+
+  Widget _tile(BuildContext context, WidgetSpec spec) {
+    final a = area;
+    final fit = a == null ? null : HomeLayout.fitSize(spec, a.w, a.h);
+    // 빈칸에서 열었는데 안 들어가는 위젯 / 위젯 추가에서 어디에도 안 들어가는 위젯 → 흐리게 + 이유
+    final blocked = a != null ? fit == null : noRoom.contains(spec.type);
+    final sizes = spec.sizes.map((s) => s.label).join(', ');
+    final String sub;
+    if (a != null && fit != null) {
+      sub = '${spec.description} · ${fit.label}로 들어가요';
+    } else if (a != null) {
+      sub = '이 자리엔 안 들어가요 · 쓸 수 있는 크기 $sizes';
+    } else if (blocked) {
+      sub = '지금 빈자리가 모자라요 · 쓸 수 있는 크기 $sizes';
+    } else {
+      sub = '${spec.description} · $sizes';
+    }
+    final status = placedTypes.contains(spec.type)
+        ? '배치됨'
+        : parkedTypes.contains(spec.type)
+            ? '보관함에 있음'
+            : null;
+    return Opacity(
+      opacity: blocked ? 0.45 : 1,
+      child: ListTile(
+        leading: Icon(spec.icon, color: _adminNavy),
+        title: Text(spec.name),
+        subtitle: Text(sub, style: TextStyle(color: blocked ? const Color(0xFFB4532A) : null)),
+        trailing: status != null
+            ? Text(status, style: const TextStyle(color: Colors.black45, fontSize: 12))
+            : Icon(blocked ? Icons.block : Icons.add_circle_outline),
+        // 빈칸에서 연 창은 안 들어가는 위젯을 못 누름, 위젯 추가 창은 눌러도 이유를 알려 줌
+        onTap: a != null && blocked ? null : () => Navigator.pop(context, spec),
+      ),
     );
   }
 }

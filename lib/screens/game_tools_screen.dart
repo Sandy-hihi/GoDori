@@ -10,7 +10,13 @@ import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 class GameToolsScreen extends StatefulWidget {
   final int? roomNumber;
-  const GameToolsScreen({super.key, this.roomNumber});
+
+  /// 134차: 처음 열 탭 (0 타이머 · 1 주사위 · 2 팀 나누기/선 뽑기) — 홈 '팀 나누기·선 뽑기' 위젯이 2로 엶
+  final int initialTab;
+
+  /// 134차: 팀 나누기 탭을 선 뽑기 모드로 열기
+  final bool pickFirst;
+  const GameToolsScreen({super.key, this.roomNumber, this.initialTab = 0, this.pickFirst = false});
 
   @override
   State<GameToolsScreen> createState() => _GameToolsScreenState();
@@ -161,6 +167,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 3,
+      initialIndex: widget.initialTab.clamp(0, 2).toInt(),
       child: PadShell(
         current: 'tools',
         roomNumber: widget.roomNumber,
@@ -329,7 +336,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
   Widget _buildDiceTab() => const DiceRoller();
 
   // ── 팀 나누기 / 선 뽑기 탭 ──────────────────────────
-  bool _isTeamMode = true; // true: 팀 나누기 / false: 선 뽑기
+  late bool _isTeamMode = !widget.pickFirst; // true: 팀 나누기 / false: 선 뽑기
 
   Widget _buildTeamTab() {
     return Column(

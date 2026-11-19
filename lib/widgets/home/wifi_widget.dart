@@ -11,10 +11,13 @@ import 'home_theme.dart';
 /// options: ssid, password, security('WPA' 기본 | 'nopass'), hidden(bool), view('qr'|'text')
 /// 손님 화면에서 이름이 비어 있으면 아무것도 안 그림(preview = 관리자 홈 꾸미기 미리보기면 안내 카드).
 class WifiWidget extends StatelessWidget {
-  const WifiWidget({super.key, required this.options, required this.wide, this.preview = false});
+  const WifiWidget({super.key, required this.options, required this.wide, this.slim = false, this.preview = false});
 
   final Map<String, dynamic> options;
   final bool wide;
+
+  /// 135차: 높이 0.5칸(2×0.5·3×0.5) — 이름·비밀번호 한 줄 (QR 없음)
+  final bool slim;
   final bool preview;
 
   static const _accent = Color(0xFFB5751E);
@@ -29,6 +32,17 @@ class WifiWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     if (_ssid.isEmpty) {
       if (!preview) return const SizedBox.shrink();
+      if (slim) {
+        return const HomeCard(
+          color: Color(0xFFFFF8EC),
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(children: [
+            Icon(Icons.wifi, color: _accent, size: 22),
+            SizedBox(width: 8),
+            Flexible(child: Text('와이파이 정보를 입력해 주세요', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: _sub))),
+          ]),
+        );
+      }
       return const HomeCard(
         color: Color(0xFFFFF8EC),
         child: Column(
@@ -48,8 +62,43 @@ class WifiWidget extends StatelessWidget {
       security: _open ? 'nopass' : 'WPA',
       hidden: options['hidden'] == true,
     );
+    if (slim) return _slimLine();
     if (wide) return _wide(data);
     return _qrView ? _qrOnly(data) : _textOnly();
+  }
+
+  // 0.5칸: 📶 이름 | 비밀번호 ●●● (길면 작아짐)
+  Widget _slimLine() {
+    return HomeCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(children: [
+        Container(
+          width: 34,
+          height: 34,
+          decoration: const BoxDecoration(color: Color(0xFFFFF1DC), shape: BoxShape.circle),
+          child: const Icon(Icons.wifi, color: _accent, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.center, children: [
+              Text(_ssid, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: kInk)),
+              Container(width: 1, height: 18, margin: const EdgeInsets.symmetric(horizontal: 12), color: const Color(0xFFE0D8CB)),
+              if (_open)
+                const GuestText('비밀번호 없음', style: TextStyle(fontSize: 15, color: _sub))
+              else ...[
+                const GuestText('비밀번호', style: TextStyle(fontSize: 13, color: _sub)),
+                const SizedBox(width: 6),
+                Text(_password,
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: kInk, letterSpacing: 0.3)),
+              ],
+            ]),
+          ),
+        ),
+      ]),
+    );
   }
 
   Widget _qr(String data) => QrImageView(

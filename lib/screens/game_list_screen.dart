@@ -29,7 +29,11 @@ class GameListScreen extends StatefulWidget {
     this.initialGenre,
     this.initialPlayers,
     this.initialDifficulty,
+    this.initialGameId,
   });
+
+  /// 134차: 열자마자 이 게임의 상세 창을 띄움 (홈 '랜덤 게임 뽑기'·'새로 들어온 게임' 위젯)
+  final String? initialGameId;
 
   @override
   State<GameListScreen> createState() => _GameListScreenState();
@@ -87,6 +91,16 @@ class _GameListScreenState extends State<GameListScreen> {
     _searchController = TextEditingController(text: widget.initialSearchQuery);
     _gamesFuture = _fetchGames();
     GameCatalog.revision.addListener(_onCatalogChanged);
+    final openId = widget.initialGameId;
+    if (openId != null) {
+      _gamesFuture!.then((games) {
+        final game = games.where((g) => g['_docId']?.toString() == openId).firstOrNull;
+        if (game == null) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _showDetail(<String, dynamic>{...game});
+        });
+      });
+    }
   }
 
   // 관리자가 '손님 앱 새로고침'을 누르면(settings/appRefresh) GameCatalog가 알려 줌 → 다시 받기
@@ -216,7 +230,10 @@ class _GameListScreenState extends State<GameListScreen> {
     final filtered = data.map((d) => <String, dynamic>{...d}).where((game) {
       // isAvailable 필터는 Firestore 쿼리에서 서버 사이드로 처리됨
       final bool isRecommended = game['isRecommended'] == true;
-      final bool matchesTab = selectedTab == '전체' || (selectedTab == '추천' && isRecommended);
+      // 134차: 'NEW' = 새로 들어온 게임 (NEW 배지와 같은 기준)
+      final bool matchesTab = selectedTab == '전체' ||
+          (selectedTab == '추천' && isRecommended) ||
+          (selectedTab == 'NEW' && isNewGame(game));
       final bool matchesGenre = selectedGenre == '전체' || gameGenres(game).contains(selectedGenre); // 장르 여러 개 지원
       final bool matchesSearch = '${game['title'] ?? ''} ${guestField(context, game, 'title')}'.toLowerCase().contains(query);
       final bool matchesPlayers = _matchesPlayerFilter(game['players']?.toString(), selectedPlayers);
@@ -349,6 +366,16 @@ class _GameListScreenState extends State<GameListScreen> {
                 _resetPage();
               }),
             ),
+            // 134차: 홈 '새로 들어온 게임' 위젯으로 들어왔을 때만 보임 (줄이 넘치지 않게 — '전체'를 누르면 사라짐)
+            if (selectedTab == 'NEW') ...[
+              const SizedBox(width: 8),
+              PadPill(
+                label: '신규',
+                icon: Icons.inventory_2_outlined,
+                selected: true,
+                onTap: () {},
+              ),
+            ],
             const SizedBox(width: 16),
             Container(width: 1, height: 28, color: kLine),
             const SizedBox(width: 16),

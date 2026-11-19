@@ -22,6 +22,9 @@ class GridEditOverlay extends StatefulWidget {
   /// 위젯을 옮기기 시작/끝 (보관함을 크게 펼쳐서 놓기 쉽게)
   final void Function(bool moving)? onMoveDragChanged;
 
+  /// 135차: 빈칸(＋)을 누르면 그 자리(x, y, w, h)에 위젯 넣기
+  final void Function(({int x, int y, int w, int h}) area)? onAddAt;
+
   const GridEditOverlay({
     super.key,
     required this.layout,
@@ -35,6 +38,7 @@ class GridEditOverlay extends StatefulWidget {
     this.onPark,
     this.onUnpark,
     this.onMoveDragChanged,
+    this.onAddAt,
   });
 
   @override
@@ -251,6 +255,9 @@ class _GridEditOverlayState extends State<GridEditOverlay> {
                       ),
                     ),
                   ),
+            // 135차: 빈칸 — 누르면 그 자리에 들어가는 위젯만 골라 넣기 (끄는 동안엔 안 보임)
+            if (!showCells && widget.onAddAt != null)
+              for (final a in _layout.emptyAreas()) _emptyLayer(a),
             for (final item in _layout.widgets) _itemLayer(item),
             // 자리 바꾸기로 밀려날 위젯들이 갈 자리
             if (_swap != null)
@@ -412,6 +419,19 @@ class _GridEditOverlayState extends State<GridEditOverlay> {
     );
   }
 
+  Widget _emptyLayer(({int x, int y, int w, int h}) a) {
+    final rect = _layout.cellRect(a.x, a.y, a.w, a.h);
+    final big = a.h >= 2 && a.w >= 2;
+    return Positioned.fromRect(
+      rect: rect,
+      child: _EmptySlot(
+        big: big,
+        sizeLabel: WidgetSize(a.w, a.h).label,
+        onTap: () => widget.onAddAt?.call(a),
+      ),
+    );
+  }
+
   Widget _parkHintLayer(GridItem item) {
     final rect = _layout.cellRect(item.x, item.y, item.w, item.h);
     return Positioned.fromRect(
@@ -424,6 +444,64 @@ class _GridEditOverlayState extends State<GridEditOverlay> {
             borderRadius: BorderRadius.circular(24),
           ),
           child: Center(child: _label('놓으면 보관함으로', _orange, icon: Icons.archive_outlined)),
+        ),
+      ),
+    );
+  }
+}
+
+/// 135차: 미리보기의 빈칸 — 점선 느낌의 옅은 테두리 + ＋, 마우스를 올리면 진해짐
+class _EmptySlot extends StatefulWidget {
+  final bool big;
+  final String sizeLabel;
+  final VoidCallback onTap;
+  const _EmptySlot({required this.big, required this.sizeLabel, required this.onTap});
+
+  @override
+  State<_EmptySlot> createState() => _EmptySlotState();
+}
+
+class _EmptySlotState extends State<_EmptySlot> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _hover ? _orange : const Color(0xFFB9AE9C);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          decoration: BoxDecoration(
+            color: _hover ? _orange.withValues(alpha: 0.08) : const Color(0x0A3C2814),
+            border: Border.all(color: c.withValues(alpha: _hover ? 0.9 : 0.55), width: 2),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                child: widget.big
+                    ? Column(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.add_circle_outline, color: c, size: 34),
+                        const SizedBox(height: 6),
+                        Text('위젯 넣기 · ${widget.sizeLabel}',
+                            style: TextStyle(color: c, fontSize: 15, fontWeight: FontWeight.w700)),
+                      ])
+                    : Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.add_circle_outline, color: c, size: 24),
+                        const SizedBox(width: 6),
+                        Text('위젯 넣기 · ${widget.sizeLabel}',
+                            style: TextStyle(color: c, fontSize: 14, fontWeight: FontWeight.w700)),
+                      ]),
+              ),
+            ),
+          ),
         ),
       ),
     );

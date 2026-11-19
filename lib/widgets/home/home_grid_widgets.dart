@@ -18,6 +18,7 @@ import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/widgets/home_common.dart';
 import 'ai_recommend_dialog.dart';
+import 'extra_widgets.dart';
 import 'home_theme.dart';
 import 'wifi_widget.dart';
 import 'package:boardpad/services/store_scope.dart';
@@ -237,7 +238,7 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber, {bo
       );
     case 'wifi':
       // 133차: 1×1 QR·글자 중 하나 / 2×1 QR + 이름·비밀번호 (wifi_widget.dart)
-      return WifiWidget(options: o, wide: item.w >= 2, preview: preview);
+      return WifiWidget(options: o, wide: item.w >= 2, slim: item.h < 2, preview: preview);
     case 'qr':
       return HomeCard(
         padding: const EdgeInsets.all(14),
@@ -314,6 +315,21 @@ Widget buildGridWidget(BuildContext context, GridItem item, int? roomNumber, {bo
           ],
         ),
       );
+    // ── 134차 새 위젯 (extra_widgets.dart) ──
+    case 'foodStatus':
+      return FoodStatusWidget(roomNumber: roomNumber, w: item.w, h: item.h, preview: preview);
+    case 'orderSummary':
+      return OrderSummaryWidget(roomNumber: roomNumber, w: item.w, h: item.h, preview: preview);
+    case 'language':
+      return LanguageWidget(w: item.w, h: item.h);
+    case 'fingerTools':
+      return FingerToolsWidget(roomNumber: roomNumber, w: item.w, h: item.h, mode: _optStr(o, 'mode') ?? 'both');
+    case 'randomGame':
+      return RandomGameWidget(roomNumber: roomNumber, w: item.w, h: item.h, preview: preview);
+    case 'newGames':
+      return NewGamesWidget(roomNumber: roomNumber, preview: preview);
+    case 'storeHours':
+      return StoreHoursWidget(options: o, w: item.w, h: item.h, preview: preview);
   }
   return const SizedBox.shrink();
 }

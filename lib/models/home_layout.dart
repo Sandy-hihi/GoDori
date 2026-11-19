@@ -72,12 +72,22 @@ const List<WidgetSpec> widgetCatalog = [
       [WidgetSize(2, 2), WidgetSize(3, 2), WidgetSize(3, 1), WidgetSize(4, 1)]),
   WidgetSpec('recommended', '추천 게임', '직원 추천 게임만 모아 보기', Icons.star_rounded, WidgetCategory.game,
       [WidgetSize(1, 2), WidgetSize(1, 1)]),
+  // 134차
+  WidgetSpec('randomGame', '랜덤 게임 뽑기', '인원을 고르면 게임 하나를 뽑아 줌', Icons.shuffle, WidgetCategory.game,
+      [WidgetSize(2, 4), WidgetSize(2, 3), WidgetSize(3, 4)]),
+  WidgetSpec('newGames', '새로 들어온 게임', '등록 30일 이내(NEW) 게임 사진 — 없으면 손님 화면에선 숨김', Icons.inventory_2_outlined,
+      WidgetCategory.game, [WidgetSize(3, 2), WidgetSize(4, 2), WidgetSize(2, 4), WidgetSize(3, 4)]),
   // 주문
   WidgetSpec('foodOrder', '음식 주문', '사진 카드 — 누르면 주문 화면', Icons.restaurant, WidgetCategory.order,
       [WidgetSize(2, 4), WidgetSize(3, 4), WidgetSize(2, 6), WidgetSize(2, 5), WidgetSize(3, 5), WidgetSize(3, 6)]),
   WidgetSpec('menuPick', '오늘의 추천 메뉴', '고른 메뉴로 바로 주문', Icons.local_cafe_outlined, WidgetCategory.order,
       [WidgetSize(2, 2)],
       hasOptions: true),
+  // 134차
+  WidgetSpec('foodStatus', '내 음식 상태', '이 방 주문이 접수·준비 중·준비 완료 중 어디인지', Icons.room_service_outlined,
+      WidgetCategory.order, [WidgetSize(2, 3), WidgetSize(2, 2), WidgetSize(2, 4), WidgetSize(1, 2)]),
+  WidgetSpec('orderSummary', '주문 내역', '이 방 주문 건수·금액 — 토스 POS 연동 매장만', Icons.receipt_long_outlined,
+      WidgetCategory.order, [WidgetSize(1, 2), WidgetSize(2, 2), WidgetSize(2, 1)]),
   // 테이블
   WidgetSpec('clock', '시계', '현재 시각과 날짜', Icons.schedule, WidgetCategory.table,
       [WidgetSize(1, 2), WidgetSize(2, 2), WidgetSize(2, 1)]),
@@ -85,6 +95,9 @@ const List<WidgetSpec> widgetCatalog = [
       [WidgetSize(1, 2), WidgetSize(2, 2), WidgetSize(2, 1)]),
   WidgetSpec('staffCall', '직원 호출', '직원 호출 버튼', Icons.notifications_active_outlined, WidgetCategory.table,
       [WidgetSize(1, 2), WidgetSize(2, 2), WidgetSize(2, 1)]),
+  // 134차
+  WidgetSpec('language', '언어 바꾸기', '한국어·English·中文·日本語 큰 버튼', Icons.translate_rounded, WidgetCategory.table,
+      [WidgetSize(2, 2), WidgetSize(2, 1), WidgetSize(1, 2)]),
   // 매장 정보
   WidgetSpec('notice', '공지사항', '가장 최근 공지 제목', Icons.campaign_outlined, WidgetCategory.info,
       [WidgetSize(2, 2), WidgetSize(2, 3), WidgetSize(2, 4)]),
@@ -93,8 +106,13 @@ const List<WidgetSpec> widgetCatalog = [
   WidgetSpec('fee', '요금 안내', '요금표 (직접 입력)', Icons.payments_outlined, WidgetCategory.info, [WidgetSize(2, 2)],
       hasOptions: true),
   WidgetSpec('info', '이용안내', '이용안내 화면 바로가기', Icons.article_outlined, WidgetCategory.info, [WidgetSize(1, 2)]),
-  // 133차: 1×1(QR 또는 글자) · 2×1(QR + 이름·비밀번호)
-  WidgetSpec('wifi', '와이파이', '접속 QR·이름·비밀번호', Icons.wifi, WidgetCategory.info, [WidgetSize(1, 2), WidgetSize(2, 2)],
+  // 134차: 영업시간은 위젯 설정, 전화번호는 매장 설정(매장 전화번호)
+  WidgetSpec('storeHours', '영업시간·전화번호', '영업시간·라스트 오더·휴무일 + 매장 전화번호, 지금 영업 중 표시',
+      Icons.storefront_outlined, WidgetCategory.info, [WidgetSize(2, 2), WidgetSize(2, 3), WidgetSize(1, 2)],
+      hasOptions: true),
+  // 133차: 1×1(QR 또는 글자) · 2×1(QR + 이름·비밀번호) · 135차: 3×0.5·2×0.5(이름·비밀번호 한 줄)
+  WidgetSpec('wifi', '와이파이', '접속 QR·이름·비밀번호', Icons.wifi, WidgetCategory.info,
+      [WidgetSize(1, 2), WidgetSize(2, 2), WidgetSize(3, 1), WidgetSize(2, 1)],
       hasOptions: true),
   WidgetSpec('qr', '인스타·리뷰 QR', '링크를 QR로 보여주기', Icons.qr_code_2, WidgetCategory.info, [WidgetSize(1, 2)],
       hasOptions: true),
@@ -103,6 +121,10 @@ const List<WidgetSpec> widgetCatalog = [
   WidgetSpec('timer', '타이머', '홈에서 바로 쓰는 타이머', Icons.hourglass_bottom, WidgetCategory.tools, [WidgetSize(1, 2)],
       hasOptions: true),
   WidgetSpec('dice', '주사위', '눌러서 굴리기', Icons.casino, WidgetCategory.tools, [WidgetSize(1, 2)]),
+  // 134차: 게임도구 손가락 팀 나누기·선 뽑기 바로가기
+  WidgetSpec('fingerTools', '팀 나누기·선 뽑기', '손가락 팀 나누기·선 뽑기 화면 바로가기', Icons.touch_app, WidgetCategory.tools,
+      [WidgetSize(2, 2), WidgetSize(1, 2), WidgetSize(2, 1)],
+      hasOptions: true),
   // 꾸미기
   WidgetSpec('banner', '사진 배너', '사진 + 문구, 누르면 원하는 화면으로', Icons.image_outlined, WidgetCategory.decor,
       [WidgetSize(2, 2), WidgetSize(4, 2)],
@@ -570,6 +592,48 @@ class HomeLayout {
       firstProblem ??= problem;
     }
     return (firstTry ?? item, firstProblem ?? '여기에는 놓을 수 없어요.');
+  }
+
+  /// 135차: 격자의 빈칸을 직사각형 덩어리로 (위→아래, 왼→오른 — 가로로 먼저 늘리고 그 폭 그대로 아래로).
+  /// 미리보기의 '＋ 빈칸'과 '지금 빈자리' 안내에 씀
+  List<({int x, int y, int w, int h})> emptyAreas() {
+    final used = List.generate(rows, (_) => List.filled(cols, false));
+    for (final o in widgets) {
+      for (var y = o.y; y < o.y + o.h && y < rows; y++) {
+        for (var x = o.x; x < o.x + o.w && x < cols; x++) {
+          if (x >= 0 && y >= 0) used[y][x] = true;
+        }
+      }
+    }
+    final out = <({int x, int y, int w, int h})>[];
+    for (var y = 0; y < rows; y++) {
+      for (var x = 0; x < cols; x++) {
+        if (used[y][x]) continue;
+        var w = 1;
+        while (x + w < cols && !used[y][x + w]) {
+          w++;
+        }
+        var h = 1;
+        while (y + h < rows && List.generate(w, (i) => used[y + h][x + i]).every((u) => !u)) {
+          h++;
+        }
+        for (var yy = y; yy < y + h; yy++) {
+          for (var xx = x; xx < x + w; xx++) {
+            used[yy][xx] = true;
+          }
+        }
+        out.add((x: x, y: y, w: w, h: h));
+      }
+    }
+    return out;
+  }
+
+  /// 135차: 위젯을 (w×h) 빈칸에 넣을 때 쓸 크기 — 허용 크기 중 들어가는 첫 번째(기본 크기 먼저). 없으면 null
+  static WidgetSize? fitSize(WidgetSpec spec, int w, int h) {
+    for (final s in spec.sizes) {
+      if (s.w <= w && s.h <= h) return s;
+    }
+    return null;
   }
 
   /// 위젯이 들어갈 빈자리 찾기 (위→아래, 왼→오른). 없으면 null
