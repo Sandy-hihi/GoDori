@@ -894,6 +894,7 @@ const guestMessages = <String, List<String>> {
     "请选择难度",
     "難易度を選んでください"
   ],
+  "분류": ["Sort by", "分类", "分類"],
   "인원별": [
     "By players",
     "按人数",

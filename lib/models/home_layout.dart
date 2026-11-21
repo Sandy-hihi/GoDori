@@ -416,6 +416,28 @@ class HomeLayout {
       if (savedRows == 4) {
         widgets = [for (final w in widgets) w.copyWith(y: w.y * 2, h: w.h * 2)];
       }
+      // Rebalance the previous adjacent recommendation and three-filter row.
+      for (var i = 0; i < widgets.length; i++) {
+        final recommendation = widgets[i];
+        if (recommendation.type != 'recommended' ||
+            recommendation.h != 1 ||
+            recommendation.w != 1)
+          continue;
+        final finderIndex = widgets.indexWhere(
+          (w) =>
+              w.type == 'finder' &&
+              w.h == 1 &&
+              w.w == 3 &&
+              w.y == recommendation.y &&
+              w.x == recommendation.x + 1,
+        );
+        if (finderIndex < 0) continue;
+        widgets[i] = recommendation.copyWith(w: 2);
+        widgets[finderIndex] = widgets[finderIndex].copyWith(
+          x: recommendation.x + 2,
+          w: 2,
+        );
+      }
       // 보관함 (모르는 위젯·격자와 id가 겹치는 것은 버림)
       final parked = <GridItem>[];
       if (data['parked'] is List) {
@@ -706,8 +728,8 @@ const List<HomeLayoutPreset> homeLayoutPresets = [
         GridItem(id: 'w2', type: 'search', x: 4, y: 0, w: 2, h: 1),
         GridItem(id: 'w3', type: 'foodOrder', x: 0, y: 1, w: 2, h: 6),
         GridItem(id: 'w4', type: 'gameList', x: 2, y: 1, w: 2, h: 6),
-        GridItem(id: 'w5', type: 'recommended', x: 0, y: 7, w: 1, h: 1),
-        GridItem(id: 'w6', type: 'finder', x: 1, y: 7, w: 3, h: 1),
+        GridItem(id: 'w5', type: 'recommended', x: 0, y: 7, w: 2, h: 1),
+        GridItem(id: 'w6', type: 'finder', x: 2, y: 7, w: 2, h: 1),
         GridItem(id: 'w7', type: 'clock', x: 4, y: 1, w: 2, h: 1),
         GridItem(id: 'w8', type: 'room', x: 4, y: 2, w: 2, h: 1),
         GridItem(id: 'w9', type: 'notice', x: 4, y: 3, w: 2, h: 3),

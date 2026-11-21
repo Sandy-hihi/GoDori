@@ -454,7 +454,7 @@ class _GameListScreenState extends State<GameListScreen> {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           child: GuestText(
-            genre == '전체' ? '# 모든 장르' : '# $genre',
+            genre == '전체' ? '# 모든 장르' : '# ${guestTr(context, genre)}',
             style: TextStyle(
               fontSize: 14,
               fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
@@ -655,8 +655,8 @@ class _GameListScreenState extends State<GameListScreen> {
     final title = guestField(context, game, 'title');
     final imageUrl = game['imageUrl']?.toString();
     final difficulty = (game['difficulty'] ?? '').toString();
-    final note = (game['pickNote'] ?? '').toString().trim();
-    final tags = (game['tags'] ?? '').toString().trim();
+    final note = guestField(context, game, 'pickNote').trim();
+    final tags = guestField(context, game, 'tags').trim();
     final genres = gameGenres(game);
     final hasVideo = hasRuleVideo(game);
     final ownVideo = hasStoreRuleVideo(game);
@@ -715,7 +715,7 @@ class _GameListScreenState extends State<GameListScreen> {
                       ),
                       if (genres.isNotEmpty) ...[
                         const SizedBox(height: 4),
-                        GuestText(genres.map((g) => '#$g').join('  '),
+                        GuestText(genres.map((g) => '#${guestTr(context, g)}').join('  '),
                             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: kOrange)),
                       ],
                       const SizedBox(height: 16),
@@ -929,7 +929,7 @@ class _GameCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kInk)),
                 const SizedBox(height: 2),
-                GuestText(genres.isEmpty ? ' ' : genres.join(' · '),
+                GuestText(genres.isEmpty ? ' ' : genres.map((g) => guestTr(context, g)).join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 13, color: kMuted)),

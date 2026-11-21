@@ -631,24 +631,27 @@ class _FinderWidget extends StatelessWidget {
             showDifficultyColors: true,
             onPick: (v) => _open(context, difficulty: v),
           );
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(child: HomePillButton(icon: Icons.people_alt_outlined, label: '인원별', onTap: pickPlayers)),
-          const SizedBox(width: 16),
-          Expanded(child: HomePillButton(icon: Icons.sell_outlined, label: '장르별', onTap: pickGenre)),
-          const SizedBox(width: 16),
-          Expanded(
-            child: HomePillButton(
-              leading: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [dot(const Color(0xFF23AC3A)), dot(const Color(0xFFF29700)), dot(const Color(0xFFD80051))],
-              ),
-              label: '난이도별',
-              onTap: pickDifficulty,
-            ),
-          ),
-        ],
+      return HomePillButton(
+        icon: Icons.tune_rounded,
+        label: '분류',
+        onTap: () => showFilterPicker(
+          context: context,
+          title: '분류',
+          options: Future.value(const ['인원별', '장르별', '난이도별']),
+          onPick: (value) {
+            switch (value) {
+              case '인원별':
+                pickPlayers();
+                break;
+              case '장르별':
+                pickGenre();
+                break;
+              case '난이도별':
+                pickDifficulty();
+                break;
+            }
+          },
+        ),
       );
     }
     return HomeCard(

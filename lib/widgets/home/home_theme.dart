@@ -220,27 +220,44 @@ class HomePillButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    GuestLocaleScope.maybeWatch(context);
+    final labelSize = GuestLanguage.instance.code == 'en' ? 16.0 : 19.0;
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
-        child: Center(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (leading != null) ...[leading!, const SizedBox(width: 8)] else if (icon != null) ...[
-                Icon(icon, size: 20, color: iconColor),
-                const SizedBox(width: 8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (leading != null) ...[
+                  leading!,
+                  const SizedBox(width: 8),
+                ] else if (icon != null) ...[
+                  Icon(icon, size: 20, color: iconColor),
+                  const SizedBox(width: 8),
+                ],
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: GuestText(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: labelSize,
+                        fontWeight: FontWeight.w800,
+                        color: kInk,
+                      ),
+                    ),
+                  ),
+                ),
               ],
-              Flexible(
-                child: GuestText(label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: kInk)),
-              ),
-            ],
+            ),
           ),
         ),
       ),
