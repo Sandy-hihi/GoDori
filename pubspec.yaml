@@ -35,26 +35,26 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   flutter_localizations:
     sdk: flutter
-  cupertino_icons: ^1.0.8
+  cupertino_icons: ^2.0.0
   firebase_core: ^4.13.0
   # 로그인: 손님 패드는 익명, 관리자는 서버가 PIN 확인 후 발급한 토큰 (lib/services/admin_session.dart)
-  firebase_auth: ^6.0.0
-  cloud_firestore: ^6.8.0
+  firebase_auth: ^6.7.1
+  cloud_firestore: ^6.10.2
   flutter_ringtone_player: ^4.0.0+4
-  image_picker: ^1.2.3
-  firebase_storage: ^13.5.0
-  url_launcher: ^6.3.2
-  cached_network_image: ^3.4.1
+  image_picker: ^1.2.4
+  firebase_storage: ^13.6.1
+  url_launcher: ^6.3.3
+  cached_network_image: ^4.0.7
   audioplayers: ^6.1.0
   http: ^1.2.2
   shared_preferences: ^2.5.6
   # 132차: 인터넷이 끊긴 패드 로그아웃 확인(패드 비밀번호 해시). 이미 다른 패키지가 쓰던 것과 같은 버전
-  crypto: ^3.0.7
+  crypto: ^3.0.8
   qr_flutter: ^4.1.0
   # 매장에서 만든 룰 설명 영상을 앱 안에서 재생 (웹·안드로이드·iOS. Windows 앱은 지원 안 함 → 유튜브로 대신)
   video_player: ^2.9.5
   # 관리자 웹에서 룰 영상을 R2로 올릴 때 진행률 표시 (브라우저 XMLHttpRequest). 이미 다른 패키지가 쓰던 것과 같은 버전
-  web: ^1.1.1
+  web: ^1.1.2
   # 웹(크롬)에서 영상 위 버튼·탭이 <video> 요소에 먹히지 않게 (안드로이드 앱에는 영향 없음)
   pointer_interceptor: ^0.10.1
   flutter_svg: ^2.3.2
