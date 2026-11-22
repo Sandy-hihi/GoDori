@@ -69,9 +69,10 @@ const List<WidgetSpec> widgetCatalog = [
   WidgetSpec('search', '게임 검색', '게임 이름 검색창 (얇게 하면 검색창만)', Icons.search, WidgetCategory.game,
       [WidgetSize(2, 2), WidgetSize(3, 2), WidgetSize(2, 1), WidgetSize(3, 1)]),
   WidgetSpec('finder', '찾아보기', '인원별·장르별·난이도별 찾기 (얇게 하면 버튼만)', Icons.tune, WidgetCategory.game,
-      [WidgetSize(2, 2), WidgetSize(3, 2), WidgetSize(3, 1), WidgetSize(4, 1)]),
+      // 144차: 2×0.5 추가 — 팀원 74a8215가 기본 배치·예전 배치를 '추천 게임 2×0.5 + 찾아보기 2×0.5'로 바꿨는데 허용 크기에 없어서 배치 검사에서 버려졌음
+      [WidgetSize(2, 2), WidgetSize(3, 2), WidgetSize(3, 1), WidgetSize(4, 1), WidgetSize(2, 1)]),
   WidgetSpec('recommended', '추천 게임', '직원 추천 게임만 모아 보기', Icons.star_rounded, WidgetCategory.game,
-      [WidgetSize(1, 2), WidgetSize(1, 1)]),
+      [WidgetSize(1, 2), WidgetSize(1, 1), WidgetSize(2, 1)]),
   // 134차
   WidgetSpec('randomGame', '랜덤 게임 뽑기', '인원을 고르면 게임 하나를 뽑아 줌', Icons.shuffle, WidgetCategory.game,
       [WidgetSize(2, 4), WidgetSize(2, 3), WidgetSize(3, 4)]),

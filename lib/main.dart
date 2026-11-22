@@ -9,7 +9,9 @@ import 'screens/login_screen.dart';
 import 'services/admin_session.dart';
 import 'widgets/order_ready_overlay.dart';
 import 'widgets/pad_idle_home.dart';
+import 'widgets/pad_device_sync.dart';
 import 'widgets/pad_session_guard.dart';
+import 'widgets/network_error_view.dart';
 import 'widgets/pad_shell.dart';
 
 void main() async {
@@ -56,7 +58,8 @@ class GodoriApp extends StatelessWidget {
       builder: (context, child) =>
           // 120차: 비밀번호가 바뀌면 패드 강제 로그아웃 (PadSessionGuard)
           // 140차: 토스 연동 안 한 매장은 30분 동안 안 만지면 홈으로 (PadIdleHome)
-          GuestLocaleScope(child: PadSessionGuard(child: PadIdleHome(child: OrderReadyOverlay(child: child ?? const SizedBox.shrink())))),
+          // 142차: 관리자 웹 '태블릿 자동 실행' 값을 태블릿(안드로이드 앱)에 저장 (PadDeviceSync)
+          GuestLocaleScope(child: PadSessionGuard(child: PadDeviceSync(child: PadIdleHome(child: OrderReadyOverlay(child: child ?? const SizedBox.shrink()))))),
       home: const StartupScreen(),
     ));
   }
@@ -88,6 +91,7 @@ class StartupScreen extends StatefulWidget {
 
 class _StartupScreenState extends State<StartupScreen> {
   String? _restoreError;
+  bool _restoreNetwork = true; // 143차: 인터넷 문제(SessionRestoreException·AdminNetworkException)인지
   @override
   void initState() {
     super.initState();
@@ -95,12 +99,17 @@ class _StartupScreenState extends State<StartupScreen> {
   }
 
   Future<void> _decide() async {
-    setState(() => _restoreError = null);
+    // 143차: 다시 시도하는 동안에도 오류 화면을 그대로 둠(버튼만 흐리게) — 성공하면 다음 화면으로 넘어감
     PadSession? session;
     try {
       session = await widget.restoreSession();
     } on AdminLoginException catch (e) {
-      if (mounted) setState(() => _restoreError = e.message);
+      if (mounted) {
+        setState(() {
+          _restoreError = e.message;
+          _restoreNetwork = e is SessionRestoreException || e is AdminNetworkException;
+        });
+      }
       return;
     }
     final prefs = await AdminSession.loadPrefs();
@@ -130,29 +139,18 @@ class _StartupScreenState extends State<StartupScreen> {
   @override
   Widget build(BuildContext context) {
     final error = _restoreError;
+    if (error == null) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF1E2B3C),
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+    // 143차: 인터넷이 끊겼을 때 화면 — 손님 패드 색으로 예쁘게 + 15초마다 저절로 다시 시도
     return Scaffold(
-      backgroundColor: const Color(0xFF1E2B3C),
-      body: Center(
-        child: error == null
-            ? const CircularProgressIndicator(color: Colors.white)
-            : Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      error,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white, fontSize: 18),
-                    ),
-                    const SizedBox(height: 24),
-                    FilledButton(
-                      onPressed: _decide,
-                      child: const Text('다시 시도'),
-                    ),
-                  ],
-                ),
-              ),
+      body: NetworkErrorView(
+        message: error,
+        network: _restoreNetwork,
+        onRetry: _decide,
       ),
     );
   }

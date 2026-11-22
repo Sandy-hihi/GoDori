@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:boardpad/models/order_flow.dart';
 import 'package:boardpad/services/admin_session.dart';
 import 'package:boardpad/services/order_flow_service.dart';
+import 'package:boardpad/services/pad_device_service.dart';
 import 'package:boardpad/services/room_settings_service.dart';
 import 'package:boardpad/services/store_features.dart';
 import 'package:boardpad/services/store_info_service.dart';
@@ -40,6 +41,7 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
   final _flowKey = GlobalKey();
   final _featuresKey = GlobalKey();
   final _phoneKey = GlobalKey();
+  final _deviceKey = GlobalKey(); // 142차
   final _loginKey = GlobalKey();
   final _viewportKey = GlobalKey();
   final _scroll = ScrollController();
@@ -47,11 +49,13 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
   late final Stream<StoreFeatures> _featureStream = StoreFeaturesService.watch();
   late final Stream<StoreFeatures> _helpFeatureStream = StoreFeaturesService.watch(); // 도움말 칸용(구독 따로)
   late final Stream<String> _phoneStream = StoreInfoService.watchPhone(); // 120차: 요약 칸용
+  late final Stream<bool> _deviceStream = PadDeviceService.watchAutoLaunch(); // 142차: 요약 칸용
   late final List<_Section> _sections = [
     _Section('room', _roomKey, Icons.meeting_room_outlined, '방 개수'),
     _Section('flow', _flowKey, Icons.room_service_outlined, '음식 수령 방식'),
     _Section('features', _featuresKey, Icons.tune, '기능 사용'),
     _Section('phone', _phoneKey, Icons.call_outlined, '매장 전화번호'),
+    _Section('device', _deviceKey, Icons.tablet_mac_outlined, '태블릿 자동 실행'),
     _Section('login', _loginKey, Icons.lock_outline, '로그인'),
   ];
   String _active = 'room';
@@ -256,6 +260,8 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
           const SizedBox(height: 24),
           _PhoneCard(key: _phoneKey), // 120차: 손님 패드에 보이는 매장 전화번호
           const SizedBox(height: 24),
+          _PadDeviceCard(key: _deviceKey), // 142차: 태블릿이 켜지면 고도리 자동 실행
+          const SizedBox(height: 24),
           _LoginCard(key: _loginKey),
         ],
       ),
@@ -394,6 +400,11 @@ class _AdminStoreSettingsScreenState extends State<AdminStoreSettingsScreen> {
               Text(!snap.hasData ? '…' : (snap.data!.isEmpty ? '없음' : snap.data!),
                   style: snap.hasData && snap.data!.isEmpty ? const TextStyle(color: Colors.black45) : _valueStyle),
             ),
+          ),
+          StreamBuilder<bool>(
+            stream: _deviceStream,
+            builder: (context, snap) =>
+                _summaryRow(_sec('device'), '태블릿 자동 실행', _onOff(snap.data, '켜짐', '꺼짐')),
           ),
           _summaryRow(_sec('login'), '매장 아이디', Text(StoreScope.isSet ? StoreScope.id : '-', style: _valueStyle)),
         ],
@@ -656,6 +667,130 @@ class _OrderFlowCardState extends State<_OrderFlowCard> {
               ),
               const SizedBox(height: 20),
               for (final f in OrderFlow.values) _option(f, current),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// 태블릿 자동 실행 카드 (142차) — 스위치를 누르면 바로 저장. settings/padDevice.autoLaunch
+/// 안드로이드 앱(APK)으로 쓰는 패드만 — 패드가 켜져 있을 때 값을 받아 태블릿에 저장(PadDeviceSync)하고,
+/// 태블릿이 켜질 때 그 값을 보고 고도리를 띄움(BootReceiver.kt). 끄고 켜는 시간은 태블릿 자체 '예약 전원 켜기/끄기'.
+class _PadDeviceCard extends StatefulWidget {
+  const _PadDeviceCard({super.key});
+
+  @override
+  State<_PadDeviceCard> createState() => _PadDeviceCardState();
+}
+
+class _PadDeviceCardState extends State<_PadDeviceCard> {
+  late final Stream<bool> _stream = PadDeviceService.watchAutoLaunch();
+  bool _saving = false;
+
+  Future<void> _set(bool on) async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await PadDeviceService.saveAutoLaunch(on);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(on
+            ? '켰어요. 켜져 있는 패드부터 바로 적용돼요. 태블릿마다 아래 설정을 한 번 해 주세요.'
+            : '껐어요. 태블릿이 켜져도 고도리가 자동으로 뜨지 않아요.'),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('저장하지 못했어요. Firestore 규칙(배포.bat 5번)을 확인해 주세요. ($e)')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    Widget step(String n, String text) => Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: 22, child: Text(n, style: const TextStyle(fontWeight: FontWeight.bold, color: _navy))),
+              Expanded(child: Text(text, style: const TextStyle(color: Colors.black54, height: 1.45))),
+            ],
+          ),
+        );
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 960),
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      child: StreamBuilder<bool>(
+        stream: _stream,
+        builder: (context, snap) {
+          final on = snap.data;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Text('태블릿 자동 실행', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 12),
+                  if (_saving || on == null)
+                    const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(color: _navy.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
+                    child: const Icon(Icons.tablet_mac_outlined, color: _navy),
+                  ),
+                  const SizedBox(width: 16),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('태블릿이 켜지면 고도리 자동 실행', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        SizedBox(height: 4),
+                        Text(
+                          '오픈 때 태블릿을 켜면(예약 전원 켜기 포함) 고도리가 바로 떠요. 고도리 안드로이드 앱으로 쓰는 태블릿에만 해당돼요.\n'
+                          '켜 두면 태블릿에서 고도리를 기본 홈 앱으로도 고를 수 있어요.',
+                          style: TextStyle(color: Colors.black54, height: 1.45),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Switch(
+                    value: on ?? false,
+                    activeTrackColor: _navy,
+                    onChanged: (on == null || _saving) ? null : _set,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: const Color(0xFFF5F6F8), borderRadius: BorderRadius.circular(12)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('태블릿마다 한 번만', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    step('1', '태블릿 설정의 \'예약 전원 켜기/끄기\'에 마감·오픈 시각을 넣어 주세요. (메뉴가 없는 기종은 직원이 전원만 켜면 돼요)'),
+                    step('2', '설정 > 앱 > 고도리 > \'다른 앱 위에 표시\'를 허용하거나, 고도리를 기본 홈 앱으로 골라 주세요.'),
+                    step('3', '화면 잠금은 \'없음\'으로 해 주세요. 잠금 화면이 있으면 고도리가 그 뒤에 떠요.'),
+                    step('4', '바꾼 값은 켜져 있는 패드에 바로 저장돼요. 꺼져 있던 패드는 다음에 켜서 로그인돼 있을 때 저장돼요.'),
+                  ],
+                ),
+              ),
             ],
           );
         },

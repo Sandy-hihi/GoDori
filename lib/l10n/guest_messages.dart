@@ -1860,5 +1860,50 @@ const guestMessages = <String, List<String>> {
     "Couldn't call the staff. Please check the internet connection.",
     "无法呼叫店员，请检查网络连接。",
     "スタッフを呼び出せませんでした。インターネット接続を確認してください。"
+  ],
+  "인터넷 연결이 끊겼어요": [
+    "No internet connection",
+    "网络连接已断开",
+    "インターネット接続が切れました"
+  ],
+  "잠시 문제가 생겼어요": [
+    "Something went wrong",
+    "出现了一点问题",
+    "問題が発生しました"
+  ],
+  "연결되면 바로 이어서 쓸 수 있어요.": [
+    "You can continue as soon as it reconnects.",
+    "连接恢复后即可继续使用。",
+    "つながればすぐに続けて使えます。"
+  ],
+  "잠시 후 다시 시도해 주세요.": [
+    "Please try again in a moment.",
+    "请稍后再试。",
+    "しばらくしてからもう一度お試しください。"
+  ],
+  "와이파이가 켜져 있는지 확인해 주세요": [
+    "Check that Wi-Fi is turned on",
+    "请确认 Wi-Fi 已开启",
+    "Wi-Fiがオンになっているか確認してください"
+  ],
+  "공유기 전원과 선을 확인해 주세요": [
+    "Check the router's power and cables",
+    "请检查路由器电源和网线",
+    "ルーターの電源とケーブルを確認してください"
+  ],
+  "계속 안 되면 직원에게 알려 주세요": [
+    "If it still doesn't work, please tell the staff",
+    "如果仍无法连接，请告诉店员",
+    "それでもつながらない場合はスタッフにお知らせください"
+  ],
+  "연결하는 중이에요…": [
+    "Connecting…",
+    "正在连接…",
+    "接続しています…"
+  ],
+  "저장된 로그인 정보를 불러오지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.": [
+    "Couldn't load the saved sign-in. Please check the internet connection and try again.",
+    "无法读取已保存的登录信息。请检查网络连接后重试。",
+    "保存されたログイン情報を読み込めませんでした。インターネット接続を確認してもう一度お試しください。"
   ]
 };

@@ -1,4 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 141차: 매장 태블릿용 APK — 인터넷(Firebase·서버). 예전엔 debug·profile에만 있어서 release APK에서 인터넷이 막힐 뻔했음 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 141차: 태블릿이 켜지면 고도리 자동 실행 (BootReceiver.kt) -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- 141차: 안드로이드 10 이상은 켜질 때 앱이 스스로 화면에 뜨는 걸 막음 →
+         태블릿 설정에서 고도리의 '다른 앱 위에 표시'를 켜 두면 자동 실행이 됨 (또는 고도리를 기본 홈 앱으로) -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <application
         android:label="고도리"
         android:name="${applicationName}"
@@ -6,7 +13,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
@@ -25,6 +32,30 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- 141·142차: 고도리를 태블릿의 '기본 홈 앱'으로 고를 수 있게 — 고르면 켜질 때·홈 버튼을 누를 때 항상 고도리.
+             기본은 꺼짐(enabled=false) — 관리자 웹 '매장 설정 > 태블릿 자동 실행'을 켜면 앱이 켬(MainActivity.kt DeviceSettings).
+             (MainActivity launchMode singleTask: 홈 버튼을 여러 번 눌러도 고도리 화면이 하나만 생기게) -->
+        <activity-alias
+            android:name=".HomeAlias"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.HOME"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </activity-alias>
+        <!-- 141차: 태블릿이 켜지면(예약 전원 켜기 포함) 고도리 실행 — 142차: 관리자 웹에서 켠 매장만 -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

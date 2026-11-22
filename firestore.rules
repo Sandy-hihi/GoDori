@@ -165,7 +165,7 @@ service cloud.firestore {
         allow read: if true;
         // 관리자 페이지가 수정하는 문서만, 그 매장 관리자만 쓰기 허용.
         allow write: if isAdmin()
-                     && docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout', 'optionLibrary', 'soldOutSchedule', 'translationOverrides']; // optionLibrary = 옵션 목록(106차), soldOutSchedule = 자동 품절 시간(112차), translationOverrides = 번역 고침표(120차)
+                     && docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout', 'optionLibrary', 'soldOutSchedule', 'translationOverrides', 'padDevice']; // optionLibrary = 옵션 목록(106차), soldOutSchedule = 자동 품절 시간(112차), translationOverrides = 번역 고침표(120차), padDevice = 태블릿 자동 실행(142차)
         // 방 개수 (관리자 웹 '매장 설정'): 1 ~ 30 사이 숫자만
         allow write: if isAdmin()
                      && docId == 'rooms'
