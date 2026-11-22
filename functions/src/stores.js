@@ -150,6 +150,22 @@ function secretOf(account, kind) {
   return hasWeb ? { hash: a.webPasswordHash, plain: a.webPassword } : { hash: a.pinHash, plain: a.pin };
 }
 
+// 145차: 글자(평문)로 저장된 비밀번호면 해시로 바꿀 칸 이름(예: 'padPasswordHash'), 이미 해시거나 없으면 null
+// — 로그인에 성공한 순간 맞은 값을 scrypt로 저장하고 글자 칸은 지움(app.js upgradePlain)
+function plainHashField(account, kind) {
+  const a = account || {};
+  let field = 'pinHash';
+  if (kind === 'pad') field = 'padPasswordHash';
+  else if (kind === 'web') {
+    const hasWeb = (a.webPasswordHash || '') !== '' || (a.webPassword != null && String(a.webPassword) !== '');
+    if (hasWeb) field = 'webPasswordHash';
+  }
+  const hash = a[field];
+  if (typeof hash === 'string' && hash.startsWith('scrypt$')) return null;
+  const plain = a[field.replace(/Hash$/, '')];
+  return plain != null && String(plain) !== '' ? field : null;
+}
+
 function parseRoomCount(data) {
   const v = data && data.count;
   const n = typeof v === 'number' ? Math.trunc(v) : parseInt(v, 10);
@@ -501,6 +517,7 @@ module.exports = {
   hashSecret,
   checkSecret,
   secretOf,
+  plainHashField,
   parseRoomCount,
   safeEqual,
   createFirestoreStores,

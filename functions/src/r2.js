@@ -100,6 +100,13 @@ function createR2Storage({ accountId, bucket, accessKeyId, secretAccessKey, fetc
         contentType: res.headers.get('content-type') || '',
       };
     },
+    /** 145차: 파일 앞부분 n바이트 (Range GET). 없으면 null → Buffer — 올라온 파일이 진짜 MP4인지 확인용 */
+    async readStart(key, n = 16) {
+      const res = await fetchImpl(sign('GET', key, 60), { method: 'GET', headers: { range: `bytes=0-${n - 1}` } });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`R2 GET ${res.status}`);
+      return Buffer.from(await res.arrayBuffer()).subarray(0, n);
+    },
     /** 파일 지우기 (없어도 성공) */
     async remove(key) {
       const res = await fetchImpl(sign('DELETE', key, 60), { method: 'DELETE' });

@@ -1,0 +1,47 @@
+# 145차: 오래된·취약한 라이브러리 자동 점검 (GitHub Dependabot)
+# 매주 월요일 아침에 새 버전·보안 패치를 확인해 PR(풀 리퀘스트)을 만들어 줌. 같은 종류는 PR 하나로 묶음.
+# PR은 자동으로 합쳐지지 않음 — 확인하고 합칠 것(서버 함수는 node --test, 앱은 코드 검사 bat).
+# 보안 경고 알림은 GitHub 저장소 Settings > Code security > Dependabot alerts·security updates를 켜면 따로 옴.
+version: 2
+updates:
+  # 서버 함수 (Firebase Functions)
+  - package-ecosystem: "npm"
+    directory: "/functions"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Seoul"
+    open-pull-requests-limit: 5
+    groups:
+      functions:
+        patterns: ["*"]
+  # 토스 포스 플러그인
+  - package-ecosystem: "npm"
+    directory: "/toss-plugin"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Seoul"
+    open-pull-requests-limit: 5
+    groups:
+      toss-plugin:
+        patterns: ["*"]
+  # Flutter 앱 (pubspec.yaml)
+  - package-ecosystem: "pub"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Seoul"
+    open-pull-requests-limit: 5
+    groups:
+      flutter:
+        patterns: ["*"]
+  # GitHub Actions (sync-fork.yml)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

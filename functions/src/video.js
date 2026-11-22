@@ -19,6 +19,12 @@
 //   POST /api/ops/shared-video/upload-url { bggId, quality, size, contentType } · confirm { bggId, quality, key, meta, title } · delete { bggId, quality }
 //   GET  /api/ops/shared-video/list  (운영자, app.js opsRoute)
 //
+// 146차 매장 인트로 영상: 운영자가 매장마다 3~10초짜리 짧은 영상을 하나 올리면, 그 매장 패드에서 룰 영상 앞에 먼저 나옴
+//   파일 키 rule-videos/_intro/<매장>/<시각>_intro.mp4   기록 Firestore _ops/introVideos { videos: { <매장>: info } } (서버만)
+//   재생: play-url 응답에 intro: { url, durationSec } 를 같이 줌 → 패드가 인트로를 틀고 끝나면 바로 룰 영상 (미리 열어 둠)
+//   POST /api/ops/intro-video/upload-url { storeId, size, contentType } · confirm { storeId, key, meta } · delete { storeId }
+//   GET  /api/ops/intro-video/list  (운영자, app.js opsRoute)
+//
 // 영상 규격(41차): 1080p 30fps H.264 + AAC, MP4. 720p 파일은 선택(있으면 패드가 버퍼링 때 720p로 바꿔 틂).
 // R2 설정이 없으면(아직 Cloudflare 연결 전) 모든 영상 API가 503 R2_NOT_CONNECTED.
 
@@ -29,6 +35,11 @@ const QUALITIES = ['1080', '720'];
 const KEY_PREFIX = 'rule-videos/';
 const SHARED_PREFIX = `${KEY_PREFIX}_shared/`;
 const BGG_ID_RE = /^\d{1,9}$/;
+const INTRO_PREFIX = `${KEY_PREFIX}_intro/`;
+const INTRO_MAX_BYTES = 50 * 1024 * 1024; // 10초 1080p면 보통 5~15MB
+const INTRO_MIN_SEC = 3;
+const INTRO_MAX_SEC = 10;
+const INTRO_SLACK_SEC = 0.5; // 인코딩하면 길이가 조금씩 달라져서 앞뒤 0.5초는 봐 줌
 
 function httpError(status, code, message) {
   const e = new Error(message);
@@ -77,8 +88,10 @@ const num = (v, max) => {
  * 모든 함수의 storeId는 로그인 토큰의 매장 (app.js가 넘김)
  * shared:  공용 영상 기록 (92차, 없으면 공용 영상 안 씀)
  *          { get(bggId) -> { title, q1080?, q720? }|null, set(bggId, 'q1080'|'q720', info|null, title), list() -> { <bggId>: entry } }
+ * intros:  매장 인트로 영상 기록 (146차, 없으면 인트로 안 씀)
+ *          { get(storeId) -> info|null, set(storeId, info|null), list() -> { <storeId>: info } }
  */
-function createVideoApi({ storage, games, shared = null, stats = null, now = () => Date.now() }) {
+function createVideoApi({ storage, games, shared = null, intros = null, stats = null, now = () => Date.now() }) {
   function needStorage() {
     if (!storage) throw httpError(503, 'R2_NOT_CONNECTED', '영상 저장소(Cloudflare R2)가 아직 연결되지 않았어요.');
   }
@@ -100,30 +113,46 @@ function createVideoApi({ storage, games, shared = null, stats = null, now = () 
     if (!shared) throw httpError(503, 'NO_SHARED', '공용 영상 기능이 연결되지 않았어요.');
   }
 
+  function needIntros() {
+    if (!intros) throw httpError(503, 'NO_INTRO', '인트로 영상 기능이 연결되지 않았어요.');
+  }
+
   // 올리기 전 검사 (매장·공용 같이 씀) → { quality, contentType }
-  function checkUpload(body) {
-    const quality = cleanQuality(body.quality);
+  function checkUpload(body, { maxBytes = MAX_BYTES, quality: fixedQuality = null } = {}) {
+    const quality = fixedQuality || cleanQuality(body.quality);
     const size = Number(body.size);
     if (!Number.isFinite(size) || size <= 0) throw httpError(400, 'INVALID_SIZE', '파일 크기를 확인해 주세요.');
-    if (size > MAX_BYTES) {
-      throw httpError(413, 'TOO_LARGE', `영상이 너무 커요. ${Math.round(MAX_BYTES / 1024 / 1024)}MB 이하로 만들어 주세요.`);
+    if (size > maxBytes) {
+      throw httpError(413, 'TOO_LARGE', `영상이 너무 커요. ${Math.round(maxBytes / 1024 / 1024)}MB 이하로 만들어 주세요.`);
     }
     const contentType = String(body.contentType || 'video/mp4').toLowerCase();
     if (contentType !== 'video/mp4') throw httpError(415, 'NOT_MP4', 'MP4 영상만 올릴 수 있어요.');
     return { quality, contentType };
   }
 
-  // 올라간 파일 확인 (키 모양 → 저장소 HEAD → 크기) → 저장할 정보
-  async function checkUploaded(key, prefix, quality, metaBody) {
+  // 145차: 파일 앞부분이 MP4 모양인지(4~7번째 바이트 'ftyp') — 이름만 .mp4인 다른 파일(실행 파일·HTML 등)을 막음
+  function looksLikeMp4(buf) {
+    return Buffer.isBuffer(buf) && buf.length >= 12 && buf.toString('latin1', 4, 8) === 'ftyp';
+  }
+
+  // 올라간 파일 확인 (키 모양 → 저장소 HEAD → 크기 → 145차: 파일 앞부분이 MP4인지) → 저장할 정보
+  async function checkUploaded(key, prefix, quality, metaBody, maxBytes = MAX_BYTES) {
     const rest = key.startsWith(prefix) ? key.slice(prefix.length) : '';
     if (!new RegExp(`^\\d{10,16}_${quality}\\.mp4$`).test(rest)) {
       throw httpError(400, 'INVALID_KEY', '올린 파일 정보가 올바르지 않아요. 다시 올려 주세요.');
     }
     const head = await storage.head(key);
     if (!head) throw httpError(404, 'UPLOAD_MISSING', '영상이 저장소에 올라가지 않았어요. 다시 올려 주세요.');
-    if (head.size > MAX_BYTES) {
+    if (head.size > maxBytes) {
       await storage.remove(key).catch(() => {});
       throw httpError(413, 'TOO_LARGE', '영상이 너무 커요.');
+    }
+    if (typeof storage.readStart === 'function') {
+      const start = await storage.readStart(key, 16);
+      if (!looksLikeMp4(start)) {
+        await storage.remove(key).catch(() => {});
+        throw httpError(415, 'NOT_MP4', 'MP4 영상 파일이 아니에요. 영상을 MP4로 다시 만들어 올려 주세요.');
+      }
     }
     const meta = metaBody && typeof metaBody === 'object' ? metaBody : {};
     return {
@@ -212,10 +241,23 @@ function createVideoApi({ storage, games, shared = null, stats = null, now = () 
       }
     }
     if (!out.q1080 && !out.q720) throw httpError(404, 'NO_VIDEO', '등록된 룰 영상이 없어요.');
+    // 146차: 매장 인트로 영상 (있으면 패드가 룰 영상 앞에 틂). 기록을 못 읽어도 룰 영상은 그대로
+    let introBytes = 0;
+    if (intros) {
+      try {
+        const it = await intros.get(storeId);
+        if (it && typeof it.key === 'string' && it.key.startsWith(`${INTRO_PREFIX}${storeId}/`)) {
+          out.intro = { url: storage.downloadUrl(it.key, PLAY_EXPIRES), durationSec: it.durationSec || null };
+          introBytes = Number(it.sizeBytes || 0);
+        }
+      } catch (e) {
+        console.warn('[인트로] 기록 읽기 실패', storeId, e && e.message);
+      }
+    }
     if (stats && String(query.count) !== '0') {
       try {
         const first = rv.q1080 || rv.q720 || {};
-        await stats.recordPlay(storeId, gameId, String(game.title || ''), Number(first.sizeBytes || 0));
+        await stats.recordPlay(storeId, gameId, String(game.title || ''), Number(first.sizeBytes || 0) + introBytes);
       } catch (e) {
         console.warn('[영상] 재생 기록 실패', gameId, e && e.message); // 기록이 안 돼도 재생은 됨
       }
@@ -300,6 +342,63 @@ function createVideoApi({ storage, games, shared = null, stats = null, now = () 
     return { videos: out, totalBytes: bytes, connected: !!storage };
   }
 
+  // ── 매장 인트로 영상 (146차, 운영자만 — app.js opsRoute가 매장이 있는지 먼저 확인) ──
+
+  async function introUploadUrl(body) {
+    needStorage();
+    needIntros();
+    const storeId = needStore(String(body.storeId == null ? '' : body.storeId).trim());
+    const { contentType } = checkUpload(body, { maxBytes: INTRO_MAX_BYTES, quality: 'intro' });
+    const key = `${INTRO_PREFIX}${storeId}/${now()}_intro.mp4`;
+    return { uploadUrl: storage.uploadUrl(key, contentType, UPLOAD_EXPIRES), key, contentType, expiresIn: UPLOAD_EXPIRES };
+  }
+
+  async function introConfirm(body) {
+    needStorage();
+    needIntros();
+    const storeId = needStore(String(body.storeId == null ? '' : body.storeId).trim());
+    const key = String(body.key || '');
+    const dur = Number(body.meta && body.meta.durationSec);
+    if (!Number.isFinite(dur) || dur < INTRO_MIN_SEC - INTRO_SLACK_SEC || dur > INTRO_MAX_SEC + INTRO_SLACK_SEC) {
+      if (key.startsWith(`${INTRO_PREFIX}${storeId}/`)) await storage.remove(key).catch(() => {});
+      throw httpError(400, 'INTRO_LENGTH', `인트로 영상은 ${INTRO_MIN_SEC}~${INTRO_MAX_SEC}초로 만들어 주세요.`);
+    }
+    const info = await checkUploaded(key, `${INTRO_PREFIX}${storeId}/`, 'intro', body.meta, INTRO_MAX_BYTES);
+    const old = await intros.get(storeId);
+    await intros.set(storeId, info);
+    if (old && old.key && old.key !== info.key) {
+      await storage.remove(old.key).catch((e) => console.warn('[인트로] 예전 파일 삭제 실패', old.key, e && e.message));
+    }
+    return { video: { ...info, uploadedAt: info.uploadedAt.toISOString() } };
+  }
+
+  async function introRemove(body) {
+    needIntros();
+    const storeId = needStore(String(body.storeId == null ? '' : body.storeId).trim());
+    const old = await intros.get(storeId);
+    if (old) await intros.set(storeId, null);
+    if (old && old.key && storage) {
+      await storage.remove(old.key).catch((e) => console.warn('[인트로] 파일 삭제 실패', old.key, e && e.message));
+    }
+    return { ok: true, removed: !!old };
+  }
+
+  async function introList() {
+    needIntros();
+    const map = (await intros.list()) || {};
+    const iso = (d) => (d && typeof d.toDate === 'function' ? d.toDate() : d instanceof Date ? d : null);
+    const out = {};
+    for (const [storeId, v] of Object.entries(map)) {
+      if (!v || !v.key) continue;
+      const at = iso(v.uploadedAt);
+      out[storeId] = { sizeBytes: Number(v.sizeBytes || 0), width: v.width || null, height: v.height || null,
+        durationSec: v.durationSec || null, uploadedAt: at ? at.toISOString() : null,
+        // 운영자 미리 보기용 (1시간)
+        previewUrl: storage ? storage.downloadUrl(v.key, 60 * 60) : null };
+    }
+    return { intros: out, connected: !!storage };
+  }
+
   // 93차: 한 매장이 올린 영상을 공용 보관함으로 옮김 { storeId, dryRun(기본 true — 미리 보기만) }
   //   파일은 R2에 그대로 두고 기록만 옮김(복사 비용 없음): shared에 같은 키로 적고 → 게임 문서의 ruleVideo를 지움.
   //   BGG 번호(geekId)가 없거나, 그 BGG 번호의 공용 영상이 이미 있으면 건너뜀(매장 영상으로 남음).
@@ -349,7 +448,19 @@ function createVideoApi({ storage, games, shared = null, stats = null, now = () 
     return { dryRun, storeId, moved, skipped };
   }
 
-  return { uploadUrl, confirm, remove, playUrl, sharedUploadUrl, sharedConfirm, sharedRemove, sharedList, moveStoreToShared };
+  return { uploadUrl, confirm, remove, playUrl, sharedUploadUrl, sharedConfirm, sharedRemove, sharedList, moveStoreToShared,
+    introUploadUrl, introConfirm, introRemove, introList };
+}
+
+// 메모리 인트로 기록 (테스트·로컬 개발용) — Firestore 쪽은 index.js createIntroVideos
+function createMemoryIntroVideos() {
+  const map = new Map();
+  return {
+    map,
+    async get(storeId) { return map.has(storeId) ? { ...map.get(storeId) } : null; },
+    async set(storeId, info) { if (info == null) map.delete(storeId); else map.set(storeId, info); },
+    async list() { return Object.fromEntries(map); },
+  };
 }
 
 // 메모리 공용 영상 기록 (테스트·로컬 개발용) — Firestore 쪽은 index.js createSharedVideos
@@ -370,4 +481,4 @@ function createMemorySharedVideos() {
   };
 }
 
-module.exports = { createVideoApi, createMemorySharedVideos, MAX_BYTES, PLAY_EXPIRES, UPLOAD_EXPIRES, SHARED_PREFIX };
+module.exports = { createVideoApi, createMemorySharedVideos, createMemoryIntroVideos, INTRO_PREFIX, INTRO_MAX_BYTES, MAX_BYTES, PLAY_EXPIRES, UPLOAD_EXPIRES, SHARED_PREFIX };

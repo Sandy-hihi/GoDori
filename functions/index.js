@@ -194,6 +194,7 @@ function getHandle() {
         : null,
       games: createGameStore(db),
       shared: createSharedVideos(db),
+      intros: createIntroVideos(db),
       stats: createVideoStats(db),
     }),
   });
@@ -253,6 +254,42 @@ function createSharedVideos(db) {
         else e[field] = info;
         if (!e.q1080 && !e.q720) delete videos[bggId];
         else videos[bggId] = { ...e, updatedAt: new Date() };
+        tx.set(ref, { videos, updatedAt: FieldValue.serverTimestamp() });
+      });
+      cache = null;
+    },
+    async list() {
+      cache = null;
+      return all();
+    },
+  };
+}
+
+// 146차 매장 인트로 영상 기록: _ops/introVideos { videos: { <매장>: { key, sizeBytes, width, height, durationSec, uploadedAt } } }
+// _ops는 서버만 읽고 씀(firestore.rules). 재생 때마다 읽지 않게 1분 기억 (운영자가 바꾸면 그 인스턴스는 바로 비움)
+function createIntroVideos(db) {
+  const { FieldValue } = require('firebase-admin/firestore');
+  const ref = db.collection('_ops').doc('introVideos');
+  let cache = null;
+  let cacheAt = 0;
+  async function all() {
+    if (cache && Date.now() - cacheAt < 60 * 1000) return cache;
+    const doc = await ref.get();
+    cache = (doc.exists && doc.get('videos')) || {};
+    cacheAt = Date.now();
+    return cache;
+  }
+  return {
+    async get(storeId) {
+      const v = (await all())[storeId];
+      return v ? { ...v } : null;
+    },
+    async set(storeId, info) {
+      await db.runTransaction(async (tx) => {
+        const doc = await tx.get(ref);
+        const videos = { ...((doc.exists && doc.get('videos')) || {}) };
+        if (info == null) delete videos[storeId];
+        else videos[storeId] = info;
         tx.set(ref, { videos, updatedAt: FieldValue.serverTimestamp() });
       });
       cache = null;

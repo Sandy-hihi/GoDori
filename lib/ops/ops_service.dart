@@ -211,6 +211,31 @@ class OpsService {
   static Future<Map<String, dynamic>> moveStoreVideosToShared(String storeId, {required bool dryRun}) =>
       _call('POST', '/api/ops/shared-video/move-store', body: {'storeId': storeId, 'dryRun': dryRun});
 
+  // ── 146차: 매장 인트로 영상 (매장마다 3~10초, 룰 영상 앞에 나옴) — 서버 functions/src/video.js intro* ──
+  /// → { intros: { <매장>: { sizeBytes, width, height, durationSec, uploadedAt, previewUrl } }, connected }
+  static Future<Map<String, dynamic>> introVideos() => _call('GET', '/api/ops/intro-video/list');
+
+  /// 올리기: 주소 받기 → R2로 PUT(진행률) → 서버 확인 (서버가 3~10초인지 meta.durationSec로 확인)
+  static Future<void> uploadIntroVideo({
+    required String storeId,
+    required Uint8List bytes,
+    Map<String, dynamic>? meta,
+    void Function(double)? onProgress,
+  }) async {
+    final up = await _call('POST', '/api/ops/intro-video/upload-url',
+        body: {'storeId': storeId, 'size': bytes.length, 'contentType': 'video/mp4'});
+    try {
+      await putToStorage(up['uploadUrl'] as String, bytes,
+          contentType: (up['contentType'] ?? 'video/mp4').toString(), onProgress: onProgress);
+    } on R2UploadException catch (e) {
+      throw OpsException(e.message);
+    }
+    await _call('POST', '/api/ops/intro-video/confirm', body: {'storeId': storeId, 'key': up['key'], 'meta': meta ?? {}});
+  }
+
+  static Future<void> deleteIntroVideo(String storeId) =>
+      _call('POST', '/api/ops/intro-video/delete', body: {'storeId': storeId});
+
   /// quality '1080' / '720' / 'all'
   static Future<void> deleteSharedVideo(String bggId, {String quality = 'all'}) =>
       _call('POST', '/api/ops/shared-video/delete', body: {'bggId': bggId, 'quality': quality});

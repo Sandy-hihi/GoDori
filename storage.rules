@@ -19,10 +19,12 @@ service firebase.storage {
       allow read: if true;
       // 지우기는 크기 검사 없이 그 매장 관리자만
       allow delete: if adminOf(storeId);
-      // 올리기: 그 매장 관리자 + 이미지 20MB / 영상 500MB 이하
+      // 올리기: 그 매장 관리자 + 사진(JPEG·PNG·WebP·GIF) 20MB 이하만
+      //   145차: 'image/.*' → 정해진 사진 형식만 — SVG(image/svg+xml)는 안에 스크립트를 넣을 수 있어 막음.
+      //   영상은 R2로 올리므로(43차~) Storage에는 안 받음. 앱은 사진을 image/jpeg·png·webp로만 올림.
       allow create, update: if adminOf(storeId)
-                            && ((request.resource.contentType.matches('image/.*') && request.resource.size < 20 * 1024 * 1024)
-                                || (request.resource.contentType.matches('video/.*') && request.resource.size < 500 * 1024 * 1024));
+                            && request.resource.contentType.matches('image/(jpeg|png|webp|gif)')
+                            && request.resource.size < 20 * 1024 * 1024;
     }
 
     // 47차 전에 올린 파일 (예전 매장 1곳 시절) — 새로 올리기는 막음

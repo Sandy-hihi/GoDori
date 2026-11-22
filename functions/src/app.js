@@ -31,7 +31,7 @@
 // /api/bgg/* 와 영상 올리기·지우기는 그 매장 관리자만, /api/video/play-url 은 그 매장 패드·관리자.
 
 const crypto = require('crypto');
-const { STORE_ID_RE, MAX_ROOMS, RESERVED_IDS, STATUSES, cleanStoreId, hashSecret, checkSecret, secretOf, safeEqual, statusError, seoulDateKey, OWNER_FEATURES, cleanFeatures } = require('./stores');
+const { STORE_ID_RE, MAX_ROOMS, RESERVED_IDS, STATUSES, cleanStoreId, hashSecret, checkSecret, secretOf, plainHashField, safeEqual, statusError, seoulDateKey, OWNER_FEATURES, cleanFeatures } = require('./stores');
 
 const MIN = 60 * 1000;
 const IMAGE_MAX_BYTES = 1.5 * 1024 * 1024;
@@ -43,6 +43,10 @@ const LOGIN_LIMITS = [
 // 전체(모든 IP·모든 매장) 1시간 30번은 잠그지 않고 서버 기록에 경보만 남김 (DEF-011, 91차)
 // — 예전엔 잠갔는데, 그러면 누구 한 명이 틀린 비밀번호 30번으로 모든 매장 로그인을 1시간 막을 수 있었음
 const LOGIN_WATCH = { key: 'global', max: 30, windowMs: 60 * MIN };
+// 145차: 매장(아이디)마다 15분 20번 틀리면 그 매장 로그인만 15분 잠금 — IP를 바꿔 가며(또는 X-Forwarded-For를 꾸며서)
+// 비밀번호를 맞춰 보는 것을 막음. 다른 매장은 그대로라 91차(DEF-011)의 '한 명이 모든 매장을 막는' 문제는 없음.
+// 이미 로그인해 있는 패드·관리자 웹은 영향 없음(새 로그인만 잠김).
+const STORE_LIMIT = { key: (storeId) => `store:${storeId}`, max: 20, windowMs: 15 * MIN };
 
 // 난이도: BGG geek weight 구간 (월정액권 앱과 같은 기준·색 — 매장 난이도 스티커 색)
 const DIFFICULTY_BUCKETS = [
@@ -197,15 +201,30 @@ function createHandler({
   }
 
   // ── 로그인 실패 제한 (같은 IP 15분 5번 → 잠금, 전체 1시간 30번 → 경보만) ──
-  async function checkLock(ip) {
+  async function checkLock(ip, storeId = null) {
     for (const l of LOGIN_LIMITS) {
       if (await attempts.isLocked(l.key(ip), l.max, l.windowMs)) {
         throw httpError(429, 'TOO_MANY', '비밀번호를 너무 많이 틀렸어요. 잠시 뒤에 다시 시도해 주세요.');
       }
     }
+    if (storeId && await attempts.isLocked(STORE_LIMIT.key(storeId), STORE_LIMIT.max, STORE_LIMIT.windowMs)) {
+      throw httpError(429, 'TOO_MANY', '비밀번호를 너무 많이 틀렸어요. 잠시 뒤에 다시 시도해 주세요.');
+    }
   }
-  async function fail(ip, code, message) {
+  async function resetLock(ip, storeId = null) {
+    await attempts.reset(LOGIN_LIMITS[0].key(ip));
+    if (storeId) await attempts.reset(STORE_LIMIT.key(storeId));
+  }
+  // 145차: 글자로 저장돼 있던 비밀번호는 로그인에 성공한 순간 해시로 바꿔 저장(실패해도 로그인은 그대로)
+  async function upgradePlain(storeId, account, kind, given) {
+    const field = plainHashField(account, kind);
+    if (!field) return;
+    await Promise.resolve(stores.setSecrets(storeId, { [field]: hashSecret(given) }))
+      .catch((e) => console.warn('[비밀번호] 해시로 바꾸기 실패', storeId, field, e && e.message));
+  }
+  async function fail(ip, code, message, storeId = null) {
     for (const l of LOGIN_LIMITS) await attempts.recordFail(l.key(ip), l.windowMs);
+    if (storeId) await attempts.recordFail(STORE_LIMIT.key(storeId), STORE_LIMIT.windowMs);
     await attempts.recordFail(LOGIN_WATCH.key, LOGIN_WATCH.windowMs);
     if (await attempts.isLocked(LOGIN_WATCH.key, LOGIN_WATCH.max, LOGIN_WATCH.windowMs)) {
       console.warn(`[로그인 경보] 1시간 동안 틀린 로그인이 ${LOGIN_WATCH.max}번을 넘었어요 — 여러 IP에서 비밀번호를 맞춰 보는 중일 수 있음 (마지막 IP ${ip})`);
@@ -234,7 +253,8 @@ function createHandler({
         kind === 'pad' ? '이 매장은 패드 비밀번호가 아직 없어요. 관리자 웹 → 매장 설정에서 만들어 주세요.'
                        : '이 매장은 관리자 비밀번호가 설정되어 있지 않아요.');
     }
-    if (!ok) throw await fail(ip, 'WRONG_PASSWORD', '아이디 또는 비밀번호가 올바르지 않습니다.');
+    if (!ok) throw await fail(ip, 'WRONG_PASSWORD', '아이디 또는 비밀번호가 올바르지 않습니다.', storeId);
+    await upgradePlain(storeId, account, kind, given);
     // 비밀번호가 맞은 뒤에만 승인 대기·정지 여부를 알려 줌
     const blocked = statusError(account.status);
     if (blocked) throw blocked;
@@ -253,7 +273,7 @@ function createHandler({
       throw httpError(400, 'INVALID_ROOM', '방 번호를 확인해 주세요. (관리자는 0)');
     }
     const ip = clientIp(req.headers);
-    await checkLock(ip);
+    await checkLock(ip, storeId);
     const account = await checkStorePassword(ip, storeId, password, 'pad');
 
     if (room === 0) {
@@ -266,8 +286,9 @@ function createHandler({
       if (pin.length > 20) throw httpError(400, 'INVALID_PASSWORD', 'PIN이 너무 길어요.');
       const ok = checkSecret(pin, secretOf(account, 'pin'));
       if (ok === null) throw httpError(503, 'NO_PIN', '이 매장은 관리자 PIN이 설정되어 있지 않아요.');
-      if (!ok) throw await fail(ip, 'WRONG_PIN', 'PIN이 올바르지 않습니다.');
-      await attempts.reset(LOGIN_LIMITS[0].key(ip));
+      if (!ok) throw await fail(ip, 'WRONG_PIN', 'PIN이 올바르지 않습니다.', storeId);
+      await upgradePlain(storeId, account, 'pin', pin);
+      await resetLock(ip, storeId);
       await recordUsage(storeId, { logins: 1 });
       return { role: 'admin', store: storeId, storeName: account.name, room: 0,
         token: await createToken(`admin-pad.${storeId}`, { admin: true, store: storeId }) };
@@ -275,7 +296,7 @@ function createHandler({
 
     const count = await stores.getRoomCount(storeId);
     if (room > count) throw httpError(400, 'INVALID_ROOM', `이 매장의 방 번호는 1~${count}번이에요. (관리자는 0)`);
-    await attempts.reset(LOGIN_LIMITS[0].key(ip));
+    await resetLock(ip, storeId);
     await recordUsage(storeId, { logins: 1 });
     return { role: 'pad', store: storeId, storeName: account.name, room,
       token: await createToken(`pad.${storeId}.${room}`, { pad: true, store: storeId, room }) };
@@ -287,9 +308,9 @@ function createHandler({
     const storeId = cleanStoreId(body.storeId);
     const password = textField(body.password, '비밀번호');
     const ip = clientIp(req.headers);
-    await checkLock(ip);
+    await checkLock(ip, storeId);
     const account = await checkStorePassword(ip, storeId, password, 'web');
-    await attempts.reset(LOGIN_LIMITS[0].key(ip));
+    await resetLock(ip, storeId);
     await recordUsage(storeId, { logins: 1 });
     return { role: 'admin', store: storeId, storeName: account.name,
       token: await createToken(`admin-web.${storeId}`, { admin: true, store: storeId }) };
@@ -354,6 +375,7 @@ function createHandler({
     const pad = checkSecret(given, secretOf(account, 'pad')) === true;
     const ok = pad || checkSecret(given, secretOf(account, 'pin')) === true;
     if (!ok) throw await fail(ip, 'WRONG_PASSWORD', '비밀번호가 올바르지 않습니다.');
+    await upgradePlain(user.store, account, pad ? 'pad' : 'pin', given);
     await attempts.reset(LOGIN_LIMITS[0].key(ip));
     // 132차: kind — 패드 비밀번호였으면 앱이 인터넷 끊길 때 쓸 확인값(해시)을 패드에 저장
     return { ok: true, kind: pad ? 'pad' : 'pin' };
@@ -390,6 +412,10 @@ function createHandler({
       const ok = checkSecret(given, { hash: acc.passwordHash, plain: acc.password });
       if (ok === null) throw httpError(503, 'NO_PASSWORD', '운영자 비밀번호가 없어요. Firebase 콘솔 → Firestore에 _ops/account 문서(password 필드)를 만들어 주세요.');
       if (!ok) throw await fail(ip, 'WRONG_PASSWORD', '비밀번호가 올바르지 않습니다.');
+      // 145차: 콘솔에서 글자로 넣은 운영자 비밀번호도 첫 로그인 때 해시로
+      if (!(typeof acc.passwordHash === 'string' && acc.passwordHash.startsWith('scrypt$'))) {
+        await Promise.resolve(ops.setPasswordHash(hashSecret(given))).catch((e) => console.warn('[운영자] 해시로 바꾸기 실패', e && e.message));
+      }
       await attempts.reset(LOGIN_LIMITS[0].key(ip));
       return { token: await createToken('ops', { ops: true }) };
     }
@@ -449,6 +475,10 @@ function createHandler({
       if (String(body.confirm || '') !== storeId) throw httpError(400, 'CONFIRM', '지우려면 매장 아이디를 정확히 써 주세요.');
       await Promise.resolve(revokeStoreTokens(storeId)).catch((e) => console.warn('[운영] 로그인 끊기 실패', storeId, e && e.message));
       const { r2Keys = [], games = 0 } = (await stores.deleteStoreAll(storeId)) || {};
+      // 146차: 매장 인트로 영상도 (기록 + R2 파일)
+      if (video && video.introRemove) {
+        await Promise.resolve(video.introRemove({ storeId })).catch((e) => console.warn('[운영] 인트로 지우기 실패', storeId, e && e.message));
+      }
       statusCache.delete(storeId);
       let files = {};
       try {
@@ -502,6 +532,23 @@ function createHandler({
     if (sharedFn) {
       if (!video) throw httpError(503, 'R2_NOT_CONNECTED', '영상 저장소가 아직 연결되지 않았어요.');
       return video[sharedFn](body);
+    }
+    // 146차: 매장 인트로 영상 (매장마다 3~10초, 룰 영상 앞에 나옴 — src/video.js intro*)
+    const introRoutes = {
+      'GET /api/ops/intro-video/list': 'introList',
+      'POST /api/ops/intro-video/upload-url': 'introUploadUrl',
+      'POST /api/ops/intro-video/confirm': 'introConfirm',
+      'POST /api/ops/intro-video/delete': 'introRemove',
+    };
+    const introFn = introRoutes[`${req.method} ${path}`];
+    if (introFn) {
+      if (!video || !video.introList) throw httpError(503, 'R2_NOT_CONNECTED', '영상 저장소가 아직 연결되지 않았어요.');
+      if (introFn !== 'introList') {
+        const storeId = cleanStoreId(body.storeId);
+        if ((await stores.getStatus(storeId)) == null) throw httpError(404, 'NO_STORE', '없는 매장이에요.');
+        return video[introFn]({ ...body, storeId });
+      }
+      return video[introFn](body);
     }
     throw httpError(404, 'NOT_FOUND', '없는 주소예요.');
   }
@@ -568,8 +615,9 @@ function createHandler({
     if (!expected) throw httpError(503, 'NO_PASSWORD', '예전 관리자 비밀번호(settings/adminPin)가 없어요.');
     if (!safeEqual(given, expected)) throw await fail(ip, 'WRONG_PASSWORD', '예전 관리자 비밀번호가 올바르지 않습니다.');
     const account = { padPasswordHash: hashSecret(padPassword) };
-    if (pin) account.pin = pin;
-    if (legacy.webPassword) account.webPassword = String(legacy.webPassword);
+    // 145차: 예전 PIN·웹 비밀번호도 글자 대신 해시로 옮김
+    if (pin) account.pinHash = hashSecret(pin);
+    if (legacy.webPassword) account.webPasswordHash = hashSecret(String(legacy.webPassword));
     const copied = await stores.migrateLegacy({ storeId, name, account });
     return { ok: true, store: storeId, copied };
   }

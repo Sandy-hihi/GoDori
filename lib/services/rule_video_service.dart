@@ -24,7 +24,9 @@ class RuleVideoException implements Exception {
 /// 재생 주소 묶음
 class RuleVideoUrls {
   final Map<String, String> urls; // '1080' / '720' → 주소
-  RuleVideoUrls(this.urls);
+  /// 146차: 매장 인트로 영상 주소 (운영자가 올린 3~10초 영상, 없으면 null) — 룰 영상 앞에 먼저 틂
+  final String? introUrl;
+  RuleVideoUrls(this.urls, {this.introUrl});
   bool has(String q) => urls.containsKey(q);
 }
 
@@ -105,7 +107,9 @@ class RuleVideoService {
       if (v is Map && v['url'] is String) urls[q] = v['url'] as String;
     }
     if (urls.isEmpty) throw RuleVideoException('등록된 룰 영상이 없어요.', 'NO_VIDEO');
-    return RuleVideoUrls(urls);
+    final intro = body['intro'];
+    final introUrl = intro is Map && intro['url'] is String ? intro['url'] as String : null;
+    return RuleVideoUrls(urls, introUrl: introUrl);
   }
 
   // ── 관리자 웹 ──

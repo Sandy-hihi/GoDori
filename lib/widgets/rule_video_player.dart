@@ -21,6 +21,10 @@ import 'package:boardpad/widgets/pad_idle_home.dart';
 ///  3) 유튜브 링크 (videoUrl) → 브라우저/유튜브 앱으로 엶
 /// 다 없으면 안내.
 ///
+/// 146차 매장 인트로: 1)번 영상이면 서버가 매장 인트로 주소(3~10초, 운영자 페이지에서 올림)를 같이 줌
+///  → 인트로를 먼저 틀고, 그동안 룰 영상을 멈춘 채로 미리 열어 둠 → 인트로가 끝나는 순간 룰 영상 재생 (사이에 로딩 없음)
+///  인트로가 안 열리면(6초) 바로 룰 영상. 인트로 중에는 재생 조작 버튼 없음(닫기만)
+///
 /// 웹(크롬에서 패드 시험)에서는 영상이 HTML <video> 요소라서 그 위의 버튼·탭이 영상에 먹힘
 /// → 조작 영역을 PointerInterceptor로 감쌈 (안드로이드 앱에서는 아무 일도 안 함)
 
@@ -143,6 +147,12 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
   String? _notice;
   Timer? _noticeTimer;
 
+  // 146차: 매장 인트로 영상
+  VideoPlayerController? _intro; // null인데 _introPlaying이면 인트로 여는 중
+  bool _introPlaying = false;
+  Completer<void>? _introDone;
+  Timer? _introGuard; // 끝 알림이 안 와도 길이 + 4초 뒤엔 넘어감
+
   bool get _hasBoth => _urls.containsKey('1080') && _urls.containsKey('720');
 
   @override
@@ -153,28 +163,96 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
   }
 
   Future<void> _start() async {
+    Future<void>? intro;
     try {
       if (widget.gameId != null) {
         final r = await RuleVideoService.playUrls(widget.gameId!);
         _urls = r.urls;
         _quality = await _initialQuality();
+        // 146차: 인트로를 먼저 틀기 시작 (기다리지 않음 — 그동안 아래에서 룰 영상을 미리 엶)
+        if (r.introUrl != null && mounted) intro = _playIntro(r.introUrl!);
       } else {
         _urls = {'src': widget.videoUrl!};
         _quality = 'src';
       }
+      final play = intro == null;
       try {
-        await _open(_quality, Duration.zero, play: true);
+        await _open(_quality, Duration.zero, play: play);
       } catch (_) {
         // 1080p를 못 열면 720p로 (반대도)
         final other = _quality == '1080' ? '720' : (_quality == '720' ? '1080' : null);
         if (other == null || !_urls.containsKey(other)) rethrow;
-        await _open(other, Duration.zero, play: true);
+        await _open(other, Duration.zero, play: play);
+      }
+      if (intro != null) {
+        await intro; // 인트로가 끝나면 (또는 못 열었으면) 바로 룰 영상
+        final c = _c;
+        if (!mounted || c == null) return;
+        _graceUntil = DateTime.now().add(const Duration(seconds: 3));
+        await c.play();
+        _scheduleHide();
       }
     } on RuleVideoException catch (e) {
+      _endIntro();
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
+      _endIntro();
       if (mounted) setState(() => _error = '영상을 재생하지 못했어요.');
     }
+  }
+
+  /// 146차: 매장 인트로 재생. 인트로가 끝나거나 못 열면 완료되는 Future
+  Future<void> _playIntro(String url) async {
+    final done = Completer<void>();
+    _introDone = done;
+    setState(() => _introPlaying = true); // 여는 동안 룰 영상 대신 로딩 표시
+    final c = VideoPlayerController.networkUrl(Uri.parse(url));
+    try {
+      await c.initialize().timeout(const Duration(seconds: 6));
+    } catch (_) {
+      c.dispose();
+      _endIntro(); // 인트로가 안 열리면 건너뜀
+      return done.future;
+    }
+    if (!mounted || done.isCompleted) {
+      await c.dispose();
+      return done.future;
+    }
+    c.addListener(() {
+      if (_intro != c) return;
+      final v = c.value;
+      final d = v.duration;
+      // 끝나기 0.1초 전에 넘김 (마지막 프레임에서 멈춘 화면이 보이지 않게)
+      if (v.hasError || (d > Duration.zero && v.position >= d - const Duration(milliseconds: 100))) _endIntro();
+    });
+    setState(() => _intro = c);
+    final d = c.value.duration;
+    _introGuard = Timer((d > Duration.zero ? d : const Duration(seconds: 10)) + const Duration(seconds: 4), _endIntro);
+    try {
+      await c.play();
+    } catch (_) {
+      _endIntro();
+    }
+    return done.future;
+  }
+
+  void _endIntro() {
+    _introGuard?.cancel();
+    _introGuard = null;
+    final c = _intro;
+    final done = _introDone;
+    _intro = null;
+    _introDone = null;
+    if (_introPlaying) {
+      _introPlaying = false;
+      if (mounted) setState(() {});
+    }
+    if (c != null) {
+      c.pause();
+      // 룰 영상으로 화면이 바뀐 뒤에 정리
+      WidgetsBinding.instance.addPostFrameCallback((_) => c.dispose());
+    }
+    if (done != null && !done.isCompleted) done.complete();
   }
 
   Future<String> _initialQuality() async {
@@ -448,6 +526,11 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
     _noticeTimer?.cancel();
     _watchdog?.cancel();
     _seekFlashTimer?.cancel();
+    _introGuard?.cancel();
+    _intro?.dispose();
+    _intro = null;
+    final introDone = _introDone;
+    if (introDone != null && !introDone.isCompleted) introDone.complete();
     if (_fullscreen) _setSystemBars(hidden: false);
     _c?.removeListener(_onTick);
     _c?.dispose();
@@ -553,6 +636,18 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
             else
               const GuestText('직원에게 설명을 요청해 주세요.', style: TextStyle(color: Colors.white70)),
           ],
+        ),
+      );
+    }
+    // 146차: 매장 인트로 (조작 버튼 없음 — 위의 닫기만)
+    if (_introPlaying) {
+      final ic = _intro;
+      if (ic == null) return const Center(child: CircularProgressIndicator(color: kOrange));
+      final iv = ic.value;
+      return Center(
+        child: AspectRatio(
+          aspectRatio: iv.aspectRatio > 0 ? iv.aspectRatio : 16 / 9,
+          child: VideoPlayer(ic),
         ),
       );
     }

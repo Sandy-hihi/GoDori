@@ -148,15 +148,46 @@ test('로그인: 같은 IP에서 5번 틀리면 맞는 비밀번호도 429 (PIN 
 test('로그인: IP를 바꿔 가며 전체 30번 틀려도 잠그지 않고 경보만 (DEF-011)', async (t) => {
   const warn = t.mock.method(console, 'warn', () => {});
   const h = make();
-  for (let i = 0; i < 29; i++) await padLogin(h, { password: 'x', room: 1 }, `10.0.0.${i}`);
+  // 145차: 매장마다 20번 잠금이 생겨서, 여러 매장(없는 아이디 포함)에 나눠 틀림 — 전체 30번은 여전히 경보만
+  for (let i = 0; i < 29; i++) await padLogin(h, { storeId: `other-${i}`, password: 'x', room: 1 }, `10.0.0.${i}`);
   assert.equal(warn.mock.calls.filter((c) => String(c.arguments[0]).includes('[로그인 경보]')).length, 0);
-  await padLogin(h, { password: 'x', room: 1 }, '10.0.0.29');
+  await padLogin(h, { storeId: 'other-29', password: 'x', room: 1 }, '10.0.0.29');
   assert.equal(warn.mock.calls.filter((c) => String(c.arguments[0]).includes('[로그인 경보]')).length, 1);
   // 다른 IP의 맞는 비밀번호는 그대로 로그인됨 (모든 매장이 막히지 않음)
   assert.equal((await padLogin(h, { password: 'pad-pass', room: 1 }, '10.0.1.1')).status, 200);
   // 같은 IP 5번 잠금은 그대로
   for (let i = 0; i < 5; i++) await padLogin(h, { password: 'x', room: 1 }, '10.0.2.1');
   assert.equal((await padLogin(h, { password: 'pad-pass', room: 1 }, '10.0.2.1')).status, 429);
+});
+test('145차 로그인: IP를 바꿔도 같은 매장 15분 20번 틀리면 그 매장만 429, 성공하면 초기화', async () => {
+  const h = make();
+  for (let i = 0; i < 19; i++) assert.equal((await padLogin(h, { password: 'x', room: 1 }, `20.0.0.${i}`)).status, 401);
+  // 19번까지는 다른 IP에서 맞는 비밀번호로 들어감 → 매장 기록 초기화
+  assert.equal((await padLogin(h, { password: 'pad-pass', room: 1 }, '20.0.1.1')).status, 200);
+  for (let i = 0; i < 20; i++) assert.equal((await padLogin(h, { password: 'x', room: 1 }, `20.0.2.${i}`)).status, 401);
+  assert.equal((await padLogin(h, { password: 'pad-pass', room: 1 }, '20.0.3.1')).status, 429);
+  assert.equal((await webLogin(h, 'web-pass', '20.0.3.2')).status, 429);
+  // X-Forwarded-For를 꾸며도 같은 매장이면 막힘, 다른 매장 아이디는 막히지 않음(없는 매장이라 401)
+  assert.equal((await padLogin(h, { password: 'pad-pass', room: 1 }, '1.2.3.4, 5.6.7.8')).status, 429);
+  assert.equal((await padLogin(h, { storeId: 'other-cafe', password: 'x', room: 1 }, '20.0.3.3')).status, 401);
+});
+test('145차 글자로 저장된 비밀번호는 로그인에 성공하면 해시로 바뀜', async () => {
+  const h = make();
+  const acc = () => h.stores.stores.get('platform6').account;
+  assert.equal(acc().padPassword, 'pad-pass');
+  assert.equal((await padLogin(h, { password: 'pad-pass', room: 1 })).status, 200);
+  assert.match(acc().padPasswordHash, /^scrypt\$/);
+  assert.equal(acc().padPassword, undefined);
+  assert.equal((await padLogin(h, { password: 'pad-pass', room: 0, pin: '123456' })).status, 200);
+  assert.match(acc().pinHash, /^scrypt\$/);
+  assert.equal(acc().pin, undefined);
+  assert.equal((await webLogin(h, 'web-pass')).status, 200);
+  assert.match(acc().webPasswordHash, /^scrypt\$/);
+  assert.equal(acc().webPassword, undefined);
+  // 바뀐 뒤에도 같은 값으로 로그인, 틀린 값은 401
+  assert.equal((await padLogin(h, { password: 'pad-pass', room: 0, pin: '123456' })).status, 200);
+  assert.equal((await webLogin(h, 'web-pass')).status, 200);
+  assert.equal((await webLogin(h, 'nope', '3.3.3.3')).status, 401);
 });
 test('로그인 성공하면 그 IP의 실패 기록 초기화', async () => {
   const h = make();
@@ -213,8 +244,11 @@ test('예전 데이터 옮기기: 예전 비밀번호 확인 후 한 번만', as
   const ok = await call({});
   assert.equal(ok.status, 200);
   const acc = h.stores.stores.get('new-store').account;
-  assert.equal(acc.pin, '111111'); // 예전 PIN·웹 비밀번호를 그대로 가져감
-  assert.equal(acc.webPassword, 'old-web');
+  // 145차: 예전 PIN·웹 비밀번호를 글자가 아니라 해시로 가져감
+  assert.equal(acc.pin, undefined);
+  assert.equal(acc.webPassword, undefined);
+  assert.equal(checkSecret('111111', { hash: acc.pinHash }), true);
+  assert.equal(checkSecret('old-web', { hash: acc.webPasswordHash }), true);
   assert.equal((await padLogin(h, { storeId: 'new-store', password: 'pad-1234', room: 1 })).status, 200);
   assert.equal((await call({})).status, 409); // 두 번째는 막음
   assert.equal((await call({ storeId: 'another-store' })).body.error, 'ALREADY_MIGRATED'); // 다른 아이디로도 한 번만

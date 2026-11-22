@@ -23,9 +23,13 @@ const fakeVerify = async (t) => {
 function fakeStorage() {
   const files = new Map();
   const removed = [];
+  const starts = new Map(); // 145차: 파일 앞부분(없으면 MP4 머리)
+  const MP4_START = Buffer.from([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0]);
   return {
     files,
     removed,
+    starts,
+    async readStart(key) { return files.has(key) ? (starts.get(key) || MP4_START) : null; },
     uploadUrl: (key, ct, exp) => `https://r2.test/PUT/${key}?ct=${ct}&exp=${exp}`,
     downloadUrl: (key, exp) => `https://r2.test/GET/${key}?exp=${exp}`,
     async head(key) { return files.has(key) ? { size: files.get(key), contentType: 'video/mp4' } : null; },
@@ -153,6 +157,19 @@ test('확인: 안 올라간 파일 404, 다른 게임·화질 키는 400', async
   assert.equal((await ctx.h(req('POST', '/api/video/confirm', { body: { gameId: 'g1', quality: '1080', key: 'rule-videos/g1/1793700000000_1080.mp4' } }))).status, 400);
 });
 
+test('145차 확인: 이름만 .mp4인 다른 파일은 415 + 저장소에서 지움', async () => {
+  const ctx = setup();
+  const r = await ctx.h(req('POST', '/api/video/upload-url', { body: { gameId: 'g1', quality: '1080', size: 10 } }));
+  const key = r.body.key;
+  ctx.storage.files.set(key, 10);
+  ctx.storage.starts.set(key, Buffer.from('<html><script>alert(1)</script>'));
+  const c = await ctx.h(req('POST', '/api/video/confirm', { body: { gameId: 'g1', quality: '1080', key } }));
+  assert.equal(c.status, 415);
+  assert.equal(c.body.error, 'NOT_MP4');
+  assert.ok(ctx.storage.removed.includes(key));
+  assert.equal(ctx.games.docs.get('g1').ruleVideo, undefined);
+});
+
 test('재생 주소: 손님 패드도 받음, 1080·720 둘 다, 재생 횟수 기록', async () => {
   const ctx = setup();
   await upload(ctx, 'g1', '1080', 10, { width: 1920, height: 1080 });
@@ -214,6 +231,22 @@ test('R2 임시 주소 모양 (서명은 AWS 공식 서명기와 같음을 별�
   assert.equal(url.searchParams.get('X-Amz-SignedHeaders'), 'content-type;host');
   assert.equal(url.searchParams.get('X-Amz-Expires'), '3600');
   assert.match(url.searchParams.get('X-Amz-Signature'), /^[0-9a-f]{64}$/);
+});
+
+test('145차 R2 저장소: readStart는 Range 헤더로 앞부분만', async () => {
+  let seen = null;
+  const s = createR2Storage({
+    accountId: 'acc', bucket: 'b', accessKeyId: 'a', secretAccessKey: 's',
+    fetchImpl: async (url, opt) => {
+      seen = opt;
+      return { status: 206, ok: true, headers: new Map(), arrayBuffer: async () => Uint8Array.from([0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50, 9, 9, 9, 9, 9, 9]).buffer };
+    },
+  });
+  const b = await s.readStart('rule-videos/x/1_1080.mp4', 16);
+  assert.equal(seen.method, 'GET');
+  assert.equal(seen.headers.range, 'bytes=0-15');
+  assert.equal(b.length, 16);
+  assert.equal(b.toString('latin1', 4, 8), 'ftyp');
 });
 
 test('R2 저장소: 설정이 비면 null(연결 안 됨), HEAD 404면 null', async () => {
@@ -355,3 +388,95 @@ test('공용 영상: 매장 영상을 공용으로 옮기기 (93차) — 미리 
   const again = await ops({ storeId: 'platform6', dryRun: false });
   assert.equal(again.body.moved.length, 0);
   });
+
+// ── 146차: 매장 인트로 영상 ──
+function setupIntro() {
+  const { createMemoryOps } = require('../src/ops');
+  const { createMemoryIntroVideos } = require('../src/video');
+  const storage = fakeStorage();
+  const games = fakeGames();
+  const intros = createMemoryIntroVideos();
+  const plays = [];
+  let t = 1793700000000;
+  const video = createVideoApi({ storage, games, intros, stats: { recordPlay: async (s, id, title, b) => plays.push([s, id, title, b]) }, now: () => t++ });
+  const h = createHandler({
+    ops: createMemoryOps({ password: 'ops-password-1' }),
+    bgg: {},
+    stores: createMemoryStores({ platform6: { name: '플랫폼6' }, 'other-store': { name: '다른 매장' } }),
+    verifyIdToken: fakeVerify,
+    createToken: async () => 'x',
+    attempts: createMemoryAttempts(),
+    video,
+  });
+  return { h, storage, games, intros, plays };
+}
+
+async function introUpload(ctx, storeId, { size = 5000, durationSec = 6 } = {}) {
+  const r = await ctx.h(req('POST', '/api/ops/intro-video/upload-url', { token: 'ops-token', body: { storeId, size, contentType: 'video/mp4' } }));
+  if (r.status !== 200) return { up: r };
+  ctx.storage.files.set(r.body.key, size);
+  const c = await ctx.h(req('POST', '/api/ops/intro-video/confirm', { token: 'ops-token', body: { storeId, key: r.body.key, meta: { width: 1920, height: 1080, durationSec } } }));
+  return { up: r, c };
+}
+
+test('146차 인트로: 운영자만, 없는 매장·너무 큰 파일·3~10초 밖은 거절', async () => {
+  const ctx = setupIntro();
+  const no = await ctx.h(req('POST', '/api/ops/intro-video/upload-url', { token: 'admin-token', body: { storeId: 'platform6', size: 10, contentType: 'video/mp4' } }));
+  assert.equal(no.status, 403);
+  assert.equal((await introUpload(ctx, 'no-such-store')).up.status, 404);
+  assert.equal((await introUpload(ctx, 'platform6', { size: 60 * 1024 * 1024 })).up.status, 413);
+  const short = await introUpload(ctx, 'platform6', { durationSec: 1.5 });
+  assert.equal(short.c.status, 400);
+  assert.equal(short.c.body.error, 'INTRO_LENGTH');
+  assert.ok(ctx.storage.removed.includes(short.up.body.key)); // 올라간 파일은 지움
+  assert.equal((await introUpload(ctx, 'platform6', { durationSec: 12 })).c.status, 400);
+  assert.equal(ctx.intros.map.size, 0);
+  // 다른 매장 폴더의 키로 확인하면 거절
+  const a = await introUpload(ctx, 'other-store');
+  assert.equal(a.c.status, 200, JSON.stringify(a.c.body));
+  const wrong = await ctx.h(req('POST', '/api/ops/intro-video/confirm', { token: 'ops-token', body: { storeId: 'platform6', key: a.up.body.key, meta: { durationSec: 5 } } }));
+  assert.equal(wrong.status, 400);
+});
+
+test('146차 인트로: 올리면 그 매장 재생 주소에만 intro가 붙고, 바꾸면 예전 파일·지우면 기록과 파일 지움', async () => {
+  const ctx = setupIntro();
+  await upload(ctx, 'g1', '1080', 1000);
+  // 인트로 없으면 intro 없음
+  const p0 = await ctx.h(req('GET', '/api/video/play-url', { token: 'guest-token', query: { gameId: 'g1' } }));
+  assert.equal(p0.status, 200);
+  assert.equal(p0.body.intro, undefined);
+
+  const a = await introUpload(ctx, 'platform6', { size: 5000, durationSec: 7.2 });
+  assert.equal(a.c.status, 200, JSON.stringify(a.c.body));
+  assert.match(a.up.body.key, /^rule-videos\/_intro\/platform6\/\d+_intro\.mp4$/);
+  const p1 = await ctx.h(req('GET', '/api/video/play-url', { token: 'guest-token', query: { gameId: 'g1' } }));
+  assert.ok(p1.body.intro.url.includes('rule-videos/_intro/platform6/'));
+  assert.equal(p1.body.intro.durationSec, 7.2);
+  assert.equal(ctx.plays.at(-1)[3], 1000 + 5000); // 전송량 추정에 인트로도
+
+  const list = await ctx.h(req('GET', '/api/ops/intro-video/list', { token: 'ops-token' }));
+  assert.equal(list.status, 200);
+  assert.equal(list.body.intros.platform6.sizeBytes, 5000);
+  assert.ok(list.body.intros.platform6.previewUrl.includes('_intro/platform6/'));
+
+  const b = await introUpload(ctx, 'platform6', { size: 6000, durationSec: 4 });
+  assert.equal(b.c.status, 200);
+  assert.ok(ctx.storage.removed.includes(a.up.body.key));
+
+  const del = await ctx.h(req('POST', '/api/ops/intro-video/delete', { token: 'ops-token', body: { storeId: 'platform6' } }));
+  assert.equal(del.status, 200);
+  assert.equal(ctx.intros.map.has('platform6'), false);
+  assert.ok(ctx.storage.removed.includes(b.up.body.key));
+  const p2 = await ctx.h(req('GET', '/api/video/play-url', { token: 'guest-token', query: { gameId: 'g1' } }));
+  assert.equal(p2.body.intro, undefined);
+});
+
+test('146차 인트로: 기록을 못 읽어도 룰 영상 재생 주소는 줌', async () => {
+  const ctx = setupIntro();
+  await upload(ctx, 'g1', '1080', 1000);
+  ctx.intros.get = async () => { throw new Error('firestore down'); };
+  const p = await ctx.h(req('GET', '/api/video/play-url', { token: 'guest-token', query: { gameId: 'g1' } }));
+  assert.equal(p.status, 200);
+  assert.equal(p.body.intro, undefined);
+  assert.ok(p.body.q1080.url);
+});

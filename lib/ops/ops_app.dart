@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'ops_insights.dart';
+import 'ops_intro_videos.dart';
 import 'ops_service.dart';
 import 'ops_toss.dart';
 import 'ops_video_stats.dart';
@@ -190,7 +191,7 @@ class _OpsHome extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 6,
+      length: 7,
       child: Scaffold(
         appBar: AppBar(
           backgroundColor: _ink,
@@ -209,11 +210,13 @@ class _OpsHome extends StatelessWidget {
             unselectedLabelColor: Colors.white60,
             indicatorColor: _orange,
             // 112차: '룰 영상 통계'(관리자 웹에서 옮김)
-            tabs: [Tab(text: '매장'), Tab(text: '매장 통계'), Tab(text: '룰 영상 통계'), Tab(text: '이용 통계'), Tab(text: '공용 룰 영상'), Tab(text: '설정')],
+            // 146차: '매장 인트로 영상'
+            isScrollable: true,
+            tabs: [Tab(text: '매장'), Tab(text: '매장 통계'), Tab(text: '룰 영상 통계'), Tab(text: '이용 통계'), Tab(text: '공용 룰 영상'), Tab(text: '매장 인트로 영상'), Tab(text: '설정')],
           ),
         ),
         body: const TabBarView(
-            children: [_StoresTab(), OpsInsightsTab(), OpsVideoStatsTab(), _UsageTab(), OpsSharedVideosTab(), _SettingsTab()]),
+            children: [_StoresTab(), OpsInsightsTab(), OpsVideoStatsTab(), _UsageTab(), OpsSharedVideosTab(), OpsIntroVideosTab(), _SettingsTab()]),
       ),
     );
   }
