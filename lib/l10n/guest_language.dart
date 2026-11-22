@@ -229,9 +229,12 @@ String guestField(BuildContext context, Map data, String field) {
       ? translations[GuestLanguage.instance.code]
       : null;
   final value = localized is Map ? localized[field] : null;
-  return value is String && value.trim().isNotEmpty
-      ? value
-      : (data[field] ?? '').toString();
+  if (value is String && value.trim().isNotEmpty) return value;
+  if (field == 'title' && GuestLanguage.instance.code == 'en') {
+    final bggName = data['bggName'];
+    if (bggName is String && bggName.trim().isNotEmpty) return bggName;
+  }
+  return (data[field] ?? '').toString();
 }
 
 class GuestLocaleScope extends InheritedNotifier<GuestLanguage> {

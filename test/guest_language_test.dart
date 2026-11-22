@@ -87,6 +87,15 @@ void main() {
                 'Translated',
               );
               expect(guestField(context, {'title': '원문'}, 'title'), '원문');
+              expect(guestField(context, {
+                'title': 'Original',
+                'bggName': 'BGG title',
+              }, 'title'), 'BGG title');
+              expect(guestField(context, {
+                'title': 'Original',
+                'bggName': 'BGG title',
+                'translations': {'en': {'title': 'Localized title'}},
+              }, 'title'), 'Localized title');
               return const SizedBox();
             },
           ),

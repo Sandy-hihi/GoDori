@@ -392,7 +392,7 @@ Future<void> showFilterPicker({
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            GuestText(
               title,
               style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
             ),
@@ -424,7 +424,7 @@ Future<void> showFilterPicker({
                               radius: 7,
                             )
                           : null,
-                      label: Text(value, style: const TextStyle(fontSize: 17)),
+                      label: GuestText(value, style: const TextStyle(fontSize: 17)),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 10,
                         vertical: 8,
