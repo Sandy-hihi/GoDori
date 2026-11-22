@@ -8,6 +8,7 @@ import 'screens/dashboard_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/admin_session.dart';
 import 'widgets/order_ready_overlay.dart';
+import 'widgets/pad_idle_home.dart';
 import 'widgets/pad_session_guard.dart';
 import 'widgets/pad_shell.dart';
 
@@ -54,7 +55,8 @@ class GodoriApp extends StatelessWidget {
       // 카운터 수령 매장: 주문한 음식이 준비되면 어느 화면에서든 알림 (58차)
       builder: (context, child) =>
           // 120차: 비밀번호가 바뀌면 패드 강제 로그아웃 (PadSessionGuard)
-          GuestLocaleScope(child: PadSessionGuard(child: OrderReadyOverlay(child: child ?? const SizedBox.shrink()))),
+          // 140차: 토스 연동 안 한 매장은 30분 동안 안 만지면 홈으로 (PadIdleHome)
+          GuestLocaleScope(child: PadSessionGuard(child: PadIdleHome(child: OrderReadyOverlay(child: child ?? const SizedBox.shrink())))),
       home: const StartupScreen(),
     ));
   }

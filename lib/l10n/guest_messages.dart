@@ -1784,5 +1784,80 @@ const guestMessages = <String, List<String>> {
     "Sunday",
     "周日",
     "日曜日"
+  ],
+  "필요한 걸 누르면 바로 직원에게 전달돼요": [
+    "Tap what you need and we'll tell the staff right away.",
+    "点击需要的项目，会立即通知店员。",
+    "必要な項目を押すと、すぐにスタッフに伝わります。"
+  ],
+  "게임 설명": [
+    "Game rules",
+    "游戏讲解",
+    "ゲームの説明"
+  ],
+  "룰을 알려 주세요": [
+    "Please explain the rules",
+    "请讲解游戏规则",
+    "ルールを教えてください"
+  ],
+  "게임 추천·교체": [
+    "Recommend / swap game",
+    "推荐·更换游戏",
+    "ゲームのおすすめ・交換"
+  ],
+  "다른 게임으로 바꾸고 싶어요": [
+    "We'd like a different game",
+    "想换别的游戏",
+    "別のゲームにしたいです"
+  ],
+  "물·컵": [
+    "Water / cups",
+    "水·杯子",
+    "お水・コップ"
+  ],
+  "물이나 컵이 필요해요": [
+    "We need water or cups",
+    "需要水或杯子",
+    "お水かコップをお願いします"
+  ],
+  "테이블 정리": [
+    "Clear the table",
+    "整理桌面",
+    "テーブルの片付け"
+  ],
+  "자리를 치워 주세요": [
+    "Please tidy our table",
+    "请帮忙收拾桌面",
+    "片付けをお願いします"
+  ],
+  "계산": [
+    "Pay",
+    "结账",
+    "お会計"
+  ],
+  "계산하고 싶어요": [
+    "We'd like to pay",
+    "想要结账",
+    "お会計をお願いします"
+  ],
+  "직원 부르기": [
+    "Just call staff",
+    "呼叫店员",
+    "スタッフを呼ぶ"
+  ],
+  "그 밖의 요청이 있어요": [
+    "Something else",
+    "有其他需求",
+    "その他のお願い"
+  ],
+  "직원에게 전달했어요. 잠시만 기다려 주세요.": [
+    "Sent to the staff. Please wait a moment.",
+    "已通知店员，请稍候。",
+    "スタッフに伝えました。少々お待ちください。"
+  ],
+  "직원 호출을 보내지 못했어요. 인터넷 연결을 확인해 주세요.": [
+    "Couldn't call the staff. Please check the internet connection.",
+    "无法呼叫店员，请检查网络连接。",
+    "スタッフを呼び出せませんでした。インターネット接続を確認してください。"
   ]
 };

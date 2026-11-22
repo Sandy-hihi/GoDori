@@ -11,6 +11,7 @@ import 'package:video_player/video_player.dart';
 import 'package:boardpad/services/rule_video_service.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
+import 'package:boardpad/widgets/pad_idle_home.dart';
 
 /// 룰 설명 영상 — 앞에 있는 것부터:
 ///  1) 매장에서 만든 영상 (Cloudflare R2, games.ruleVideo) → 서버에서 임시 주소를 받아 앱 안에서 재생.
@@ -241,6 +242,12 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
       return;
     }
     _trackStall(v);
+    // 140차: 영상이 재생되는 동안엔 30분 자동 홈으로 가지 않음
+    if (v.isPlaying) {
+      PadIdleHome.hold(this);
+    } else {
+      PadIdleHome.release(this);
+    }
     setState(() {}); // 재생 시간·버튼 갱신
   }
 
@@ -444,6 +451,7 @@ class _RuleVideoDialogState extends State<RuleVideoDialog> {
     if (_fullscreen) _setSystemBars(hidden: false);
     _c?.removeListener(_onTick);
     _c?.dispose();
+    PadIdleHome.release(this);
     super.dispose();
   }
 

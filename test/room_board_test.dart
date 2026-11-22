@@ -37,7 +37,7 @@ void main() {
     expect(board[2].state, RoomBoardState.empty);
     expect(board[2].settledAt, isNotNull);
     expect(board[3].state, RoomBoardState.inUse);
-    expect(board[3].calls.single.label, '물');
+    expect(board[3].calls.single.label, '물·컵'); // 139차: 사유 고르기 창과 같은 이름
   });
 
   test('방 개수 밖 방은 진행 중인 것이 있을 때만', () {

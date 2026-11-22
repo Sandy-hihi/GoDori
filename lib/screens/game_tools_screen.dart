@@ -2,6 +2,7 @@ import 'package:boardpad/l10n/guest_language.dart';
 import 'package:flutter/material.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
 import 'package:boardpad/widgets/pad_shell.dart';
+import 'package:boardpad/widgets/pad_idle_home.dart';
 import 'package:boardpad/widgets/tools/dice_roller.dart';
 import 'package:boardpad/widgets/tools/finger_team_picker.dart';
 import 'package:boardpad/widgets/tools/timer_widgets.dart';
@@ -61,6 +62,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
         } else {
           _cdFinished = true;
           _cdRunning = false;
+          PadIdleHome.release(this); // 140차
           timer.cancel();
           _startFlash();
           FlutterRingtonePlayer().playAlarm();
@@ -68,16 +70,19 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
         }
       });
     });
+    PadIdleHome.hold(this); // 140차: 타이머가 도는 동안엔 30분 자동 홈으로 가지 않음
     setState(() => _cdRunning = true);
   }
 
   void _cdPause() {
     _cdTimer?.cancel();
+    PadIdleHome.release(this);
     setState(() => _cdRunning = false);
   }
 
   void _cdReset() {
     _cdTimer?.cancel();
+    PadIdleHome.release(this);
     _flashTimer?.cancel();
     FlutterRingtonePlayer().stop();
     setState(() {
@@ -91,6 +96,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
 
   void _cdClear() {
     _cdTimer?.cancel();
+    PadIdleHome.release(this);
     _flashTimer?.cancel();
     FlutterRingtonePlayer().stop();
     setState(() {
@@ -393,6 +399,7 @@ class _GameToolsScreenState extends State<GameToolsScreen> {
     _cdTimer?.cancel();
     _flashTimer?.cancel();
     FlutterRingtonePlayer().stop();
+    PadIdleHome.release(this);
     super.dispose();
   }
 }

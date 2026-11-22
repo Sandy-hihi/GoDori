@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'package:boardpad/l10n/guest_language.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
+import 'package:boardpad/widgets/pad_idle_home.dart';
 
 /// 게임도구 타이머 화면 조각 (131차 — 23:37 채팅 시안 그대로)
 ///   - CountdownRing: 남은 시간만큼 줄어드는 원형 띠(1초마다 부드럽게), 마지막 10초는 빨강 + 숫자 두근
@@ -230,6 +231,7 @@ class _StopwatchViewState extends State<StopwatchView> {
 
   void _start() {
     _sw.start();
+    PadIdleHome.hold(this); // 140차: 스톱워치가 도는 동안엔 30분 자동 홈으로 가지 않음
     _tick?.cancel();
     _tick = Timer.periodic(const Duration(milliseconds: 30), (_) => setState(() {}));
     setState(() {});
@@ -237,6 +239,7 @@ class _StopwatchViewState extends State<StopwatchView> {
 
   void _pause() {
     _sw.stop();
+    PadIdleHome.release(this);
     _tick?.cancel();
     setState(() {});
   }
@@ -245,6 +248,7 @@ class _StopwatchViewState extends State<StopwatchView> {
     _sw
       ..stop()
       ..reset();
+    PadIdleHome.release(this);
     _tick?.cancel();
     setState(_laps.clear);
   }
@@ -255,6 +259,7 @@ class _StopwatchViewState extends State<StopwatchView> {
   void dispose() {
     _tick?.cancel();
     _sw.stop();
+    PadIdleHome.release(this);
     super.dispose();
   }
 

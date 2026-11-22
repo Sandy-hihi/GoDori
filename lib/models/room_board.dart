@@ -13,6 +13,7 @@ library;
 
 import 'package:cloud_firestore/cloud_firestore.dart' show Timestamp;
 import 'package:boardpad/models/order_history.dart';
+import 'package:boardpad/models/staff_call_reason.dart';
 
 enum RoomBoardState { empty, inUse, awaitingPay }
 
@@ -37,16 +38,8 @@ class RoomBoardCall {
   final DateTime? at;
   const RoomBoardCall({this.reason = '', this.at});
 
-  /// lib/models/staff_call_reason.dart(팀원 staff-call-reason 브랜치)·firestore.rules 목록과 같은 키
-  static const labels = {
-    'rule': '룰 설명',
-    'swap': '게임 교체',
-    'water': '물',
-    'clean': '정리',
-    'pay': '결제',
-    'staff': '직원 호출',
-  };
-  String get label => labels[reason] ?? '직원 호출';
+  /// 139차: 손님 패드 사유 고르기 창과 같은 이름 (lib/models/staff_call_reason.dart — firestore.rules 목록과 같은 키)
+  String get label => staffCallReasonOf(reason)?.label ?? '직원 호출';
 }
 
 class RoomBoardEntry {
