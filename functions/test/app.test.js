@@ -400,13 +400,13 @@ test('매장 기능 (59차): 대시보드 끄면 방 0 로그인 막힘, 토스 
   const opsFeat = (body, token = 'ops-token') => h(req('POST', '/api/ops/store-features', { body, token }));
   // 기본값: 대시보드 켜짐, 토스 POS 꺼짐
   const list0 = await h(req('GET', '/api/ops/stores', { token: 'ops-token' }));
-  assert.deepEqual(list0.body.stores[0].features, { adminDashboard: true, tossPos: false });
+  assert.deepEqual(list0.body.stores[0].features, { adminDashboard: true, tossPos: false, stock: false });
   assert.equal((await padLogin(h, { password: 'pad-pass', room: 0 })).body.needPin, true);
 
   // 사장님: 대시보드 끄기
   const off = await feat({ adminDashboard: false });
   assert.equal(off.status, 200);
-  assert.deepEqual(off.body.features, { adminDashboard: false, tossPos: false });
+  assert.deepEqual(off.body.features, { adminDashboard: false, tossPos: false, stock: false });
   const blocked = await padLogin(h, { password: 'pad-pass', room: 0, pin: '123456' }, '2.2.2.2');
   assert.equal(blocked.status, 403);
   assert.equal(blocked.body.error, 'DASHBOARD_OFF');
@@ -428,11 +428,11 @@ test('매장 기능 (59차): 대시보드 끄면 방 0 로그인 막힘, 토스 
   assert.equal((await opsFeat({ storeId: 'platform6', tossPos: true }, 'admin-token')).status, 403);
   const on = await opsFeat({ storeId: 'platform6', tossPos: true, adminDashboard: true });
   assert.equal(on.status, 200);
-  assert.deepEqual(on.body.features, { adminDashboard: true, tossPos: true });
+  assert.deepEqual(on.body.features, { adminDashboard: true, tossPos: true, stock: false });
   assert.equal((await opsFeat({ storeId: 'no-such-store', tossPos: true })).status, 404);
   assert.equal((await padLogin(h, { password: 'pad-pass', room: 0 }, '2.2.2.4')).body.needPin, true);
   const list1 = await h(req('GET', '/api/ops/stores', { token: 'ops-token' }));
-  assert.deepEqual(list1.body.stores[0].features, { adminDashboard: true, tossPos: true });
+  assert.deepEqual(list1.body.stores[0].features, { adminDashboard: true, tossPos: true, stock: false });
 });
 test('비밀번호 해시 확인', () => {
   const hash = hashSecret('abcd');
@@ -498,4 +498,25 @@ test('BGG XML 파싱 (추천 인원·한글 이름)', () => {
   assert.equal(d.name, '카탄');
   assert.equal(d.recommendedPlayers, '4');
   assert.equal(d.rank, 600);
+});
+
+test('운영자 로그인: IP를 바꿔도 1시간에 10번 틀리면 잠금, 맞힌 비밀번호도 잠긴 동안은 429 (147차)', async () => {
+  const h = make();
+  for (let i = 0; i < 10; i++) {
+    const r = await h(req('POST', '/api/ops/login', { token: null, ip: `30.0.${i}.1`, body: { password: 'nope' } }));
+    assert.equal(r.status, 401);
+  }
+  const locked = await h(req('POST', '/api/ops/login', { token: null, ip: '30.1.0.1', body: { password: 'ops-password-1' } }));
+  assert.equal(locked.status, 429);
+  assert.equal(locked.body.error, 'TOO_MANY');
+  // 매장 로그인은 영향 없음
+  assert.equal((await padLogin(h, { password: 'pad-pass', room: 1 }, '30.2.0.1')).status, 200);
+});
+
+test('운영자 로그인: 맞히면 틀린 기록 초기화 (147차)', async () => {
+  const h = make();
+  for (let i = 0; i < 9; i++) await h(req('POST', '/api/ops/login', { token: null, ip: `31.0.${i}.1`, body: { password: 'nope' } }));
+  assert.equal((await h(req('POST', '/api/ops/login', { token: null, ip: '31.1.0.1', body: { password: 'ops-password-1' } }))).status, 200);
+  for (let i = 0; i < 9; i++) await h(req('POST', '/api/ops/login', { token: null, ip: `31.2.${i}.1`, body: { password: 'nope' } }));
+  assert.equal((await h(req('POST', '/api/ops/login', { token: null, ip: '31.3.0.1', body: { password: 'ops-password-1' } }))).status, 200);
 });

@@ -8,6 +8,7 @@ import 'package:boardpad/services/store_features.dart';
 import 'package:boardpad/services/sold_out_schedule.dart';
 import 'package:boardpad/services/toss_pos_service.dart';
 import 'package:boardpad/services/insight_service.dart';
+import 'package:boardpad/services/order_service.dart';
 import 'package:boardpad/widgets/app_network_image.dart';
 import 'package:boardpad/utils/image_helper.dart';
 import 'package:boardpad/widgets/home/home_theme.dart';
@@ -210,41 +211,26 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
     }
     setState(() => _isSubmitting = true);
     try {
-      List<String> orderItems = [];
-      cart.forEach((cartKey, item) => orderItems.add('$cartKey x ${item['quantity']}'));
-      // 메뉴별 구조 (64차) — 서버가 토스 POS 주문으로 바꿀 때 씀. 화면 표시는 위 items 그대로
+      // 147차(보안 점검): 주문은 서버가 만듦 — 메뉴 ID·개수·고른 옵션 이름만 보내고, 이름·가격·방 번호·시각·수령 방식은
+      // 서버(functions/src/orders.js)가 메뉴 문서·로그인 토큰·매장 설정으로 정함. 주문 문서 모양(items·price·lines)은 예전과 같음
       final lines = [
         for (final item in cart.values)
           {
             'menuId': item['menuId'] ?? '',
-            'name': item['name'] ?? '',
-            'category': item['category'] ?? '',
-            'basePrice': item['basePrice'] ?? item['unitPrice'],
             'quantity': item['quantity'],
-            'options': item['options'] ?? const [],
+            'options': [
+              for (final o in (item['options'] as List? ?? const []))
+                {'group': '${(o as Map)['group'] ?? ''}', 'name': '${o['name'] ?? ''}'},
+            ],
           },
       ];
 
-      final now = DateTime.now();
-      final timeString = '${now.hour}시 ${now.minute.toString().padLeft(2, '0')}분';
-
-      await AdminSession.ensureSignedIn(); // 보안 규칙: 로그인한 그 방 패드만, 자기 방 번호로 주문 가능
-      final ref = await StoreScope.col('orders').add({
-        'room': '#${widget.roomNumber ?? 1}',
-        'time': timeString,
-        'price': _getTotalPrice().toString(),
-        'items': orderItems,
-        'notes': _noteController.text.isEmpty ? '추가사항 없음' : _noteController.text,
-        'roomColor': 0xFFC2365A,
-        'status': 'pending',
-        'flow': _flow.id, // 이 주문의 수령 방식 — 주문현황 버튼 흐름·패드 준비 완료 알림이 이걸 따름
-        'timestamp': FieldValue.serverTimestamp(),
-        'lines': lines,
-      });
+      await AdminSession.ensureSignedIn(); // 로그인한 그 방 패드만 주문 가능 (서버가 토큰의 방 번호로 씀)
+      final orderId = await OrderService.create(lines: lines, notes: _noteController.text);
       // 토스 POS로 보내기 — 기다리지 않음. 실패하면 서버가 주문에 적어 두고 관리자 화면에서 '다시 보내기'
-      if (_tossPos) unawaited(TossPosService.sendOrder(ref.id).catchError((_) => <String, dynamic>{}));
+      if (_tossPos) unawaited(TossPosService.sendOrder(orderId).catchError((_) => <String, dynamic>{}));
       // 매장 통계(65차, 운영자 페이지 인기 메뉴) — 기다리지 않음, 실패해도 손님 화면엔 영향 없음
-      unawaited(InsightService.countOrder(ref.id));
+      unawaited(InsightService.countOrder(orderId));
 
       if (!mounted) return;
       setState(() {
@@ -253,11 +239,16 @@ class _FoodOrderScreenState extends State<FoodOrderScreen> {
         _isSubmitting = false;
       });
       _showOrderDone();
+    } on OrderSendException catch (e) {
+      debugPrint('Order error: ${e.code} ${e.message}');
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      padSnack(context, e.message, error: true);
     } catch (e) {
       debugPrint('Order error: $e');
       if (!mounted) return;
       setState(() => _isSubmitting = false);
-      padSnack(context, '주문을 보내지 못했어요. 다시 눌러 주세요.', error: true);
+      padSnack(context, OrderService.genericError, error: true);
     }
   }
 

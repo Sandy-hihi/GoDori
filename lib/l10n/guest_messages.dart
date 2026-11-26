@@ -1905,5 +1905,30 @@ const guestMessages = <String, List<String>> {
     "Couldn't load the saved sign-in. Please check the internet connection and try again.",
     "无法读取已保存的登录信息。请检查网络连接后重试。",
     "保存されたログイン情報を読み込めませんでした。インターネット接続を確認してもう一度お試しください。"
+  ],
+  "주문 내용이 올바르지 않아요. 장바구니를 비우고 다시 담아 주세요.": [
+    "Something is wrong with this order. Please empty the cart and add the items again.",
+    "订单内容有误。请清空购物车后重新添加。",
+    "注文内容が正しくありません。カートを空にしてもう一度追加してください。"
+  ],
+  "메뉴가 바뀌었어요. 장바구니를 비우고 다시 담아 주세요.": [
+    "The menu has changed. Please empty the cart and add the items again.",
+    "菜单已更改。请清空购物车后重新添加。",
+    "メニューが変更されました。カートを空にしてもう一度追加してください。"
+  ],
+  "이 방 번호로는 주문할 수 없어요. 직원에게 알려 주세요.": [
+    "Orders can't be placed from this room number. Please let our staff know.",
+    "此房间号无法下单。请告知工作人员。",
+    "この部屋番号では注文できません。スタッフにお知らせください。"
+  ],
+  "주문이 너무 잦아요. 잠시 후 다시 시도해 주세요.": [
+    "Too many orders in a short time. Please try again in a moment.",
+    "下单过于频繁。请稍后再试。",
+    "注文が多すぎます。しばらくしてからもう一度お試しください。"
+  ],
+  "로그인이 만료됐어요. 다시 로그인해 주세요.": [
+    "Your sign-in has expired. Please sign in again.",
+    "登录已过期。请重新登录。",
+    "ログインの有効期限が切れました。もう一度ログインしてください。"
   ]
 };

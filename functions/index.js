@@ -84,6 +84,7 @@ function getHandle() {
   const { createFirestoreTossData } = require('./src/toss-data');
   const { createFirestoreInsights, createInsightRoutes } = require('./src/insights');
   const { createTranslateRoutes, createGoogleTranslator, createFirestoreTranslateData } = require('./src/translate');
+  const { createOrderRoutes, createFirestoreOrders } = require('./src/orders');
 
   const db = getDb();
   const storesData = createFirestoreStores(db);
@@ -113,6 +114,11 @@ function getHandle() {
       stores: storesData,
       httpError: (status, code, message) => Object.assign(new Error(message), { status, code }),
     }),
+    // 손님 패드 주문 (147차): 가격·이름을 서버가 메뉴 문서로 계산해서 stores/{매장}/orders 에 씀
+    orders: createOrderRoutes({
+      data: createFirestoreOrders(db),
+      httpError: (status, code, message) => Object.assign(new Error(message), { status, code }),
+    }),
     // 자동 번역 (83차): 관리자 웹이 저장한 뒤 /api/translate/sync
     translate: createTranslateRoutes({
       data: createFirestoreTranslateData(db),
@@ -140,9 +146,10 @@ function getHandle() {
     revokeStoreTokens: async (storeId, only = { pads: true, adminPad: true, adminWeb: true }) => {
       const auth = getAdminAuth();
       const uids = [];
-      if (only.adminWeb) uids.push(`admin-web.${storeId}`);
+      if (only.adminWeb) uids.push(`admin-web.${storeId}`, `stock-owner.${storeId}`); // 148차: 재고 앱 사장님 로그인(관리자 웹 비밀번호)
       if (only.adminPad) uids.push(`admin-pad.${storeId}`);
       if (only.pads) for (let i = 1; i <= 30; i++) uids.push(`pad.${storeId}.${i}`);
+      if (only.pads) uids.push(`stock.${storeId}`); // 148차: 재고 앱 직원 로그인(패드 비밀번호)
       await Promise.all(uids.map((uid) => auth.revokeRefreshTokens(uid).catch(() => {})));
     },
     // 132차: 매장을 통째로 지울 때 파일도 — Firebase Storage stores/{매장}/ 아래 사진 전부 + 그 매장 룰 영상(R2)

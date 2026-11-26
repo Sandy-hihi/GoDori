@@ -3,15 +3,16 @@ rules_version = '2';
 // ─────────────────────────────────────────────────────────────
 // 고도리(GoDori) Firestore 보안 규칙 (3단계: 매장별 데이터, 47차)
 //
-// 데이터는 매장마다 따로: stores/{매장ID}/games, menus, orders, staff_calls, settings, videoStats, videoStatsDaily
+// 데이터는 매장마다 따로: stores/{매장ID}/games, menus, orders, staff_calls, settings, videoStats, videoStatsDaily, stock_items·stock_counts(148차 재고관리)
 //
 // 누가 무엇을 할 수 있나 (로그인은 전부 서버 함수 /api/auth/* 가 확인한 뒤 발급한 토큰)
 //   - 손님 패드: 매장 아이디 + 패드 비밀번호 + 방 번호 → 토큰 { pad: true, store, room }
-//               → 그 매장의 게임·메뉴·설정 읽기, "자기 방 번호로" 주문·직원 호출 생성,
+//               → 그 매장의 게임·메뉴·설정 읽기, "자기 방 번호로" 직원 호출 생성,
 //                 자기 방 주문 읽기(58차 — 카운터 수령 매장의 '준비 완료' 알림용)
+//               ★147차: 주문은 서버(POST /api/order/create)가 메뉴 문서로 가격을 계산해서 만듦 — 앱에서 직접 만들기 막음
 //   - 관리자: 패드에서 방 번호 0 + PIN, 또는 관리자 웹 비밀번호 → 토큰 { admin: true, store }
 //               → 그 매장 데이터만 관리 (다른 매장 것은 못 고침)
-//   - 로그인하지 않은 요청: 매장 공개 정보(게임·메뉴·설정) 읽기만
+//   - 로그인하지 않은 요청: 매장 공개 정보(게임·메뉴) 읽기만 (147차: 설정은 그 매장으로 로그인한 패드·관리자만)
 //
 // stores/{매장}/private/* (비밀번호·가입 정보·저장 용량), usageDaily(하루 이용량), _ops(운영자 계정)는 서버만.
 // 위에 없는 컬렉션은 전부 차단
@@ -83,26 +84,10 @@ service cloud.firestore {
         allow read: if isAdmin()
                     || (isPad() && resource.data.room == '#' + string(padRoom()));
 
-        // 손님 패드의 주문 생성 (food_order_screen.dart) — 로그인한 그 방 패드만, 자기 방 번호로
-        allow create: if isPad()
-                      && request.resource.data.keys().hasOnly(
-                           ['room', 'time', 'price', 'items', 'notes', 'roomColor', 'status', 'flow', 'timestamp', 'lines'])
-                      && request.resource.data.room == '#' + string(padRoom())
-                      && roomOk(padRoom())
-                      && request.resource.data.items is list
-                      && request.resource.data.items.size() > 0
-                      && request.resource.data.items.size() <= 100
-                      // 메뉴별 구조(64차, 토스 POS로 보낼 때 씀): 없으면 예전 패드 주문
-                      && (!('lines' in request.resource.data)
-                          || (request.resource.data.lines is list && request.resource.data.lines.size() <= 100))
-                      && request.resource.data.price is string
-                      && request.resource.data.price.size() <= 10
-                      && request.resource.data.notes is string
-                      && request.resource.data.notes.size() <= 300
-                      && request.resource.data.status == 'pending'
-                      // 수령 방식(58차): 없으면 예전 주문처럼 서빙
-                      && request.resource.data.get('flow', 'serve') in ['serve', 'pickup', 'pickupPay']
-                      && request.resource.data.timestamp == request.time;
+        // 147차: 주문 만들기는 서버만 (functions/src/orders.js — 패드가 메뉴 ID·개수·옵션 이름을 보내면
+        //   서버가 메뉴 문서에서 이름·가격을 읽어 씀). 예전엔 패드가 직접 만들었는데, 규칙으로는 목록 안의
+        //   금액·수량을 검사할 수 없어서 패드를 조작하면 '1원 주문'·'수량 -3' 주문을 넣을 수 있었음(보안 점검).
+        allow create: if false;
 
         // 관리자 주문현황: 상태(status)와 결제 표시(paid — 카운터 결제 후 수령 매장)만 변경 가능
         // ready = 준비 완료(손님이 카운터로 받으러 옴, 58차)
@@ -151,6 +136,44 @@ service cloud.firestore {
         allow write: if isAdmin();
       }
 
+      // ── 재고관리 (148차) — 신청한 매장만(stores/{매장}.features.stock — 운영자 페이지에서 켬) ──
+      //   재고 앱 직원 토큰 { stock: true, store } = 매장 아이디 + 패드 비밀번호 (서버 /api/auth/stock-login)
+      //   재고 앱 사장님 = 관리자 웹 비밀번호 → { admin: true, stock: true, store } (isAdmin 그대로)
+      function isStock() {
+        return member() && request.auth.token.stock == true && active();
+      }
+      function stockOn() {
+        return get(/databases/$(database)/documents/stores/$(storeId)).data.get('features', {}).get('stock', false) == true;
+      }
+      function stockUser() {
+        return (isAdmin() || isStock()) && stockOn();
+      }
+      // 재고 항목: 관리자 웹 '재고관리'에서 사장님이 만들고 고침, 재고 앱은 읽기만
+      match /stock_items/{itemId} {
+        allow read: if stockUser();
+        allow create, update: if isAdmin() && stockOn()
+                              && request.resource.data.keys().hasOnly(['name', 'category', 'unit', 'order', 'minQty', 'active', 'memo', 'createdAt', 'updatedAt'])
+                              && request.resource.data.name is string
+                              && request.resource.data.name.size() >= 1
+                              && request.resource.data.name.size() <= 60;
+        allow delete: if isAdmin();
+      }
+      // 재고 조사(한 번 센 기록): 재고 앱이 counts.{항목ID} = 숫자로 하나씩 씀, 끝내면 status 'done'
+      //   끝난 조사는 사장님(관리자)만 고침·지움
+      function stockCountOk() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['title', 'status', 'counts', 'items', 'counter', 'startedAt', 'startedBy', 'updatedAt', 'finishedAt', 'note', 'itemCount', 'countedCount'])
+            && d.status in ['open', 'done']
+            && d.counts is map
+            && d.counts.size() <= 500;
+      }
+      match /stock_counts/{countId} {
+        allow read: if stockUser();
+        allow create: if stockUser() && stockCountOk();
+        allow update: if stockUser() && stockCountOk() && (resource.data.status == 'open' || isAdmin());
+        allow delete: if isAdmin();
+      }
+
       // ── 룰 영상 재생 통계 (서버 함수 /api/video/play-url 이 기록) ──
       // 112차: 운영자 페이지에서만 봄(서버 /api/ops/video-stats) — 매장 관리자도 앱에서 직접 못 읽음
       match /videoStats/{gameId} {
@@ -162,7 +185,10 @@ service cloud.firestore {
 
       // ── 설정 문서 ──
       match /settings/{docId} {
-        allow read: if true;
+        // 147차: 그 매장으로 로그인한 패드·관리자만 읽기 (예전엔 누구나 — 매장 아이디만 알면 와이파이 정보 등이 보였음)
+        //   앱은 로그인한 뒤에만 settings를 읽음(StoreScope는 로그인 때 정해짐). 매장 상태 확인(active)은
+        //   설정을 자주 읽어서 요청마다 문서 읽기가 늘지 않게 뺌 — 정지한 매장은 서버가 로그인 토큰을 끊음
+        allow read: if member();
         // 관리자 페이지가 수정하는 문서만, 그 매장 관리자만 쓰기 허용.
         allow write: if isAdmin()
                      && docId in ['genres', 'categories', 'events', 'notices', 'appRefresh', 'homeLayout', 'optionLibrary', 'soldOutSchedule', 'translationOverrides', 'padDevice']; // optionLibrary = 옵션 목록(106차), soldOutSchedule = 자동 품절 시간(112차), translationOverrides = 번역 고침표(120차), padDevice = 태블릿 자동 실행(142차)

@@ -21,6 +21,9 @@
 //   /api/toss/*, /api/ops/toss/*   토스 POS 연동 (64차) — 자세한 건 src/toss-routes.js
 //   /api/stats/*, /api/ops/insights  매장 통계 — 인기 메뉴·인기 게임 (65차) — 자세한 건 src/insights.js
 //   /api/translate/sync           (관리자) 메뉴·공지·이벤트 자동 번역 (83차) — 자세한 건 src/translate.js
+//   POST /api/order/create        (손님 패드) 주문 만들기 — 가격·이름은 서버가 메뉴 문서로 계산 (147차) — src/orders.js
+//   POST /api/auth/stock-login    { storeId, password } -> { token, role }  재고 앱 로그인 (148차 — 재고관리를 신청한 매장만)
+//                                 패드 비밀번호 → 직원 { stock: true, store } / 관리자 웹 비밀번호 → 사장님 { admin: true, stock: true, store }
 //
 // 로그인 흐름 (Firebase Authentication, 47차부터 매장별)
 //   1) 패드: 매장 아이디 + 패드 비밀번호 + 방 번호(관리자는 0 → PIN 한 번 더) / 관리자 웹: 매장 아이디 + 비밀번호
@@ -47,6 +50,10 @@ const LOGIN_WATCH = { key: 'global', max: 30, windowMs: 60 * MIN };
 // 비밀번호를 맞춰 보는 것을 막음. 다른 매장은 그대로라 91차(DEF-011)의 '한 명이 모든 매장을 막는' 문제는 없음.
 // 이미 로그인해 있는 패드·관리자 웹은 영향 없음(새 로그인만 잠김).
 const STORE_LIMIT = { key: (storeId) => `store:${storeId}`, max: 20, windowMs: 15 * MIN };
+// 147차: 운영자 로그인은 IP와 상관없이 1시간에 10번 틀리면 1시간 잠금 — 운영자 계정은 모든 매장을 관리해서
+// IP를 바꿔 가며(X-Forwarded-For를 꾸며서) 비밀번호를 맞춰 보는 것을 막음.
+// 대신 누가 일부러 10번 틀리면 운영자도 최대 1시간 못 들어감(사용자 결정 11-24 '잠금만 추가'). 맞히면 기록 초기화.
+const OPS_LIMIT = { key: 'ops-login', max: 10, windowMs: 60 * MIN };
 
 // 난이도: BGG geek weight 구간 (월정액권 앱과 같은 기준·색 — 매장 난이도 스티커 색)
 const DIFFICULTY_BUCKETS = [
@@ -137,10 +144,11 @@ function clientIp(headers) {
 // insights:         매장 통계 API (src/insights.js createInsightRoutes, 65차). 없으면 /api/stats/* 는 503
 // translate:        자동 번역 API (src/translate.js createTranslateRoutes, 83차). 없으면 /api/translate/* 는 503
 // deleteStoreFiles: async (storeId, r2Keys) => 매장 통째로 지울 때 사진(Storage)·룰 영상(R2) 파일 지우기 (132차)
+// orders:           손님 패드 주문 만들기 (src/orders.js createOrderRoutes, 147차). 없으면 /api/order/* 는 503
 function createHandler({
   bgg, stores, getLegacySecrets = async () => ({}), verifyIdToken, createToken, attempts, video = null,
   ops = null, monitoring = null, revokeStoreTokens = async () => {}, now = () => Date.now(), toss = null, insights = null,
-  translate = null, deleteStoreFiles = async () => ({}),
+  translate = null, deleteStoreFiles = async () => ({}), orders = null,
 }) {
   const limit = createLimiter(now);
 
@@ -316,6 +324,35 @@ function createHandler({
       token: await createToken(`admin-web.${storeId}`, { admin: true, store: storeId }) };
   }
 
+  // ── 재고 앱 로그인 (148차) ── { storeId, password }
+  //   패드 비밀번호 → 직원 토큰 { stock: true, store } — 재고 항목 읽기 + 재고 조사 숫자 쓰기만 (firestore.rules stock_*)
+  //   관리자 웹 비밀번호(없으면 PIN) → 사장님 토큰 { admin: true, stock: true, store } — 앱에서 결과 확인·조사 지우기까지
+  //   매장 기능 features.stock(운영자가 켬)이 꺼져 있으면 비밀번호가 맞아도 403 STOCK_OFF
+  async function stockLogin(req) {
+    const body = req.body || {};
+    const storeId = cleanStoreId(body.storeId);
+    const password = textField(body.password, '비밀번호');
+    const ip = clientIp(req.headers);
+    await checkLock(ip, storeId);
+    const account = await stores.getAccount(storeId);
+    const web = account ? checkSecret(password, secretOf(account, 'web')) === true : false;
+    const pad = !web && account ? checkSecret(password, secretOf(account, 'pad')) === true : false;
+    if (!web && !pad) throw await fail(ip, 'WRONG_PASSWORD', '아이디 또는 비밀번호가 올바르지 않습니다.', storeId);
+    await upgradePlain(storeId, account, web ? 'web' : 'pad', password);
+    const blocked = statusError(account.status);
+    if (blocked) throw blocked;
+    if (!account.features || account.features.stock !== true) {
+      throw httpError(403, 'STOCK_OFF', '이 매장은 재고관리 기능을 아직 신청하지 않았어요. 고도리 운영자에게 신청해 주세요.');
+    }
+    await resetLock(ip, storeId);
+    await recordUsage(storeId, { logins: 1 });
+    return web
+      ? { role: 'owner', store: storeId, storeName: account.name,
+          token: await createToken(`stock-owner.${storeId}`, { admin: true, stock: true, store: storeId }) }
+      : { role: 'staff', store: storeId, storeName: account.name,
+          token: await createToken(`stock.${storeId}`, { stock: true, store: storeId }) };
+  }
+
   // ── 가입 (48차) ──
   // 같은 IP 1시간 3번, 전체 하루 30번까지 신청 (실패 기록 저장소를 횟수 세기에 같이 씀)
   const SIGNUP_LIMITS = [
@@ -408,15 +445,22 @@ function createHandler({
       const given = textField(body.password, '비밀번호');
       const ip = clientIp(req.headers);
       await checkLock(ip);
+      if (await attempts.isLocked(OPS_LIMIT.key, OPS_LIMIT.max, OPS_LIMIT.windowMs)) {
+        throw httpError(429, 'TOO_MANY', '운영자 비밀번호를 너무 많이 틀렸어요. 1시간 뒤에 다시 시도해 주세요.');
+      }
       const acc = (await ops.getAccount()) || {};
       const ok = checkSecret(given, { hash: acc.passwordHash, plain: acc.password });
       if (ok === null) throw httpError(503, 'NO_PASSWORD', '운영자 비밀번호가 없어요. Firebase 콘솔 → Firestore에 _ops/account 문서(password 필드)를 만들어 주세요.');
-      if (!ok) throw await fail(ip, 'WRONG_PASSWORD', '비밀번호가 올바르지 않습니다.');
+      if (!ok) {
+        await attempts.recordFail(OPS_LIMIT.key, OPS_LIMIT.windowMs);
+        throw await fail(ip, 'WRONG_PASSWORD', '비밀번호가 올바르지 않습니다.');
+      }
       // 145차: 콘솔에서 글자로 넣은 운영자 비밀번호도 첫 로그인 때 해시로
       if (!(typeof acc.passwordHash === 'string' && acc.passwordHash.startsWith('scrypt$'))) {
         await Promise.resolve(ops.setPasswordHash(hashSecret(given))).catch((e) => console.warn('[운영자] 해시로 바꾸기 실패', e && e.message));
       }
       await attempts.reset(LOGIN_LIMITS[0].key(ip));
+      await attempts.reset(OPS_LIMIT.key);
       return { token: await createToken('ops', { ops: true }) };
     }
 
@@ -670,6 +714,7 @@ function createHandler({
       if (path === '/api/health' && req.method === 'GET') return reply(200, { ok: true });
       if (path === '/api/auth/store-login' && req.method === 'POST') return reply(200, await storeLogin(req));
       if (path === '/api/auth/login' && req.method === 'POST') return reply(200, await webLogin(req));
+      if (path === '/api/auth/stock-login' && req.method === 'POST') return reply(200, await stockLogin(req)); // 148차
       if (path === '/api/store/passwords' && req.method === 'POST') return reply(200, await setPasswords(req));
       if (path === '/api/admin/migrate-legacy' && req.method === 'POST') return reply(200, await migrateLegacy(req));
       if (path === '/api/stores/check-id' && req.method === 'GET') return reply(200, await checkId(req));
@@ -683,6 +728,10 @@ function createHandler({
         return reply(200, await insights.route(req, path, { requireStoreUser, rate }));
       }
       // 83차: 자동 번역 — 관리자 웹이 메뉴·공지·이벤트를 저장한 뒤 부름
+      if (path.startsWith('/api/order/')) {
+        if (!orders) throw httpError(503, 'NO_ORDERS', '주문 서버가 연결되지 않았어요.');
+        return reply(200, await orders.route(req, path, { requireStoreUser, rate }));
+      }
       if (path.startsWith('/api/translate/')) {
         if (!translate) throw httpError(503, 'NO_TRANSLATE', '자동 번역이 서버에 연결되지 않았어요.');
         return reply(200, await translate.route(req, path, { requireAdmin, rate }));

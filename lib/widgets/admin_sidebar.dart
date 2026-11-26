@@ -8,10 +8,13 @@ import 'package:boardpad/screens/admin_home_layout_screen.dart';
 import 'package:boardpad/screens/admin_store_settings_screen.dart';
 import 'package:boardpad/screens/admin_room_board_screen.dart';
 import 'package:boardpad/screens/admin_translation_screen.dart';
+import 'package:boardpad/screens/admin_stock_screen.dart';
 import 'package:boardpad/services/admin_session.dart';
+import 'package:boardpad/services/store_features.dart';
 
 /// currentScreen: 'menu' | 'game' | 'event' | 'notice' | 'home' | 'store' | 'rooms' | 'translate'(120차 번역 관리)
 /// 112차: 'rooms'(방 현황판)는 사이드바가 직접 엶(AdminSidebar.go) — (룰 영상 통계는 운영자 페이지로 옮김)
+/// 148차: 'stock'(재고관리) — 재고관리를 신청한 매장(features.stock)만 보임(_StockGate)
 /// 예전 화면들의 onNavigate 목록을 고치지 않아도 되게. 새 화면은 onNavigate에 AdminSidebar.go를 넘김
 class AdminSidebar extends StatelessWidget {
   final String currentScreen;
@@ -19,7 +22,7 @@ class AdminSidebar extends StatelessWidget {
 
   const AdminSidebar({super.key, required this.currentScreen, required this.onNavigate});
 
-  static const _selfOpened = {'rooms', 'translate'};
+  static const _selfOpened = {'rooms', 'translate', 'stock'};
 
   /// 관리자 웹 화면 바꾸기 (애니메이션 없이 바꿔 끼움)
   static void go(BuildContext context, String screen) {
@@ -32,6 +35,7 @@ class AdminSidebar extends StatelessWidget {
       'store' => const AdminStoreSettingsScreen(),
       'rooms' => const AdminRoomBoardScreen(),
       'translate' => const AdminTranslationScreen(),
+      'stock' => const AdminStockScreen(),
       _ => null,
     };
     if (target == null) return;
@@ -81,6 +85,7 @@ class AdminSidebar extends StatelessWidget {
               _buildItem(Icons.translate_rounded, '번역 관리', 'translate'),
               const Divider(color: Colors.white24),
               _buildItem(Icons.meeting_room_outlined, '방 현황판', 'rooms'),
+              _StockGate(child: _buildItem(Icons.inventory_2_outlined, '재고관리', 'stock')),
               ],
             ),
           ),
@@ -154,6 +159,7 @@ class AdminSidebar extends StatelessWidget {
                   item(Icons.translate_rounded, '번역 관리', 'translate'),
                   const Divider(color: Colors.white24, height: 1),
                   item(Icons.meeting_room_outlined, '방 현황판', 'rooms'),
+                  _StockGate(child: item(Icons.inventory_2_outlined, '재고관리', 'stock')),
                       ],
                 ),
               ),
@@ -185,4 +191,25 @@ class AdminSidebar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 148차: 재고관리를 신청한 매장(stores/{매장}.features.stock — 운영자가 켬)만 사이드바 줄을 보임
+/// 구독은 State에서 한 번만(100차 규칙), 처음엔 마지막으로 받은 값(StoreFeaturesService.last)으로 그려 깜빡임 없게
+class _StockGate extends StatefulWidget {
+  final Widget child;
+  const _StockGate({required this.child});
+
+  @override
+  State<_StockGate> createState() => _StockGateState();
+}
+
+class _StockGateState extends State<_StockGate> {
+  late final Stream<StoreFeatures> _features = StoreFeaturesService.watch();
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<StoreFeatures>(
+        stream: _features,
+        initialData: StoreFeaturesService.last,
+        builder: (context, snap) => (snap.data?.stock ?? false) ? widget.child : const SizedBox.shrink(),
+      );
 }

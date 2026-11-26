@@ -7,7 +7,7 @@
          태블릿 설정에서 고도리의 '다른 앱 위에 표시'를 켜 두면 자동 실행이 됨 (또는 고도리를 기본 홈 앱으로) -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <application
-        android:label="고도리"
+        android:label="${appLabel}"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
