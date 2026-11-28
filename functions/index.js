@@ -51,6 +51,12 @@ const TOSS_WEBHOOK_SECRET = TOSS_ENABLED ? defineSecret('TOSS_WEBHOOK_SECRET') :
 // 월 50만 자 무료. ★서비스가 커지면 Claude 번역으로 바꿀 후보 (프로젝트 문서 claude/고도리-서비스-커지면-바꿀-것.md)
 const TRANSLATE_ENABLED = true;
 
+// ── 월 정액권 앱 게임 연동 (149차, src/p6-sync.js) ──
+// 관리자 웹 [정액권 앱과 맞추기] 버튼은 비밀값 없이 됨. 정액권 앱 서버가 보내는 '게임 바뀜' 신호(/api/p6/hook)는
+// 두 앱이 나눠 가진 비밀값으로 서명 확인 — 고도리 폴더 "정액권 앱 연동 비밀값 등록.ps1"로 P6_HOOK_SECRET 을 먼저 등록해야 배포됨.
+const P6_HOOK_ENABLED = true;
+const P6_HOOK_SECRET = P6_HOOK_ENABLED ? defineSecret('P6_HOOK_SECRET') : null;
+
 const REGION = 'asia-northeast3'; // 서울
 
 let db = null;
@@ -85,6 +91,7 @@ function getHandle() {
   const { createFirestoreInsights, createInsightRoutes } = require('./src/insights');
   const { createTranslateRoutes, createGoogleTranslator, createFirestoreTranslateData } = require('./src/translate');
   const { createOrderRoutes, createFirestoreOrders } = require('./src/orders');
+  const { createP6SyncRoutes, createFirestoreP6Data, p6Fetcher } = require('./src/p6-sync');
 
   const db = getDb();
   const storesData = createFirestoreStores(db);
@@ -117,6 +124,17 @@ function getHandle() {
     // 손님 패드 주문 (147차): 가격·이름을 서버가 메뉴 문서로 계산해서 stores/{매장}/orders 에 씀
     orders: createOrderRoutes({
       data: createFirestoreOrders(db),
+      httpError: (status, code, message) => Object.assign(new Error(message), { status, code }),
+    }),
+    // 월 정액권 앱 게임 맞추기 (149차): 관리자 웹 버튼 /api/p6/sync + 정액권 앱 신호 /api/p6/hook
+    p6sync: createP6SyncRoutes({
+      data: createFirestoreP6Data(db, () => {
+        const { getStorage } = require('firebase-admin/storage');
+        return getStorage().bucket();
+      }),
+      fetcher: p6Fetcher,
+      stores: storesData,
+      hookSecret: P6_HOOK_ENABLED ? (P6_HOOK_SECRET.value() || '').trim() : '',
       httpError: (status, code, message) => Object.assign(new Error(message), { status, code }),
     }),
     // 자동 번역 (83차): 관리자 웹이 저장한 뒤 /api/translate/sync
@@ -379,6 +397,7 @@ exports.api = onRequest(
       BGG_APP_TOKEN, BGG_RELAY_SECRET, BGG_APPS_SCRIPT_URL,
       ...(R2_ENABLED ? [R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY] : []),
       ...(TOSS_ENABLED ? [TOSS_ACCESS_KEY, TOSS_SECRET_KEY, TOSS_WEBHOOK_SECRET] : []),
+      ...(P6_HOOK_ENABLED ? [P6_HOOK_SECRET] : []),
     ],
     maxInstances: 3, // 요청 폭주 시 비용 상한
     timeoutSeconds: 120, // BGG 중계가 느릴 때 재시도까지 기다릴 수 있게

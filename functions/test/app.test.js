@@ -400,13 +400,13 @@ test('매장 기능 (59차): 대시보드 끄면 방 0 로그인 막힘, 토스 
   const opsFeat = (body, token = 'ops-token') => h(req('POST', '/api/ops/store-features', { body, token }));
   // 기본값: 대시보드 켜짐, 토스 POS 꺼짐
   const list0 = await h(req('GET', '/api/ops/stores', { token: 'ops-token' }));
-  assert.deepEqual(list0.body.stores[0].features, { adminDashboard: true, tossPos: false, stock: false });
+  assert.deepEqual(list0.body.stores[0].features, { adminDashboard: true, tossPos: false, stock: false, p6Sync: false });
   assert.equal((await padLogin(h, { password: 'pad-pass', room: 0 })).body.needPin, true);
 
   // 사장님: 대시보드 끄기
   const off = await feat({ adminDashboard: false });
   assert.equal(off.status, 200);
-  assert.deepEqual(off.body.features, { adminDashboard: false, tossPos: false, stock: false });
+  assert.deepEqual(off.body.features, { adminDashboard: false, tossPos: false, stock: false, p6Sync: false });
   const blocked = await padLogin(h, { password: 'pad-pass', room: 0, pin: '123456' }, '2.2.2.2');
   assert.equal(blocked.status, 403);
   assert.equal(blocked.body.error, 'DASHBOARD_OFF');
@@ -428,11 +428,11 @@ test('매장 기능 (59차): 대시보드 끄면 방 0 로그인 막힘, 토스 
   assert.equal((await opsFeat({ storeId: 'platform6', tossPos: true }, 'admin-token')).status, 403);
   const on = await opsFeat({ storeId: 'platform6', tossPos: true, adminDashboard: true });
   assert.equal(on.status, 200);
-  assert.deepEqual(on.body.features, { adminDashboard: true, tossPos: true, stock: false });
+  assert.deepEqual(on.body.features, { adminDashboard: true, tossPos: true, stock: false, p6Sync: false });
   assert.equal((await opsFeat({ storeId: 'no-such-store', tossPos: true })).status, 404);
   assert.equal((await padLogin(h, { password: 'pad-pass', room: 0 }, '2.2.2.4')).body.needPin, true);
   const list1 = await h(req('GET', '/api/ops/stores', { token: 'ops-token' }));
-  assert.deepEqual(list1.body.stores[0].features, { adminDashboard: true, tossPos: true, stock: false });
+  assert.deepEqual(list1.body.stores[0].features, { adminDashboard: true, tossPos: true, stock: false, p6Sync: false });
 });
 test('비밀번호 해시 확인', () => {
   const hash = hashSecret('abcd');

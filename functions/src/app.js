@@ -145,10 +145,11 @@ function clientIp(headers) {
 // translate:        자동 번역 API (src/translate.js createTranslateRoutes, 83차). 없으면 /api/translate/* 는 503
 // deleteStoreFiles: async (storeId, r2Keys) => 매장 통째로 지울 때 사진(Storage)·룰 영상(R2) 파일 지우기 (132차)
 // orders:           손님 패드 주문 만들기 (src/orders.js createOrderRoutes, 147차). 없으면 /api/order/* 는 503
+// p6sync:           월 정액권 앱 → 고도리 게임 맞추기 (src/p6-sync.js createP6SyncRoutes, 149차). 없으면 /api/p6/* 는 503
 function createHandler({
   bgg, stores, getLegacySecrets = async () => ({}), verifyIdToken, createToken, attempts, video = null,
   ops = null, monitoring = null, revokeStoreTokens = async () => {}, now = () => Date.now(), toss = null, insights = null,
-  translate = null, deleteStoreFiles = async () => ({}), orders = null,
+  translate = null, deleteStoreFiles = async () => ({}), orders = null, p6sync = null,
 }) {
   const limit = createLimiter(now);
 
@@ -731,6 +732,11 @@ function createHandler({
       if (path.startsWith('/api/order/')) {
         if (!orders) throw httpError(503, 'NO_ORDERS', '주문 서버가 연결되지 않았어요.');
         return reply(200, await orders.route(req, path, { requireStoreUser, rate }));
+      }
+      // 149차: 월 정액권 앱 게임 맞추기 — 관리자 웹 버튼(/api/p6/sync) + 정액권 앱 서버 신호(/api/p6/hook, 서명)
+      if (path.startsWith('/api/p6/')) {
+        if (!p6sync) throw httpError(503, 'NO_P6_SYNC', '월 정액권 앱 연동이 서버에 연결되지 않았어요.');
+        return reply(200, await p6sync.route(req, path, { requireAdmin, rate }));
       }
       if (path.startsWith('/api/translate/')) {
         if (!translate) throw httpError(503, 'NO_TRANSLATE', '자동 번역이 서버에 연결되지 않았어요.');

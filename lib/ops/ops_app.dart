@@ -375,7 +375,7 @@ class _StoresTabState extends State<_StoresTab> {
     try {
       final f = await OpsService.setFeatures(id, {key: on});
       s['features'] = f;
-      const labels = {'tossPos': '토스 POS 연동', 'adminDashboard': '패드 관리자 대시보드', 'stock': '재고관리'}; // 148차 재고관리
+      const labels = {'tossPos': '토스 POS 연동', 'adminDashboard': '패드 관리자 대시보드', 'stock': '재고관리', 'p6Sync': '월 정액권 앱 게임 연동'}; // 148차 재고관리 · 149차 정액권 연동
       if (mounted) _toast(context, '$id: ${labels[key] ?? key} ${on ? '켬' : '끔'}');
     } on OpsException catch (e) {
       if (mounted) _toast(context, e.message);
@@ -481,6 +481,7 @@ class _StoresTabState extends State<_StoresTab> {
                     _featureSwitch(s, 'tossPos', '토스 POS 연동', false, busy),
                     _featureSwitch(s, 'adminDashboard', '패드 관리자 대시보드(방 0)', true, busy),
                     _featureSwitch(s, 'stock', '재고관리(신청 매장)', false, busy), // 148차: 관리자 웹 '재고관리' 탭 + 재고 앱
+                    _featureSwitch(s, 'p6Sync', '월 정액권 앱 게임 연동(플랫폼6)', false, busy), // 149차: 보드게임 관리 [정액권 앱과 맞추기] + 정액권 앱 신호
                   ]),
                   if ((s['features'] as Map?)?['tossPos'] == true)
                     OpsTossRow(storeId: id, overview: _toss, onChanged: _loadToss),

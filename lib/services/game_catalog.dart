@@ -16,6 +16,9 @@ import 'usage_meter.dart';
 ///               ② 사장님이 관리자 웹 '보드게임 관리'의 '손님 앱 새로고침'을 누를 때
 ///                  (settings/appRefresh.gamesUpdatedAt이 바뀜 → 패드가 문서 1개만 지켜보다가 알아챔)
 ///   게임을 추가·수정·삭제·숨김해도 ②를 누르기 전(또는 다음 날)까지는 패드에 안 보임.
+///               ③ 149차: 월 정액권 앱이 게임을 바꿨다는 신호(서버가 settings/appRefresh.gamesChangedAt을 바꿈) —
+///                  정액권 앱에서 여러 게임을 연달아 고쳐도 한 번만 받게, 신호가 [_changedQuiet] 동안 멈출 때까지 기다렸다 받음
+///                  (계속 오면 처음 신호부터 [_changedMaxWait] 뒤엔 받음). 패드를 새로 켜면 기다리지 않음.
 /// 공용 룰 영상(92차, shared/ruleVideos)도 같이 1번 읽어서, 매장 영상이 없는 게임에 붙임(ruleVideo + ruleVideoShared).
 ///
 /// 사용: `await GameCatalog.load()` → 게임 목록(각 항목에 '_docId'), 바뀌면 `GameCatalog.revision`이 올라감.
@@ -35,7 +38,14 @@ class GameCatalog {
 
   static String? _watchStore;
   static StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sub;
-  static int? _remoteVersion; // 서버의 gamesUpdatedAt (아직 모르면 null)
+  static int? _remoteVersion; // 서버 버전 = max(gamesUpdatedAt, 적용한 gamesChangedAt) (아직 모르면 null)
+  static int _remoteUpdated = 0; // gamesUpdatedAt(밀리초) — '손님 앱 새로고침'·정액권 [맞추기] → 바로
+  static int? _remoteChanged; // gamesChangedAt(밀리초) — 정액권 앱 신호(149차) → 조용해지면
+  static int _appliedChanged = 0; // 기다림이 끝나 반영한 gamesChangedAt
+  static Timer? _changedTimer;
+  static DateTime? _changedSince; // 기다리기 시작한 때
+  static const _changedQuiet = Duration(minutes: 10);
+  static const _changedMaxWait = Duration(minutes: 30);
   static Completer<void>? _versionReady;
 
   static String _today() {
@@ -77,10 +87,17 @@ class GameCatalog {
     _sub?.cancel();
     _watchStore = store;
     _remoteVersion = null;
+    _remoteUpdated = 0;
+    _remoteChanged = null;
+    _appliedChanged = 0;
+    _changedTimer?.cancel();
+    _changedTimer = null;
+    _changedSince = null;
     _versionReady = Completer<void>();
     _sub = StoreScope.col('settings').doc('appRefresh').snapshots().listen((doc) {
       final ts = doc.data()?['gamesUpdatedAt'];
-      _onVersion(ts is Timestamp ? ts.millisecondsSinceEpoch : 0);
+      final ch = doc.data()?['gamesChangedAt'];
+      _onSnapshot(ts is Timestamp ? ts.millisecondsSinceEpoch : 0, ch is Timestamp ? ch.millisecondsSinceEpoch : 0);
     }, onError: (Object e) {
       debugPrint('게임 목록 새로고침 표시를 못 읽음: $e');
       _sub = null; // 다음 load() 때 다시 지켜봄
@@ -89,6 +106,32 @@ class GameCatalog {
       if (c != null && !c.isCompleted) c.complete();
     }, cancelOnError: true);
   }
+
+  // 149차: gamesUpdatedAt은 바로, gamesChangedAt(정액권 앱 신호)은 조용해질 때까지 기다렸다 반영
+  static void _onSnapshot(int updated, int changed) {
+    _remoteUpdated = updated;
+    final first = _remoteChanged == null;
+    final prev = _remoteChanged;
+    _remoteChanged = changed;
+    if (first) {
+      _appliedChanged = changed; // 켜자마자는 기다리지 않음(저장해 둔 목록이 낡았으면 바로 받음)
+    } else if (changed != prev && changed != _appliedChanged) {
+      final now = DateTime.now();
+      _changedSince ??= now;
+      _changedTimer?.cancel();
+      final waited = now.difference(_changedSince!);
+      final left = _changedMaxWait - waited;
+      _changedTimer = Timer(left < _changedQuiet ? (left.isNegative ? Duration.zero : left) : _changedQuiet, () {
+        _changedTimer = null;
+        _changedSince = null;
+        _appliedChanged = _remoteChanged ?? _appliedChanged;
+        _onVersion(_combined());
+      });
+    }
+    _onVersion(_combined());
+  }
+
+  static int _combined() => _remoteUpdated > _appliedChanged ? _remoteUpdated : _appliedChanged;
 
   static void _onVersion(int v) {
     _remoteVersion = v;

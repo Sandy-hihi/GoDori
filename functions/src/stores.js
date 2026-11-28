@@ -69,7 +69,7 @@ function statusError(status) {
 //   adminDashboard  패드 방 번호 0 관리자 대시보드(주문 현황). 사장님이 관리자 웹 '매장 설정'에서, 운영자도 바꿀 수 있음
 //   tossPos         토스 POS 연동. 운영자 페이지에서만 바꿈 (사장님은 보기만)
 //   stock           재고관리(148차) — 신청한 매장만. 운영자 페이지에서만 켬. 켜지면 관리자 웹 '재고관리' 탭 + 재고 앱 로그인
-const FEATURE_DEFAULTS = { adminDashboard: true, tossPos: false, stock: false };
+const FEATURE_DEFAULTS = { adminDashboard: true, tossPos: false, stock: false, p6Sync: false }; // p6Sync = 월 정액권 앱 게임 연동(149차, 운영자만)
 const OWNER_FEATURES = ['adminDashboard']; // 사장님(관리자)이 직접 바꿀 수 있는 것
 
 function featuresOf(storeData) {
@@ -85,7 +85,7 @@ function cleanFeatures(body, allowed = Object.keys(FEATURE_DEFAULTS)) {
   for (const [k, v] of Object.entries(body || {})) {
     if (k === 'storeId') continue;
     if (!Object.prototype.hasOwnProperty.call(FEATURE_DEFAULTS, k)) throw httpError(400, 'INVALID_FEATURE', `모르는 설정이에요: ${k}`);
-    if (!allowed.includes(k)) throw httpError(403, 'OPS_ONLY', k === 'tossPos' ? '토스 POS 연동은 운영자에게 요청해 주세요.' : k === 'stock' ? '재고관리는 운영자에게 신청해 주세요.' : '운영자만 바꿀 수 있는 설정이에요.');
+    if (!allowed.includes(k)) throw httpError(403, 'OPS_ONLY', k === 'tossPos' ? '토스 POS 연동은 운영자에게 요청해 주세요.' : k === 'stock' ? '재고관리는 운영자에게 신청해 주세요.' : k === 'p6Sync' ? '월 정액권 앱 연동은 운영자에게 요청해 주세요.' : '운영자만 바꿀 수 있는 설정이에요.');
     if (typeof v !== 'boolean') throw httpError(400, 'INVALID_FEATURE', `${k}는 true/false로 보내 주세요.`);
     out[k] = v;
   }

@@ -18,6 +18,8 @@ import 'package:boardpad/widgets/admin_busy_dialog.dart';
 import 'package:boardpad/widgets/admin_colors.dart';
 import 'package:boardpad/widgets/game_admin/game_edit_dialog.dart';
 import 'package:boardpad/widgets/game_admin/game_form.dart';
+import 'package:boardpad/widgets/game_admin/p6_sync_dialog.dart';
+import 'package:boardpad/services/store_features.dart';
 import 'admin_event_manage_screen.dart';
 import 'admin_menu_manage_screen.dart';
 import 'admin_notice_manage_screen.dart';
@@ -51,6 +53,8 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
   static const int _itemsPerPage = 10;
 
   final CollectionReference<Map<String, dynamic>> _gamesRef = StoreScope.col('games');
+  // 149차: 월 정액권 앱 연동(features.p6Sync, 운영자가 켬)인 매장만 [정액권 앱과 맞추기] 버튼 — 구독은 한 번만(100차)
+  late final Stream<StoreFeatures> _features = StoreFeaturesService.watch();
 
   // 목록 필터
   String _searchQuery = '';
@@ -1568,6 +1572,27 @@ class _AdminGameManageScreenState extends State<AdminGameManageScreen> {
                           side: const BorderSide(color: kAdminAccent),
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                         ),
+                      ),
+                      // 149차: 월 정액권 앱 게임을 고도리로 맞추기 (정액권 앱이 원본 — 미리보기 → [맞추기])
+                      StreamBuilder<StoreFeatures>(
+                        stream: _features,
+                        initialData: StoreFeaturesService.last,
+                        builder: (context, snap) {
+                          if (snap.data?.p6Sync != true) return const SizedBox.shrink();
+                          return Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: OutlinedButton.icon(
+                              onPressed: () => showP6SyncDialog(context),
+                              icon: const Icon(Icons.sync, size: 18),
+                              label: const Text('정액권 앱과 맞추기'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: kAdminAccent,
+                                side: const BorderSide(color: kAdminAccent),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                       const SizedBox(width: 8),
                       // 109차: 다른 버튼과 크기·모양이 같게 — 같은 OutlinedButton 모양에 메뉴만 붙임
